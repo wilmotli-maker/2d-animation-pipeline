@@ -2,11 +2,20 @@
   "name": "2d-animation-pipeline",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Local workspace for pipeline tooling. Dependencies (e.g. the Higgsfield CLI) install here, not globally.",
+  "bin": {
+    "pipeline": "bin/pipeline.js"
+  },
   "scripts": {
     "higgsfield": "higgsfield",
     "check-auth": "bash scripts/check-auth.sh",
-    "sanity:free": "bash scripts/sanity-checks/run-free-checks.sh"
+    "sanity:free": "bash scripts/sanity-checks/run-free-checks.sh",
+    "test": "node --test",
+    "pipeline": "node bin/pipeline.js"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
   },
   "devDependencies": {
     "@higgsfield/cli": "^1.1.19"
