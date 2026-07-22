@@ -1,0 +1,7 @@
+.env
+node_modules/
+scripts/sanity-checks/state/
+scripts/sanity-checks/fixtures/*
+!scripts/sanity-checks/fixtures/README.md
+
+.DS_Store
