@@ -60,3 +60,20 @@ test('get returns a normalized job result', async () => {
   assert.equal(res.outputUrl, 'https://x/out.png');
   assert.deepEqual(calls[0].args, ['generate', 'get', 'job_1']);
 });
+
+test('waitFor polls and normalizes the result', async () => {
+  const { exec, calls } = fakeExec({ code: 0, stdout: '{"id":"job_1","status":"completed"}', stderr: '' });
+  const runner = createRunner({ exec });
+  const res = await runner.waitFor('job_1');
+  assert.equal(res.status, 'completed');
+  assert.deepEqual(calls[0].args, ['generate', 'wait', 'job_1']);
+});
+
+test('listModels and getModel issue the right commands', async () => {
+  const { exec, calls } = fakeExec({ code: 0, stdout: 'models...', stderr: '' });
+  const runner = createRunner({ exec });
+  await runner.listModels();
+  await runner.getModel('soul-model');
+  assert.deepEqual(calls[0].args, ['model', 'list']);
+  assert.deepEqual(calls[1].args, ['model', 'get', 'soul-model']);
+});

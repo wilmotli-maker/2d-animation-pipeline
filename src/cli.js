@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { higgsfieldBin } from './config.js';
-import { parseJobId, parseJobResult } from './jobresult.js';
+import { parseJobResult } from './jobresult.js';
 
 export class HiggsfieldError extends Error {
   constructor(message, { code, stdout, stderr } = {}) {
@@ -63,9 +63,7 @@ export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {})
 
   return {
     async generate(model, opts = {}) {
-      const stdout = await run(buildGenerateArgs(model, opts));
-      const id = parseJobId(stdout);
-      return { id, ...parseJobResult(stdout) };
+      return parseJobResult(await run(buildGenerateArgs(model, opts)));
     },
     async get(jobId) {
       return parseJobResult(await run(['generate', 'get', jobId]));
