@@ -30,5 +30,9 @@ notes: "hyperreal stack locked"
 ```
 
 Add or drop keys freely — the pipeline persists whatever object it's given.
-Version history lives in git (the file is committed) and in each shot's
-`shot.yaml` element pins.
+
+`style-lock.yaml` is **user data**, not pipeline tooling — created and customized
+per project (and often per element) by whoever runs the pipeline. It lives under
+`elements/…` with the other generated artifacts, which this infrastructure repo
+gitignores. Whether and how you version your own project data is your choice, not
+something this tool prescribes.

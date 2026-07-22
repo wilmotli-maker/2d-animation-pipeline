@@ -1,5 +1,11 @@
 .env
 node_modules/
+
+# User project data — created by running the pipeline, not part of the tooling.
+# Elements, shots, style-locks, and generated artifacts are the user's, per-project.
+elements/
+shots/
+
 scripts/sanity-checks/state/
 scripts/sanity-checks/fixtures/*
 !scripts/sanity-checks/fixtures/README.md

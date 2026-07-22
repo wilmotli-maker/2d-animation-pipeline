@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { REPO_ROOT } from '../src/config.js';
+import { projectRoot } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 
@@ -23,13 +23,13 @@ function parseFlags(args) {
 async function main() {
   if (cmd === 'element' && sub === 'create') {
     const f = parseFlags(rest);
-    if (!f.type || !f.name) fail('usage: pipeline element create --type <t> --name <n>');
-    const el = await createElement(REPO_ROOT, { type: f.type, name: f.name });
+    if (!f.type || !f.name) fail('usage: pipeline element create --type <t> --name <n> [--root <dir>]');
+    const el = await createElement(projectRoot(f.root), { type: f.type, name: f.name });
     console.log(`created element: ${el.dir}`);
   } else if (cmd === 'shot' && sub === 'create') {
     const f = parseFlags(rest);
-    if (!f.id) fail('usage: pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>]');
-    const shot = await createShot(REPO_ROOT, {
+    if (!f.id) fail('usage: pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]');
+    const shot = await createShot(projectRoot(f.root), {
       shotId: f.id,
       elements: [],
       duration: f.duration ? Number(f.duration) : null,
@@ -39,23 +39,26 @@ async function main() {
     console.log(`created shot: ${shot.dir}`);
   } else if (cmd === 'shot' && sub === 'draft') {
     const f = parseFlags(rest);
-    if (!f.id) fail('usage: pipeline shot draft --id <shotId>');
-    const d = await newDraft(REPO_ROOT, f.id);
+    if (!f.id) fail('usage: pipeline shot draft --id <shotId> [--root <dir>]');
+    const d = await newDraft(projectRoot(f.root), f.id);
     console.log(`created draft ${d.version}: ${d.dir}`);
   } else if (cmd === 'shot' && sub === 'promote') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.output) {
-      fail('usage: pipeline shot promote --id <shotId> --version <n> --output <file>');
+      fail('usage: pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]');
     }
-    const r = await promoteDraft(REPO_ROOT, f.id, Number(f.version), f.output);
+    const r = await promoteDraft(projectRoot(f.root), f.id, Number(f.version), f.output);
     console.log(`promoted to final: ${r.finalPath}`);
   } else {
     fail([
       'usage:',
-      '  pipeline element create --type <characters|props|scenes|other> --name <name>',
-      '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>]',
-      '  pipeline shot draft --id <shotId>',
-      '  pipeline shot promote --id <shotId> --version <n> --output <file>',
+      '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
+      '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
+      '  pipeline shot draft --id <shotId> [--root <dir>]',
+      '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
+      '',
+      'Project data (elements/, shots/) is written under --root, else',
+      '$ANIMATION_PIPELINE_ROOT, else the current directory.',
     ].join('\n'));
   }
 }
