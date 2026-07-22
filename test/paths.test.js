@@ -1,0 +1,33 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as p from '../src/paths.js';
+
+const ROOT = '/tmp/root';
+
+test('formatVersion zero-pads to v###', () => {
+  assert.equal(p.formatVersion(1), 'v001');
+  assert.equal(p.formatVersion(23), 'v023');
+  assert.equal(p.formatVersion(100), 'v100');
+});
+
+test('element paths follow elements/<type>/<name>/...', () => {
+  assert.equal(p.elementDir(ROOT, 'characters', 'cecilia'),
+    '/tmp/root/elements/characters/cecilia');
+  assert.equal(p.styleLockPath(ROOT, 'characters', 'cecilia'),
+    '/tmp/root/elements/characters/cecilia/style-lock.yaml');
+  assert.equal(p.generationsLogPath(ROOT, 'characters', 'cecilia'),
+    '/tmp/root/elements/characters/cecilia/generations.jsonl');
+  assert.equal(p.sheetDir(ROOT, 'characters', 'cecilia', 'turnaround'),
+    '/tmp/root/elements/characters/cecilia/sheets/turnaround');
+});
+
+test('shot paths follow shots/<shotId>/...', () => {
+  assert.equal(p.shotDir(ROOT, 's010_kitchen'),
+    '/tmp/root/shots/s010_kitchen');
+  assert.equal(p.shotYamlPath(ROOT, 's010_kitchen'),
+    '/tmp/root/shots/s010_kitchen/shot.yaml');
+  assert.equal(p.shotDraftDir(ROOT, 's010_kitchen', 2),
+    '/tmp/root/shots/s010_kitchen/drafts/v002');
+  assert.equal(p.shotFinalDir(ROOT, 's010_kitchen'),
+    '/tmp/root/shots/s010_kitchen/final');
+});
