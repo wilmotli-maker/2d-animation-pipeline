@@ -148,6 +148,26 @@ multi-tenant secret-storage problems a hosted version would require.
   workspace) — the CLI's existing browser-based OAuth flow, which persists a session
   locally (exact storage location TBD — see sanity check 1 below). Nothing new to
   build here beyond documenting it and validating it up front.
+- **Login alone is not enough: a billing-workspace context is also required.**
+  `higgsfield generate create ...` exits non-zero (code 4) with "No workspace selected"
+  and hints `workspace set <workspace_id>`. This context **determines whose credits are
+  billed**, so in the shared-codebase model each collaborator establishes their own
+  after logging in — a second, mandatory half of per-user setup. Discovered running
+  sanity check 2.
+  - ⚠️ **Readiness signal not yet pinned down.** On the test account, `workspace list`
+    shows a single unnamed "Private" workspace and `workspace status --json` reports
+    `is_selected: true` for it — *yet generation in that context still failed* with
+    "No workspace selected". So "a workspace is selected" is NOT a reliable predictor
+    that generation will work. The open question: does `generate` need `workspace set`
+    run explicitly (a session/context step distinct from the `is_selected` flag), or
+    does it require a *named/team* workspace that a private-only account lacks?
+  - **Decisive test (pending):** run `higgsfield workspace set <id>` for the private
+    workspace, then re-run `02-exit-codes.sh`. If the valid call then exits 0, the
+    fix is simply "must run `workspace set` explicitly" and the preflight can gate on
+    that having been done. If it still fails, a named workspace is required — which
+    would be a real constraint on the sharing plan worth surfacing early.
+  - Because of this, `check-auth.sh` currently treats workspace status as
+    **informational**, not a pass/fail gate — a false "ready" is worse than none.
 
 **Claude / Claude Code**
 - Two sub-cases depending on how the orchestration layer ends up invoking Claude
@@ -164,13 +184,14 @@ multi-tenant secret-storage problems a hosted version would require.
   repo directory) to `.gitignore`.
 
 **Setup & validation**
-- `scripts/check-auth.sh` — **built.** Confirms the Higgsfield CLI is installed and
-  authenticated (via a free `higgsfield model list` call) and that Claude access is
-  available (`ANTHROPIC_API_KEY` or a logged-in `claude` CLI). Fails fast with a
+- `scripts/check-auth.sh` — **built.** Confirms the Higgsfield CLI is installed,
+  authenticated (via a free `higgsfield model list` call), **reports the billing
+  workspace context** (informational, per the readiness caveat above), and confirms
+  Claude access (`ANTHROPIC_API_KEY` or a logged-in `claude` CLI). Fails fast with a
   specific message per missing piece rather than failing mid-batch. Verified it
   degrades cleanly when the CLI isn't installed yet.
-- `SETUP.md` walking a new collaborator through install → login → preflight check —
-  still to write once `.env`/`.env.example` conventions are finalized.
+- `SETUP.md` walking a new collaborator through install → login → **workspace set** →
+  preflight check — still to write once `.env`/`.env.example` conventions are finalized.
 - This extends sanity check 1 (auth persistence) below: its deliverable should be the
   preflight script itself, not just a manual finding.
 
