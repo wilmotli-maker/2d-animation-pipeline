@@ -154,20 +154,20 @@ multi-tenant secret-storage problems a hosted version would require.
   billed**, so in the shared-codebase model each collaborator establishes their own
   after logging in — a second, mandatory half of per-user setup. Discovered running
   sanity check 2.
-  - ⚠️ **Readiness signal not yet pinned down.** On the test account, `workspace list`
-    shows a single unnamed "Private" workspace and `workspace status --json` reports
-    `is_selected: true` for it — *yet generation in that context still failed* with
-    "No workspace selected". So "a workspace is selected" is NOT a reliable predictor
-    that generation will work. The open question: does `generate` need `workspace set`
-    run explicitly (a session/context step distinct from the `is_selected` flag), or
-    does it require a *named/team* workspace that a private-only account lacks?
-  - **Decisive test (pending):** run `higgsfield workspace set <id>` for the private
-    workspace, then re-run `02-exit-codes.sh`. If the valid call then exits 0, the
-    fix is simply "must run `workspace set` explicitly" and the preflight can gate on
-    that having been done. If it still fails, a named workspace is required — which
-    would be a real constraint on the sharing plan worth surfacing early.
-  - Because of this, `check-auth.sh` currently treats workspace status as
-    **informational**, not a pass/fail gate — a false "ready" is worse than none.
+  - ✅ **RESOLVED (sanity check 2):** `generate` requires `workspace set` to have been
+    run **explicitly at least once** — even for the single default "Private" workspace.
+    After `higgsfield workspace set <id>`, the exit-code test's valid call exited 0.
+    The private-only account works fine; **no named/team workspace is required** — good
+    news for the sharing plan (each collaborator just runs `workspace set` once).
+  - **Why the flag lies:** `workspace set` persists the selection to the local
+    `~/.config/higgsfield/config.json` (which `generate` reads), and this is separate
+    from the server-side `is_selected: true` that `workspace status` reports. Status is
+    byte-for-byte identical before and after `set`, so there is **no readiness signal in
+    `workspace status`** — a status-based preflight gate is impossible.
+  - **Consequence for tooling:** `check-auth.sh` reports workspace context
+    **informationally** (correct — it can't reliably gate), so `workspace set` must be a
+    documented, mandatory step in setup (`SETUP.md`, still to write). A gate could parse
+    `config.json`, but that's an undocumented CLI-internal format — fragile; not worth it.
 
 **Claude / Claude Code**
 - Two sub-cases depending on how the orchestration layer ends up invoking Claude
@@ -200,19 +200,21 @@ without installing anything), this entire section needs to be redesigned — per
 encrypted token storage, a secrets manager, and multi-tenant job isolation would all be
 required. That is explicitly out of scope for the current design.
 
-## Sanity checks to run before building on this (scripts built, none yet executed)
+## Sanity checks to run before building on this (in progress)
 
-Runnable scripts for all 7 checks now exist in `scripts/` — see
-`scripts/sanity-checks/README.md` for cost per script and run order. CLI isn't
-installed on this machine yet, so none have actually been executed; the scripts
-themselves were only syntax-checked and dry-run against the "not installed" path.
+Runnable scripts for all 7 checks exist in `scripts/` — see
+`scripts/sanity-checks/README.md` for cost per script and run order. The CLI is
+installed (`@higgsfield/cli` local to the workspace) and execution is underway;
+status per check is noted inline below.
 
 1. **Auth persistence** — login once, reopen terminal later, confirm no re-prompt.
    README notes tokens are short-lived; find the actual expiry/refresh behavior.
-   Script: `scripts/check-auth.sh` (free). Run once now, then again in a separate
-   sitting later to actually exercise the "reopen terminal" condition.
-2. **Non-interactive exit codes** — run one successful and one deliberately broken
-   `generate create ... --wait`, check `$?` on both. Must be clean for scripting.
+   Script: `scripts/check-auth.sh` (free). ✅ Auth works this session; still worth
+   re-running in a separate sitting to exercise the "reopen terminal" condition.
+2. ✅ **Non-interactive exit codes — PASSED.** Broken call (bogus model) exits
+   non-zero (`4`); valid call exits `0` — reliable for scripting/retry logic. Note:
+   this only holds once a workspace is set (see the workspace resolution above);
+   before that, *both* calls exit `4` with "No workspace selected".
    Script: `scripts/sanity-checks/02-exit-codes.sh` (~1 credit).
 3. **Model schema drift** — run `higgsfield model get <model>` for the 2-3 models
    actually planned for use; diff against MODELS.md examples in the repo (README
@@ -220,8 +222,12 @@ themselves were only syntax-checked and dry-run against the "not installed" path
    Script: `scripts/sanity-checks/03-model-schema.sh` (free).
 4. **Credit accounting** — one cheap generation, check Ultra account credit balance
    before/after, confirm CLI draws from the same pool at the expected rate.
-   Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit; no confirmed
-   CLI balance command yet, falls back to a manual dashboard check).
+   Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit). Note: a
+   balance IS available via `higgsfield workspace status` (`credits` field) — update
+   the script to use it instead of the manual dashboard fallback. ⚠️ Heads-up: after
+   check 2's successful generation the `credits` field still read 2755 (unchanged) —
+   verify whether the balance is cached/eventually-consistent or the test model was
+   free, since that affects how reliably per-run credit usage can be logged.
 5. **File I/O round-trip** — generate with `--start-image` pointing to a local file;
    confirm correct upload (not treated as a bad UUID) and confirm output is
    retrievable via `generate get <job_id>` after process exit.
