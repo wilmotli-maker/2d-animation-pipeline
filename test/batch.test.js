@@ -62,3 +62,18 @@ test('runBatch surfaces a submit that returned no id as an error result', async 
   assert.equal(results[0].status, 'error');
   assert.match(results[0].error, /no job id/i);
 });
+
+test('runBatch does not orphan a job when two submits return the same id', async () => {
+  let gen = 0;
+  const runner = {
+    async generate() { gen += 1; return { id: 'dup', status: 'unknown', outputUrl: null }; },
+    async get(id) { return { id, status: 'completed', outputUrl: `https://cdn/${id}.png` }; },
+  };
+  const results = await runBatch(runner, [
+    { ref: 'a', model: 'm', opts: {} },
+    { ref: 'b', model: 'm', opts: {} },
+  ], { pollIntervalMs: 0 });
+  assert.equal(results.length, 2);
+  assert.ok(results.every((r) => r.status === 'completed'),
+    'both jobs should complete even with a shared id');
+});

@@ -16,6 +16,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Returns one result per request, order preserved:
 //   { ref, id, status, outputUrl, error? }
 export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPolls = 900 } = {}) {
+  // Submission is sequential; each create call has spawn latency but is short
+  // relative to generation time. Parallelize with a concurrency cap later if
+  // large batches make submission time material.
   // 1) Submit everything async (wait:false) — do not block between submits.
   const jobs = [];
   for (const req of requests) {
@@ -28,32 +31,33 @@ export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPol
     }
   }
 
-  // 2) Poll all outstanding jobs together until each is terminal.
-  const pending = new Map(jobs.filter((j) => j.id && j.status === 'submitted').map((j) => [j.id, j]));
+  // 2) Poll all outstanding jobs together until each is terminal. Iterate the
+  // job objects directly (not an id-keyed map) so duplicate ids can't orphan a
+  // job and the timeout sweep covers every still-pending job.
+  const isPending = (j) => j.status === 'submitted';
   let polls = 0;
-  while (pending.size && polls < maxPolls) {
-    for (const [id, job] of [...pending]) {
-      let r;
+  while (jobs.some(isPending) && polls < maxPolls) {
+    for (const job of jobs) {
+      if (!isPending(job)) continue;
       try {
-        r = await runner.get(id);
+        const r = await runner.get(job.id);
+        if (isTerminalStatus(r.status)) {
+          job.status = r.status;
+          job.outputUrl = r.outputUrl || null;
+        }
       } catch (err) {
         job.status = 'error';
         job.error = err.message;
-        pending.delete(id);
-        continue;
-      }
-      if (isTerminalStatus(r.status)) {
-        job.status = r.status;
-        job.outputUrl = r.outputUrl || null;
-        pending.delete(id);
       }
     }
     polls += 1;
-    if (pending.size) await sleep(pollIntervalMs);
+    if (jobs.some(isPending)) await sleep(pollIntervalMs);
   }
-  for (const job of pending.values()) {
-    job.status = 'error';
-    job.error = 'timed out waiting for completion';
+  for (const job of jobs) {
+    if (isPending(job)) {
+      job.status = 'error';
+      job.error = 'timed out waiting for completion';
+    }
   }
   return jobs;
 }
