@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Sanity check 5: file I/O round-trip. Spends ~1 credit.
-# Confirms a local --start-image path is auto-uploaded (not mistaken for a
+# Confirms a local image path (passed via SANITY_IMAGE_FLAG — --image for image
+# models, --start-image for video models) is auto-uploaded (not mistaken for a
 # job UUID) and that the output is retrievable via `generate get` afterwards.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -16,11 +17,11 @@ if [[ ! -f "$SANITY_TEST_IMAGE" ]]; then
   exit 1
 fi
 
-confirm_cost "one generation using --start-image=$SANITY_TEST_IMAGE with model '$SANITY_MODEL'"
+confirm_cost "one generation using $SANITY_IMAGE_FLAG=$SANITY_TEST_IMAGE with model '$SANITY_MODEL'"
 
 out="$STATE_DIR/file-io-job.json"
-info "Submitting generation with local start-image (should auto-upload)..."
-higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT" --start-image "$SANITY_TEST_IMAGE" --wait | tee "$out"
+info "Submitting generation with a local image via $SANITY_IMAGE_FLAG (should auto-upload)..."
+higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT" "$SANITY_IMAGE_FLAG" "$SANITY_TEST_IMAGE" --wait | tee "$out"
 
 job_id="$(extract_job_id "$out")"
 if [[ -z "$job_id" ]]; then

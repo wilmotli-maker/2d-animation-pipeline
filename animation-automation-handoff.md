@@ -231,16 +231,24 @@ status per check is noted inline below.
    Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit) — fixed to use
    the real `account status` / `account transactions` commands (the original stub
    guessed a nonexistent `account balance` and just printed CLI help).
-5. **File I/O round-trip** — generate with `--start-image` pointing to a local file;
-   confirm correct upload (not treated as a bad UUID) and confirm output is
-   retrievable via `generate get <job_id>` after process exit.
+5. **File I/O round-trip** — generate with a local image input; confirm correct
+   upload (not treated as a bad UUID) and that output is retrievable via
+   `generate get <job_id>` after process exit.
    Script: `scripts/sanity-checks/05-file-io-roundtrip.sh` (~1 credit; needs a test
-   image at `scripts/sanity-checks/fixtures/test-image.png`).
+   image at `scripts/sanity-checks/fixtures/test-image.png`). ⚠️ **Design implication
+   found via `model get`:** the image-input flag is **model-dependent** — image models
+   (`nano_banana`, `seedream`, `flux`…) take `--image` / `--image-references`, while
+   video models (`seedance*`, `veo*`, `kling*`) take `--start-image` / `--end-image`.
+   The original script hardcoded `--start-image`, which `nano_banana` rejects; it now
+   uses a configurable `SANITY_IMAGE_FLAG` (default `--image`). **The orchestration
+   layer must consult each model's `model get` schema to build correct args rather than
+   assuming one flag** — this is exactly the "model schema drift" risk check 3 flagged.
 6. **Resumability of long jobs** — start a video job without `--wait`, close the
    terminal, run `higgsfield generate wait <job_id>` later from a fresh shell.
    Confirms jobs are server-side/resumable — important for unattended batch scripts.
    Scripts: `scripts/sanity-checks/06a-start-long-job.sh` then, from a new terminal,
-   `06b-resume-long-job.sh` (~1 credit).
+   `06b-resume-long-job.sh`. Tip: set `SANITY_VIDEO_MODEL=seedance_2_0_mini` to test
+   resumability cheaply rather than the full `seedance_2_0` (22.5 credits/video).
 7. **Concurrency** — fire two `generate create` calls back to back without waiting,
    poll both — confirms whether parallel jobs are allowed or serialized, which
    determines batch throughput design.
