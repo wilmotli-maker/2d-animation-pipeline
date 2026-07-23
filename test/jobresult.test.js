@@ -74,3 +74,10 @@ test('parseJobId falls back to the UUID embedded in a bare result URL', () => {
     'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260723_172855_edb8007a-dfb3-47b0-9fca-f32f6ecf0746.png\n';
   assert.equal(parseJobId(stdout), 'edb8007a-dfb3-47b0-9fca-f32f6ecf0746');
 });
+
+// Real shape verified in sanity check 6: async `create --json` (no --wait)
+// prints a JSON array of job-id strings.
+test('parseJobId handles the real async submission shape (array of ids)', () => {
+  const stdout = JSON.stringify(['db91e9d7-24de-4fd8-85ca-f54d3ef44012']);
+  assert.equal(parseJobId(stdout), 'db91e9d7-24de-4fd8-85ca-f54d3ef44012');
+});
