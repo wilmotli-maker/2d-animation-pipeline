@@ -21,7 +21,7 @@ confirm_cost "one generation using $SANITY_IMAGE_FLAG=$SANITY_TEST_IMAGE with mo
 
 out="$STATE_DIR/file-io-job.json"
 info "Submitting generation with a local image via $SANITY_IMAGE_FLAG (should auto-upload)..."
-higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT" "$SANITY_IMAGE_FLAG" "$SANITY_TEST_IMAGE" --wait | tee "$out"
+higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT" "$SANITY_IMAGE_FLAG" "$SANITY_TEST_IMAGE" --wait --json | tee "$out"
 
 job_id="$(extract_job_id "$out")"
 if [[ -z "$job_id" ]]; then

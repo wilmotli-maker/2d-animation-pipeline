@@ -31,12 +31,13 @@ test('buildGenerateArgs omits --wait when wait is false', () => {
   assert.deepEqual(args, ['generate', 'create', 'm', '--prompt', 'x']);
 });
 
-test('generate returns parsed job id on success', async () => {
+test('generate returns parsed job id on success and requests JSON output', async () => {
   const { exec, calls } = fakeExec({ code: 0, stdout: '{"id":"job_1","status":"queued"}', stderr: '' });
   const runner = createRunner({ exec, bin: 'higgsfield' });
   const res = await runner.generate('m', { prompt: 'x' });
   assert.equal(res.id, 'job_1');
   assert.equal(calls[0].bin, 'higgsfield');
+  assert.equal(calls[0].args.at(-1), '--json');
 });
 
 test('generate throws HiggsfieldError on non-zero exit', async () => {
@@ -58,7 +59,7 @@ test('get returns a normalized job result', async () => {
   const res = await runner.get('job_1');
   assert.equal(res.status, 'completed');
   assert.equal(res.outputUrl, 'https://x/out.png');
-  assert.deepEqual(calls[0].args, ['generate', 'get', 'job_1']);
+  assert.deepEqual(calls[0].args, ['generate', 'get', 'job_1', '--json']);
 });
 
 test('waitFor polls and normalizes the result', async () => {
@@ -66,7 +67,7 @@ test('waitFor polls and normalizes the result', async () => {
   const runner = createRunner({ exec });
   const res = await runner.waitFor('job_1');
   assert.equal(res.status, 'completed');
-  assert.deepEqual(calls[0].args, ['generate', 'wait', 'job_1']);
+  assert.deepEqual(calls[0].args, ['generate', 'wait', 'job_1', '--json']);
 });
 
 test('listModels and getModel issue the right commands', async () => {
@@ -74,6 +75,6 @@ test('listModels and getModel issue the right commands', async () => {
   const runner = createRunner({ exec });
   await runner.listModels();
   await runner.getModel('soul-model');
-  assert.deepEqual(calls[0].args, ['model', 'list']);
-  assert.deepEqual(calls[1].args, ['model', 'get', 'soul-model']);
+  assert.deepEqual(calls[0].args, ['model', 'list', '--json']);
+  assert.deepEqual(calls[1].args, ['model', 'get', 'soul-model', '--json']);
 });

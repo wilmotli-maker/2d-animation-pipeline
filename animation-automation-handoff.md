@@ -231,9 +231,21 @@ status per check is noted inline below.
    Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit) — fixed to use
    the real `account status` / `account transactions` commands (the original stub
    guessed a nonexistent `account balance` and just printed CLI help).
-5. **File I/O round-trip** — generate with a local image input; confirm correct
-   upload (not treated as a bad UUID) and that output is retrievable via
-   `generate get <job_id>` after process exit.
+5. ✅ **File I/O round-trip — PASSED.** A local image passed via `--image` was
+   auto-uploaded (it appears in the job's `params.input_images` with its own media
+   id + URL), and the job is retrievable via `generate get <job_id>` after process
+   exit. **Output-shape findings that corrected the assumption layer:**
+   - Plain `generate create --wait` prints **only the bare result URL** — no JSON;
+     the job id is the UUID embedded in its `hf_<date>_<time>_<uuid>.<ext>` filename.
+   - Plain `generate get` prints a table; `generate get <id> --json` returns clean
+     JSON with top-level `id`, `status`, `result_url` — **not** the `results[0].url`
+     shape previously guessed.
+   - `--json` also exposes `min_result_url`, a **low-res preview** — ideal cheap
+     input for the future Claude critique loop.
+   - Fixes applied: sanity scripts now pass `--json` and `extract_job_id` falls back
+     to the URL-embedded UUID; the JS wrapper appends `--json` to every command and
+     reads `result_url`. Still unverified: the exact `generate create --json`
+     submission shape (checks 6/7 will reveal it).
    Script: `scripts/sanity-checks/05-file-io-roundtrip.sh` (~1 credit; needs a test
    image at `scripts/sanity-checks/fixtures/test-image.png`). ⚠️ **Design implication
    found via `model get`:** the image-input flag is **model-dependent** — image models

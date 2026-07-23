@@ -26,6 +26,10 @@ export function defaultExec(bin, args) {
   });
 }
 
+// NOTE: which flag a given model accepts is MODEL-DEPENDENT (verified via
+// `model get`): image models take --image / --image-references, video models
+// take --start-image / --end-image. Callers must pick the right option key for
+// their model — consult `model get <model>` when in doubt.
 const MEDIA_FLAGS = {
   image: '--image',
   startImage: '--start-image',
@@ -40,7 +44,7 @@ export function buildGenerateArgs(model, opts = {}) {
   const args = ['generate', 'create', model];
   if (opts.prompt != null) args.push('--prompt', String(opts.prompt));
   for (const [key, flag] of Object.entries(MEDIA_FLAGS)) {
-    // ⚠️ ASSUMPTION: a local file path here is auto-uploaded (sanity check 5).
+    // Local file paths are auto-uploaded (verified in sanity check 5).
     if (opts[key] != null) args.push(flag, String(opts[key]));
   }
   if (Array.isArray(opts.extraArgs)) args.push(...opts.extraArgs);
@@ -50,8 +54,10 @@ export function buildGenerateArgs(model, opts = {}) {
 
 export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {}) {
   async function run(args) {
-    const { code, stdout, stderr } = await exec(bin, args);
-    // ⚠️ ASSUMPTION: failure => non-zero exit (sanity check 2).
+    // Global --json flag (verified): every subcommand prints structured JSON
+    // instead of tables/bare URLs, which is what the parsers expect.
+    const { code, stdout, stderr } = await exec(bin, [...args, '--json']);
+    // Failure => non-zero exit (verified in sanity check 2: broken calls exit 4).
     if (code !== 0) {
       throw new HiggsfieldError(
         `higgsfield ${args.join(' ')} failed (exit ${code}): ${stderr.trim()}`,

@@ -1,7 +1,10 @@
-// ⚠️ ASSUMPTION LAYER — verify against real CLI output (sanity check 5).
-// The Higgsfield CLI's exact stdout shape is unconfirmed. Everything the rest
-// of the pipeline believes about that shape is decided *here* and nowhere else.
-// If the real output differs, fix these functions + their test only.
+// ASSUMPTION LAYER — partially VERIFIED against real CLI output (sanity check 5).
+// Confirmed: `generate get <id> --json` returns a single object with top-level
+// `id`, `status`, and `result_url` (plus a `min_result_url` low-res preview).
+// Plain `generate create --wait` prints only the bare result URL, whose
+// `hf_<date>_<time>_<uuid>.<ext>` filename embeds the job id — hence the UUID
+// fallback below. Still unverified: `generate create --json` submission shape.
+// Everything the pipeline believes about CLI stdout is decided *here*.
 
 // Collect every top-level JSON object in stdout, in order. Handles a single
 // (possibly pretty-printed) object AND a stream of one-object-per-line
@@ -31,6 +34,8 @@ function coerceId(v) {
   return null;
 }
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 export function parseJobId(stdout) {
   const objs = parseJsonObjects(stdout);
   // Prefer the LAST object carrying an id — the final result line wins over
@@ -39,9 +44,14 @@ export function parseJobId(stdout) {
     const id = coerceId(objs[i].id);
     if (id != null) return id;
   }
-  // Last resort: a bare quoted "id" anywhere in the text.
+  // A bare quoted "id" anywhere in the text.
   const m = stdout.match(/"id"\s*:\s*"([^"]+)"/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  // Last resort (verified real behavior): plain `create --wait` prints just the
+  // result URL, whose filename embeds the job UUID. Input-media UUIDs can
+  // appear earlier in verbose output, so take the LAST one.
+  const uuids = stdout.match(UUID_RE);
+  return uuids ? uuids[uuids.length - 1] : null;
 }
 
 export function parseJobResult(stdout) {
@@ -49,10 +59,12 @@ export function parseJobResult(stdout) {
   // The authoritative result is the last object that looks like a job payload.
   const obj =
     [...objs].reverse().find(
-      (o) => 'status' in o || 'results' in o || 'url' in o || 'id' in o,
+      (o) => 'status' in o || 'result_url' in o || 'results' in o || 'url' in o || 'id' in o,
     ) || {};
   let outputUrl = null;
-  if (Array.isArray(obj.results) && obj.results[0] && typeof obj.results[0].url === 'string') {
+  if (typeof obj.result_url === 'string') {
+    outputUrl = obj.result_url; // real CLI field (verified via `generate get --json`)
+  } else if (Array.isArray(obj.results) && obj.results[0] && typeof obj.results[0].url === 'string') {
     outputUrl = obj.results[0].url;
   } else if (typeof obj.url === 'string') {
     outputUrl = obj.url;

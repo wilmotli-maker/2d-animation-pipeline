@@ -53,9 +53,16 @@ confirm_cost() {
   esac
 }
 
-# extract_job_id <json-file> — best-effort parse of a top-level "id" field.
-# The exact response shape isn't confirmed yet (see handoff doc); if this
-# fails to find an id, scripts fall back to asking you to read the file.
+# extract_job_id <output-file> — parse the job id from CLI output.
+# Verified shapes (sanity check 5): with --json, output has "id":"<uuid>";
+# plain `create --wait` prints only the result URL, whose
+# hf_<date>_<time>_<uuid>.<ext> filename embeds the job id. Input-media UUIDs
+# can appear earlier in verbose output, so the fallback takes the LAST uuid.
 extract_job_id() {
-  grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/'
+  local id
+  id=$(grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+  if [[ -z "$id" ]]; then
+    id=$(grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$1" 2>/dev/null | tail -1)
+  fi
+  printf '%s' "$id"
 }

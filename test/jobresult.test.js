@@ -51,3 +51,26 @@ test('parseJobResult reads the final result line in streamed output', () => {
   assert.equal(r.status, 'completed');
   assert.equal(r.outputUrl, 'https://x/out.png');
 });
+
+// Real shape verified in sanity check 5: `generate get <id> --json`.
+test('parseJobResult handles the real get --json shape (result_url)', () => {
+  const stdout = JSON.stringify({
+    id: 'edb8007a-dfb3-47b0-9fca-f32f6ecf0746',
+    job_type: 'nano_banana',
+    status: 'completed',
+    result_url: 'https://cdn.example/hf_20260723_172855_edb8007a-dfb3-47b0-9fca-f32f6ecf0746.png',
+  });
+  const r = parseJobResult(stdout);
+  assert.equal(r.id, 'edb8007a-dfb3-47b0-9fca-f32f6ecf0746');
+  assert.equal(r.status, 'completed');
+  assert.equal(r.outputUrl,
+    'https://cdn.example/hf_20260723_172855_edb8007a-dfb3-47b0-9fca-f32f6ecf0746.png');
+});
+
+// Real shape verified in sanity check 5: plain `create --wait` prints only the
+// result URL; the job id is the UUID embedded in its filename.
+test('parseJobId falls back to the UUID embedded in a bare result URL', () => {
+  const stdout =
+    'https://d8j0ntlcm91z4.cloudfront.net/user_x/hf_20260723_172855_edb8007a-dfb3-47b0-9fca-f32f6ecf0746.png\n';
+  assert.equal(parseJobId(stdout), 'edb8007a-dfb3-47b0-9fca-f32f6ecf0746');
+});

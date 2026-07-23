@@ -12,7 +12,7 @@ require_higgsfield_cli
 confirm_cost "one video generation with model '$SANITY_VIDEO_MODEL' (returns immediately, no --wait)"
 
 out="$STATE_DIR/resumability-start.json"
-higgsfield generate create "$SANITY_VIDEO_MODEL" --prompt "$SANITY_PROMPT" | tee "$out"
+higgsfield generate create "$SANITY_VIDEO_MODEL" --prompt "$SANITY_PROMPT" --json | tee "$out"
 
 job_id="$(extract_job_id "$out")"
 if [[ -z "$job_id" ]]; then
