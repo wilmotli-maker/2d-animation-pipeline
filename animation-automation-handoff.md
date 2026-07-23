@@ -270,20 +270,17 @@ input flags and per-model args come from `model get`.
    array form suggests a single create can in principle return multiple job ids.
    Scripts: `scripts/sanity-checks/06a-start-long-job.sh` then, from a new terminal,
    `06b-resume-long-job.sh`.
-7. ✅ **Concurrency — decision-relevant part PASSED; parallelism left open (by
-   design).** Two async `create` submissions returned job ids **~0.6s apart with no
-   blocking** (`created_at` A `17:44:40.78`, B `17:44:41.40`) — firing B did not wait
-   on A. So **the orchestration layer can submit many jobs, then poll/wait on all** —
-   the "submit-all-then-poll" pattern, which is optimal whether or not the backend
-   parallelizes. Whether the backend actually runs them in parallel is **undetermined
-   and does not block design**: the CLI exposes no duration/completion timestamp (only
-   `created_at`), and instant image jobs are too fast to resolve serial-vs-parallel by
-   wall clock. The script was rewritten to (a) drop a false "durations are printed"
-   claim and (b) measure wall-clock phases; to actually measure backend parallelism,
-   re-run with a longer job (`SANITY_MODEL=seedance_2_0_mini ./07-concurrency.sh`) and
-   compare "until B finished" to a single job's time. Optional — a runtime throughput
-   detail to tune empirically, not a prerequisite for the orchestration plan.
-   Script: `scripts/sanity-checks/07-concurrency.sh` (~2 credits).
+7. ✅ **Concurrency — PASSED, and the backend runs jobs IN PARALLEL.** Two async
+   `create` submissions returned job ids ~0.6s apart with no blocking. Measured with
+   two `seedance_2_0_mini` video jobs (~90s each): both finished at **92s wall clock,
+   not ~184s** — conclusive that they executed concurrently, not serialized. So the
+   orchestration layer should **submit a batch async, then poll all outstanding jobs**
+   to get real throughput (not just non-blocking submission). Concurrency ceiling not
+   probed (only 2-way tested); tune empirically if large batches hit a limit. Note:
+   the CLI exposes no per-job duration/completion timestamp (only `created_at`), so
+   wall-clock timing around `generate wait`/`get` is the only progress signal.
+   Script: `scripts/sanity-checks/07-concurrency.sh` (~2 credits; run parallelism
+   measurement via `SANITY_MODEL=seedance_2_0_mini`).
 
 Items 1, 3, and 6 are the most likely to break an unattended batch script if they
 don't behave as documented — prioritize these. Before running any credit-spending
