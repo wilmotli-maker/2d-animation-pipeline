@@ -54,8 +54,9 @@ doc's research (marked there as unverified) — in particular:
 - The JSON field the scripts parse for job ids (`extract_job_id` in `lib.sh`
   looks for a top-level `"id"` key) — adjust if the real response shape
   differs.
-- `higgsfield account balance` in `04-credit-accounting.sh` is a guess; if it's
-  wrong the script falls back to a manual dashboard check.
+- ✅ Check 4 confirmed: credit accounting uses `higgsfield account status --json`
+  (`credits` field) and `account transactions`. Note the `credits` balance is
+  **cached** — the transaction log is the authoritative record of a charge.
 
 If a script's assumption turns out wrong, fix the script in place — that fix
 *is* the sanity check result.
