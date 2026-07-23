@@ -15,9 +15,9 @@ out_a="$STATE_DIR/concurrency-a.json"
 out_b="$STATE_DIR/concurrency-b.json"
 
 info "Firing job A..."
-higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT (A)" | tee "$out_a"
+higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT (A)" --json | tee "$out_a"
 info "Firing job B immediately after, without waiting on A..."
-higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT (B)" | tee "$out_b"
+higgsfield generate create "$SANITY_MODEL" --prompt "$SANITY_PROMPT (B)" --json | tee "$out_b"
 
 job_a="$(extract_job_id "$out_a")"
 job_b="$(extract_job_id "$out_b")"
