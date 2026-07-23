@@ -23,6 +23,23 @@ else
   pass "higgsfield CLI found: $(command -v higgsfield)"
   if higgsfield model list >/dev/null 2>&1; then
     pass "Session looks valid (model list succeeded without prompting to log in)."
+    # Generation requires a billing-workspace context. NOTE: a readable
+    # `workspace status` does NOT by itself prove generation will work — the
+    # unnamed "Private" context reports is_selected:true yet can still make
+    # `generate create` fail with "No workspace selected" (observed in sanity
+    # check 2). Until that readiness signal is pinned down, treat a readable
+    # status as informational and only hard-fail when the status call errors.
+    if ws_status=$(higgsfield workspace status 2>&1); then
+      info "Higgsfield workspace: ${ws_status}"
+      info "If a generation fails with \"No workspace selected\", run:"
+      info "  npm run higgsfield -- workspace list        # find the id"
+      info "  npm run higgsfield -- workspace set <id>"
+    else
+      fail "No billing workspace context — set one before generating."
+      info "  npm run higgsfield -- workspace list"
+      info "  npm run higgsfield -- workspace set <workspace_id>"
+      ok=0
+    fi
   else
     fail "higgsfield is installed but not authenticated (or the session expired)."
     info "Run: npm run higgsfield -- auth login"
