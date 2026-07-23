@@ -220,14 +220,17 @@ status per check is noted inline below.
    actually planned for use; diff against MODELS.md examples in the repo (README
    says the live command is authoritative, not the docs file).
    Script: `scripts/sanity-checks/03-model-schema.sh` (free).
-4. **Credit accounting** — one cheap generation, check Ultra account credit balance
-   before/after, confirm CLI draws from the same pool at the expected rate.
-   Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit). Note: a
-   balance IS available via `higgsfield workspace status` (`credits` field) — update
-   the script to use it instead of the manual dashboard fallback. ⚠️ Heads-up: after
-   check 2's successful generation the `credits` field still read 2755 (unchanged) —
-   verify whether the balance is cached/eventually-consistent or the test model was
-   free, since that affects how reliably per-run credit usage can be logged.
+4. ✅ **Credit accounting — PASSED (with a caveat that shapes the design).**
+   Generation does bill, and `higgsfield account transactions` is the authoritative
+   record. Observed costs: **Nano Banana Pro = 2 credits/image; Seedance 2.0 = 22.5
+   credits/video** (~11× — concretely validates iterating at low res and upscaling
+   only once). ⚠️ The `credits` balance field (`account status` / `workspace status`)
+   is **cached** — it read 2755 both before and after real −2 spends — so it is
+   unreliable for before/after deltas. **For per-run cost logging in the orchestration
+   layer, parse `account transactions`, not the balance field.**
+   Script: `scripts/sanity-checks/04-credit-accounting.sh` (~1 credit) — fixed to use
+   the real `account status` / `account transactions` commands (the original stub
+   guessed a nonexistent `account balance` and just printed CLI help).
 5. **File I/O round-trip** — generate with `--start-image` pointing to a local file;
    confirm correct upload (not treated as a bad UUID) and confirm output is
    retrievable via `generate get <job_id>` after process exit.

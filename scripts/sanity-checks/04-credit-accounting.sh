@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Sanity check 4: credit accounting. Spends ~1 credit.
-#
-# No confirmed CLI command for balance lookup exists yet (not covered in the
-# handoff research) — this script tries a guessed command and otherwise falls
-# back to asking you to check the web dashboard manually before/after.
+# Reads the account credit balance via `higgsfield account status --json`
+# before/after a cheap generation, and prints `account transactions` — the
+# authoritative record of what was actually charged.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./lib.sh
@@ -13,17 +12,19 @@ echo "=== Sanity check 4: credit accounting ==="
 require_higgsfield_cli
 confirm_cost "one cheap generation with model '$SANITY_MODEL'"
 
-echo
-info "Attempting 'higgsfield account balance' (unconfirmed command — ignore if it errors)..."
-if higgsfield account balance 2>/dev/null; then
-  before_via_cli=1
-else
-  warn "No such command (or a different name/shape). Check 'higgsfield --help' and update this script if you find the real one."
-  before_via_cli=0
-fi
+# Extract the numeric "credits" value from `account status --json`.
+account_credits() {
+  higgsfield account status --json 2>/dev/null \
+    | grep -o '"credits"[[:space:]]*:[[:space:]]*[0-9][0-9]*' \
+    | grep -o '[0-9][0-9]*' | head -1
+}
 
-if [[ $before_via_cli -eq 0 ]]; then
-  read -r -p "Note your Ultra credit balance from the dashboard now, then press Enter to continue... " _
+before=$(account_credits)
+if [[ -z "$before" ]]; then
+  warn "Could not parse credits from 'higgsfield account status --json'."
+  warn "Run 'higgsfield account status' manually and note the balance."
+else
+  info "Credits before: $before"
 fi
 
 info "Running the test generation..."
@@ -32,17 +33,28 @@ job_exit=$?
 if [[ $job_exit -eq 0 ]]; then
   pass "Generation succeeded."
 else
-  fail "Generation failed (exit $job_exit) — check the balance anyway, a failed job may or may not have billed."
+  fail "Generation failed (exit $job_exit) — a failed job may or may not have billed."
+fi
+
+after=$(account_credits)
+[[ -n "$after" ]] && info "Credits after:  $after"
+
+if [[ -n "$before" && -n "$after" ]]; then
+  delta=$((before - after))
+  if [[ $delta -gt 0 ]]; then
+    pass "Balance dropped by $delta credit(s) for one generation."
+  elif [[ $delta -eq 0 ]]; then
+    warn "Balance unchanged ($before). Either the balance is cached / eventually"
+    warn "consistent, or this model is free. The transaction log below is decisive."
+  else
+    warn "Balance INCREASED by $((-delta)) — unexpected; investigate."
+  fi
 fi
 
 echo
-if [[ $before_via_cli -eq 1 ]]; then
-  higgsfield account balance 2>/dev/null || true
-  info "Compare the balance above against the 'before' value printed earlier."
-else
-  read -r -p "Check the dashboard balance again. Did it drop by the expected per-generation amount? [y/N] " reply
-  case "$reply" in
-    [yY]*) pass "Credit accounting matches expectations." ;;
-    *) warn "Record the actual before/after numbers in animation-automation-handoff.md." ;;
-  esac
-fi
+info "Most recent credit transactions (authoritative record of the charge):"
+higgsfield account transactions --size 5 2>&1 || warn "Could not list transactions."
+
+echo
+info "Record the observed per-generation credit cost (from the balance delta OR the"
+info "transaction log) in animation-automation-handoff.md — it drives per-run cost logging."
