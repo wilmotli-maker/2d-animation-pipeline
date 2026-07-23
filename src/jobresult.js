@@ -3,7 +3,8 @@
 // `id`, `status`, and `result_url` (plus a `min_result_url` low-res preview).
 // Plain `generate create --wait` prints only the bare result URL, whose
 // `hf_<date>_<time>_<uuid>.<ext>` filename embeds the job id — hence the UUID
-// fallback below. Still unverified: `generate create --json` submission shape.
+// fallback below. Async `generate create --json` (no --wait) prints a JSON
+// ARRAY of job-id strings (verified in sanity check 6).
 // Everything the pipeline believes about CLI stdout is decided *here*.
 
 // Collect every top-level JSON object in stdout, in order. Handles a single
@@ -37,6 +38,14 @@ function coerceId(v) {
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 export function parseJobId(stdout) {
+  // Async submission shape (verified in sanity check 6): `generate create
+  // --json` without --wait prints an array of job-id strings.
+  try {
+    const whole = JSON.parse(stdout.trim());
+    if (Array.isArray(whole) && typeof whole[0] === 'string' && whole[0]) {
+      return whole[0];
+    }
+  } catch {}
   const objs = parseJsonObjects(stdout);
   // Prefer the LAST object carrying an id — the final result line wins over
   // earlier progress lines.

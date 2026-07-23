@@ -244,8 +244,8 @@ status per check is noted inline below.
      input for the future Claude critique loop.
    - Fixes applied: sanity scripts now pass `--json` and `extract_job_id` falls back
      to the URL-embedded UUID; the JS wrapper appends `--json` to every command and
-     reads `result_url`. Still unverified: the exact `generate create --json`
-     submission shape (checks 6/7 will reveal it).
+     reads `result_url`. (The `generate create --json` submission shape was
+     subsequently verified in check 6 — see below.)
    Script: `scripts/sanity-checks/05-file-io-roundtrip.sh` (~1 credit; needs a test
    image at `scripts/sanity-checks/fixtures/test-image.png`). ⚠️ **Design implication
    found via `model get`:** the image-input flag is **model-dependent** — image models
@@ -255,12 +255,16 @@ status per check is noted inline below.
    uses a configurable `SANITY_IMAGE_FLAG` (default `--image`). **The orchestration
    layer must consult each model's `model get` schema to build correct args rather than
    assuming one flag** — this is exactly the "model schema drift" risk check 3 flagged.
-6. **Resumability of long jobs** — start a video job without `--wait`, close the
-   terminal, run `higgsfield generate wait <job_id>` later from a fresh shell.
-   Confirms jobs are server-side/resumable — important for unattended batch scripts.
+6. ✅ **Resumability of long jobs — PASSED.** A `seedance_2_0_mini` video job was
+   submitted async (no `--wait`), the terminal closed, and `generate wait <job_id>`
+   from a brand-new shell resumed and completed it (mp4 URL returned). Jobs are
+   **server-side and resumable** — unattended batch scripts are viable.
+   **Also verified here:** the async `generate create --json` submission shape is a
+   **JSON array of job-id strings** (e.g. `["db91e9d7-…"]`), not an object — the
+   parsers (`jobresult.js`, `extract_job_id`) handle this shape explicitly now. The
+   array form suggests a single create can in principle return multiple job ids.
    Scripts: `scripts/sanity-checks/06a-start-long-job.sh` then, from a new terminal,
-   `06b-resume-long-job.sh`. Tip: set `SANITY_VIDEO_MODEL=seedance_2_0_mini` to test
-   resumability cheaply rather than the full `seedance_2_0` (22.5 credits/video).
+   `06b-resume-long-job.sh`.
 7. **Concurrency** — fire two `generate create` calls back to back without waiting,
    poll both — confirms whether parallel jobs are allowed or serialized, which
    determines batch throughput design.
