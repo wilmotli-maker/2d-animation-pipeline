@@ -200,12 +200,17 @@ without installing anything), this entire section needs to be redesigned — per
 encrypted token storage, a secrets manager, and multi-tenant job isolation would all be
 required. That is explicitly out of scope for the current design.
 
-## Sanity checks to run before building on this (in progress)
+## Sanity checks to run before building on this (ALL RUN ✅)
 
-Runnable scripts for all 7 checks exist in `scripts/` — see
-`scripts/sanity-checks/README.md` for cost per script and run order. The CLI is
-installed (`@higgsfield/cli` local to the workspace) and execution is underway;
-status per check is noted inline below.
+All 7 checks have now been executed against the real CLI — see per-check status
+inline below (`scripts/sanity-checks/README.md` has cost/run order). Net result:
+every assumption the CLI wrapper was built on is now **verified or corrected**, so
+the orchestration follow-up plan can be written on solid ground. Key confirmed
+facts: auth + workspace-set required per user; failures exit non-zero; jobs are
+server-side/resumable; async submit is non-blocking; cost is per `account
+transactions` (image 2 / video 22.5 credits); output parsing handles the real
+shapes (bare URL with embedded UUID, `get --json` `result_url`, async id array);
+input flags and per-model args come from `model get`.
 
 1. **Auth persistence** — login once, reopen terminal later, confirm no re-prompt.
    README notes tokens are short-lived; find the actual expiry/refresh behavior.
@@ -265,9 +270,19 @@ status per check is noted inline below.
    array form suggests a single create can in principle return multiple job ids.
    Scripts: `scripts/sanity-checks/06a-start-long-job.sh` then, from a new terminal,
    `06b-resume-long-job.sh`.
-7. **Concurrency** — fire two `generate create` calls back to back without waiting,
-   poll both — confirms whether parallel jobs are allowed or serialized, which
-   determines batch throughput design.
+7. ✅ **Concurrency — decision-relevant part PASSED; parallelism left open (by
+   design).** Two async `create` submissions returned job ids **~0.6s apart with no
+   blocking** (`created_at` A `17:44:40.78`, B `17:44:41.40`) — firing B did not wait
+   on A. So **the orchestration layer can submit many jobs, then poll/wait on all** —
+   the "submit-all-then-poll" pattern, which is optimal whether or not the backend
+   parallelizes. Whether the backend actually runs them in parallel is **undetermined
+   and does not block design**: the CLI exposes no duration/completion timestamp (only
+   `created_at`), and instant image jobs are too fast to resolve serial-vs-parallel by
+   wall clock. The script was rewritten to (a) drop a false "durations are printed"
+   claim and (b) measure wall-clock phases; to actually measure backend parallelism,
+   re-run with a longer job (`SANITY_MODEL=seedance_2_0_mini ./07-concurrency.sh`) and
+   compare "until B finished" to a single job's time. Optional — a runtime throughput
+   detail to tune empirically, not a prerequisite for the orchestration plan.
    Script: `scripts/sanity-checks/07-concurrency.sh` (~2 credits).
 
 Items 1, 3, and 6 are the most likely to break an unattended batch script if they
