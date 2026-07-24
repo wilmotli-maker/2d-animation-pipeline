@@ -54,6 +54,41 @@ test('generateElementSheet saves output under sheets/<type>/vNNN and logs it', a
   });
 });
 
+test('generateElementSheet passes reference images through as imageReferences', async () => {
+  await withTemp(async (root) => {
+    await createElement(root, { type: 'characters', name: 'cecilia' });
+    const d = deps();
+    let captured;
+    const runBatch = async (runner, requests) => {
+      captured = requests[0];
+      return d.runBatch(runner, requests);
+    };
+    await generateElementSheet(root, {
+      type: 'characters', name: 'cecilia', sheet: 'pose',
+      model: 'nano_banana', prompt: 'poses',
+      images: ['/ref/drawing.png', '/ref/turnaround.png'],
+    }, { runner: {}, runBatch, downloadTo: d.downloadTo });
+    assert.deepEqual(captured.opts.imageReferences, ['/ref/drawing.png', '/ref/turnaround.png']);
+  });
+});
+
+test('generateElementSheet omits imageReferences when no images are given', async () => {
+  await withTemp(async (root) => {
+    await createElement(root, { type: 'characters', name: 'cecilia' });
+    const d = deps();
+    let captured;
+    const runBatch = async (runner, requests) => {
+      captured = requests[0];
+      return d.runBatch(runner, requests);
+    };
+    await generateElementSheet(root, {
+      type: 'characters', name: 'cecilia', sheet: 'turnaround',
+      model: 'nano_banana', prompt: 'x',
+    }, { runner: {}, runBatch, downloadTo: d.downloadTo });
+    assert.equal('imageReferences' in captured.opts, false);
+  });
+});
+
 test('generateShotDraft saves output into the draft dir', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });

@@ -47,6 +47,11 @@ export function buildGenerateArgs(model, opts = {}) {
     // Local file paths are auto-uploaded (verified in sanity check 5).
     if (opts[key] != null) args.push(flag, String(opts[key]));
   }
+  // Multiple reference images: repeat --image-references (path-or-id each). The
+  // model enforces its own cap (e.g. nano_banana allows 8) and rejects overflow.
+  if (Array.isArray(opts.imageReferences)) {
+    for (const ref of opts.imageReferences) args.push('--image-references', String(ref));
+  }
   if (Array.isArray(opts.extraArgs)) args.push(...opts.extraArgs);
   if (opts.wait) args.push('--wait');
   return args;

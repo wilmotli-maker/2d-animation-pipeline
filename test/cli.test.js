@@ -31,6 +31,18 @@ test('buildGenerateArgs omits --wait when wait is false', () => {
   assert.deepEqual(args, ['generate', 'create', 'm', '--prompt', 'x']);
 });
 
+test('buildGenerateArgs expands imageReferences to repeated --image-references', () => {
+  const args = buildGenerateArgs('nano_banana', {
+    prompt: 'x', imageReferences: ['/a.png', '/b.png'], wait: false,
+  });
+  assert.deepEqual(args, [
+    'generate', 'create', 'nano_banana',
+    '--prompt', 'x',
+    '--image-references', '/a.png',
+    '--image-references', '/b.png',
+  ]);
+});
+
 test('generate returns parsed job id on success and requests JSON output', async () => {
   const { exec, calls } = fakeExec({ code: 0, stdout: '{"id":"job_1","status":"queued"}', stderr: '' });
   const runner = createRunner({ exec, bin: 'higgsfield' });
