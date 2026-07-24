@@ -76,8 +76,12 @@ async function main() {
     if (!f.id || !f.version || !f.model || !f.prompt) {
       fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file> ...] [--root <dir>]');
     }
+    const genVersion = Number(f.version);
+    if (!Number.isInteger(genVersion) || genVersion < 1) {
+      fail('shot generate: --version must be a positive integer');
+    }
     const res = await generateShotDraft(projectRoot(f.root), {
-      shotId: f.id, version: Number(f.version), model: f.model, prompt: f.prompt,
+      shotId: f.id, version: genVersion, model: f.model, prompt: f.prompt,
       images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);

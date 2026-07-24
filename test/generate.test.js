@@ -102,3 +102,42 @@ test('generateShotDraft saves output into the draft dir', async () => {
     assert.ok((await stat(res.outputPath)).isFile());
   });
 });
+
+test('generateElementSheet refuses a nonexistent element (no partial scaffold)', async () => {
+  await withTemp(async (root) => {
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'ghost', sheet: 'turnaround',
+        model: 'nano_banana', prompt: 'x',
+      }, { runner: {}, ...deps() }),
+      /not found/i,
+    );
+    // Nothing was created, so `element create` still works afterward.
+    await createElement(root, { type: 'characters', name: 'ghost' });
+  });
+});
+
+test('generateElementSheet rejects an unknown sheet type', async () => {
+  await withTemp(async (root) => {
+    await createElement(root, { type: 'characters', name: 'cecilia' });
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'bogus',
+        model: 'nano_banana', prompt: 'x',
+      }, { runner: {}, ...deps() }),
+      /unknown sheet/i,
+    );
+  });
+});
+
+test('generateShotDraft refuses a draft version that was never created', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    await assert.rejects(
+      () => generateShotDraft(root, {
+        shotId: 's1', version: 5, model: 'seedance_2_0_mini', prompt: 'x',
+      }, { runner: {}, ...deps() }),
+      /not found/i,
+    );
+  });
+});

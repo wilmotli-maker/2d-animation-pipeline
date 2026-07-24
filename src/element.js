@@ -5,7 +5,7 @@ import { ELEMENT_TYPES } from './config.js';
 import { elementDir, elementInputsDir, styleLockPath, generationsLogPath, sheetDir } from './paths.js';
 
 const INPUT_SUBDIRS = ['reference-images', 'reference-videos', 'speech-samples'];
-const SHEET_TYPES = ['turnaround', 'pose', 'cycles'];
+export const SHEET_TYPES = ['turnaround', 'pose', 'cycles'];
 
 async function exists(p) {
   try {
