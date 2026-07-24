@@ -24,9 +24,10 @@ function extFromUrl(url, fallback) {
 export async function generateElementSheet(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
 } = {}) {
-  const { type, name, sheet, model, prompt, mediaFlag, mediaPath } = spec;
+  const { type, name, sheet, model, prompt, images } = spec;
   const opts = { prompt };
-  if (mediaFlag && mediaPath) opts[mediaFlag] = mediaPath; // e.g. image: '/path'
+  // Reference images (local paths auto-upload; prior job UUIDs also accepted).
+  if (Array.isArray(images) && images.length) opts.imageReferences = images;
 
   const [result] = await runBatch(runner, [{ ref: `${name}/${sheet}`, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
@@ -50,9 +51,9 @@ export async function generateElementSheet(root, spec, {
 export async function generateShotDraft(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
 } = {}) {
-  const { shotId, version, model, prompt, mediaFlag, mediaPath } = spec;
+  const { shotId, version, model, prompt, images } = spec;
   const opts = { prompt };
-  if (mediaFlag && mediaPath) opts[mediaFlag] = mediaPath;
+  if (Array.isArray(images) && images.length) opts.imageReferences = images;
 
   const [result] = await runBatch(runner, [{ ref: `${shotId}/v${version}`, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {

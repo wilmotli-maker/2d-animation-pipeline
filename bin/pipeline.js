@@ -22,6 +22,16 @@ function parseFlags(args) {
   return out;
 }
 
+// Collect every value for a repeatable flag (e.g. --image a --image b -> [a, b]).
+function collectFlag(args, key) {
+  const flag = `--${key}`;
+  const vals = [];
+  for (let i = 0; i < args.length; i += 2) {
+    if (args[i] === flag && args[i + 1] != null) vals.push(args[i + 1]);
+  }
+  return vals;
+}
+
 async function main() {
   if (cmd === 'element' && sub === 'create') {
     const f = parseFlags(rest);
@@ -54,21 +64,21 @@ async function main() {
   } else if (cmd === 'element' && sub === 'sheet') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.model || !f.prompt) {
-      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file>] [--root <dir>]');
+      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file> ...] [--root <dir>]');
     }
     const res = await generateElementSheet(projectRoot(f.root), {
       type: f.type, name: f.name, sheet: f.sheet, model: f.model, prompt: f.prompt,
-      mediaFlag: f.image ? 'image' : undefined, mediaPath: f.image,
+      images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved ${res.version}: ${res.outputPath}`);
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model || !f.prompt) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file>] [--root <dir>]');
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file> ...] [--root <dir>]');
     }
     const res = await generateShotDraft(projectRoot(f.root), {
       shotId: f.id, version: Number(f.version), model: f.model, prompt: f.prompt,
-      mediaFlag: f.image ? 'image' : undefined, mediaPath: f.image,
+      images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
   } else {
@@ -78,9 +88,11 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
-      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file>]',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file>]',
+      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file> ...]',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file> ...]',
       '',
+      '--image is repeatable: pass it multiple times to send several reference',
+      'images (e.g. the original drawing plus a generated turnaround).',
       'Project data (elements/, shots/) is written under --root, else',
       '$ANIMATION_PIPELINE_ROOT, else the current directory.',
     ].join('\n'));
