@@ -1,15 +1,27 @@
 #!/usr/bin/env node
+import path from 'node:path';
 import { projectRoot } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
+import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
 function fail(msg) {
   console.error(msg);
   process.exit(1);
+}
+
+// Print a ✓/⚠/✗ checklist and return true if there are no failures.
+function printChecklist(result) {
+  const mark = { pass: '✓', warn: '⚠', fail: '✗' };
+  for (const c of result.checks) {
+    console.log(`  ${mark[c.status] || '?'} ${c.label}${c.detail ? ` — ${c.detail}` : ''}`);
+  }
+  console.log(result.ok ? 'OK — inputs are valid.' : 'FAILED — fix the ✗ items above.');
+  return result.ok;
 }
 
 // Minimal --key value parser for the leaf commands below.
@@ -85,6 +97,26 @@ async function main() {
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
+  } else if (cmd === 'verify' && sub === 'element') {
+    const f = parseFlags(rest);
+    if (!f.type || !f.name || !f.sheet || !f.id) {
+      fail('usage: pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
+    }
+    const result = await validateElementSheet(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet, id: f.id,
+      prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
+    });
+    if (!printChecklist(result)) process.exit(1);
+  } else if (cmd === 'verify' && sub === 'shot') {
+    const f = parseFlags(rest);
+    if (!f.id || !f.version) {
+      fail('usage: pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
+    }
+    const result = await validateShotGenerate(projectRoot(f.root), {
+      shotId: f.id, version: Number(f.version),
+      prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
+    });
+    if (!printChecklist(result)) process.exit(1);
   } else {
     fail([
       'usage:',
@@ -94,6 +126,8 @@ async function main() {
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '',
       '--image is repeatable: pass it multiple times to send several reference',
       'images (e.g. the original drawing plus a generated turnaround).',
