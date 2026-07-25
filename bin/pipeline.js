@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import path from 'node:path';
 import { projectRoot } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
