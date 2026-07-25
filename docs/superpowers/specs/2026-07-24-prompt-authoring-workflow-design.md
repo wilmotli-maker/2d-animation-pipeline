@@ -111,15 +111,17 @@ elements/<type>/<name>/
 Both commands refuse to spend a generation when the **resolved prompt is missing or
 empty** — the error names the exact file to fill.
 
-`element sheet` additionally refuses when:
-- **`style-lock.yaml` is absent** — error instructs authoring it first;
-  `--allow-no-style-lock` escape hatch for throwaway tests. (This is the guard against
-  the single-figure drift.) This is an element-level check; `shot generate` has no
-  style-lock precondition, since a shot may compose multiple elements.
-- **Slug invalid** — not filesystem-safe (`^[a-z0-9][a-z0-9-]*$`) → clear error.
-  Creating a *new* instance vs. adding a version to an existing one is inferred from
-  whether `sheets/<type>/<slug>/` already exists (no collision error; a new version is
-  simply appended).
+`element sheet` hard-requires and validates (error, no generation):
+- **`--id <slug>`** — required; missing → error. Invalid (not matching
+  `^[a-z0-9][a-z0-9-]*$`) → error. Reusing an existing slug is allowed and simply
+  appends a new version — new-instance vs. new-version is inferred from whether
+  `sheets/<type>/<slug>/` already exists (no collision error).
+
+`element sheet` **warns but proceeds** when:
+- **`style-lock.yaml` is absent** — prints a warning that the locked design is missing
+  (the usual cause of drift, e.g. a single-figure "turnaround"), then generates anyway.
+  No bypass flag needed since it never blocks. `shot generate` has no style-lock check,
+  since a shot may compose multiple elements.
 
 Existing guardrails still apply (element/shot/draft must exist; sheet type valid;
 positive version).
@@ -147,8 +149,18 @@ manual steps:
 8. Show the output; offer to refine + regenerate (new version under the same slug) or
    accept.
 
-The skill is a Claude procedure (not unit-tested); every precondition it relies on is
-enforced by the pipeline and unit-tested.
+**Inputs the skill gathers and confirms before generating** (proposing defaults, never
+assuming silently): element type + name; sheet type; **sheet id (slug)** — proposed from
+the intent, user can override; the rough creative intent; the model; and any reference
+images. It does not proceed to author/generate until these are settled.
+
+**Enforcement is layered.** The skill *gathers* inputs and guides the sequence, but it
+is a Claude procedure (soft). The pipeline is the hard backstop: it independently rejects
+a generation with a missing/invalid `--id`, a nonexistent element, an invalid sheet type,
+or an empty prompt — so the non-negotiable inputs hold even if the skill is skipped or
+Claude errs. Judgment items (a *meaningful* slug, presence of style-lock, choice of
+references) remain the skill's/user's responsibility. The skill itself is not
+unit-tested; every precondition it relies on is enforced by the pipeline and is.
 
 ## `CLAUDE.md` template
 
@@ -186,10 +198,11 @@ Thereafter Claude reads `style-lock.yaml` when composing each sheet prompt.
 ## Testing
 
 Unit tests, injected fakes, zero credits/network:
-- Prompt resolution precedence (`--prompt` > `--prompt-file` > canonical); missing/empty
-  prompt; both-given error.
-- `style-lock` precondition (blocks without it; `--allow-no-style-lock` bypasses).
-- Slug validation (accept/reject cases); new-instance vs. new-version-of-existing.
+- Prompt source: canonical fallback when neither flag given; missing/empty prompt →
+  error; both `--prompt` and `--prompt-file` given → error.
+- `style-lock` absent → warning emitted, generation still proceeds (does not block).
+- `--id` required (missing → error) and slug validation (accept/reject cases);
+  new-instance vs. new-version-of-existing (reused slug appends a version).
 - Per-version prompt snapshot written with exact content; `generations.jsonl` schema.
 - Sheet-instance path builders and within-instance version increment.
 - `pipeline init` scaffolds the dir, `CLAUDE.md`, and the skill; refuses non-empty dir.
