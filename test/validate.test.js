@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createElement, writeStyleLock } from '../src/element.js';
 import { sheetPromptPath } from '../src/paths.js';
-import { SLUG_RE, resolvePrompt, validateElementSheet } from '../src/validate.js';
+import { SLUG_RE, resolvePrompt, validateElementSheet, validateShotGenerate } from '../src/validate.js';
+import { createShot, newDraft } from '../src/shot.js';
 
 async function withTemp(fn) {
   const dir = await mkdtemp(path.join(tmpdir(), 'val-'));
@@ -89,5 +90,23 @@ test('validateElementSheet fails when a referenced image is missing', async () =
     });
     assert.equal(r.ok, false);
     assert.ok(r.checks.some((c) => c.label === 'reference image' && c.status === 'fail'));
+  });
+});
+
+test('validateShotGenerate checks shot + draft existence and the draft prompt', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'shot prompt');
+    const ok = await validateShotGenerate(root, { shotId: 's1', version: 1, images: [] });
+    assert.equal(ok.ok, true);
+    assert.equal(ok.promptText, 'shot prompt');
+
+    const noShot = await validateShotGenerate(root, { shotId: 'nope', version: 1, images: [] });
+    assert.equal(noShot.ok, false);
+    assert.ok(noShot.checks.some((c) => c.label === 'shot exists' && c.status === 'fail'));
+
+    const noDraft = await validateShotGenerate(root, { shotId: 's1', version: 9, images: [] });
+    assert.ok(noDraft.checks.some((c) => c.label === 'draft exists' && c.status === 'fail'));
   });
 });

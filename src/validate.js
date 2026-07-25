@@ -1,8 +1,9 @@
 import { access, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import path from 'node:path';
 import YAML from 'yaml';
 import { SHEET_TYPES } from './element.js';
-import { elementDir, styleLockPath, sheetPromptPath } from './paths.js';
+import { elementDir, styleLockPath, sheetPromptPath, shotDir, shotDraftDir } from './paths.js';
 
 // Filesystem-safe, human-readable sheet-instance slug.
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -65,12 +66,18 @@ export async function validateElementSheet(root, { type, name, sheet, id, prompt
   return { checks, ok, promptText };
 }
 
-// Validate an existing shot draft before generating its output.
-export async function validateShotGenerate(root, { shotId, version, prompt, promptFile, images = [] }, deps = {}) {
+// Validate an existing shot draft before generating its output. Computes the
+// canonical draft prompt path itself and checks shot/draft existence.
+export async function validateShotGenerate(root, { shotId, version, prompt, promptFile, images = [] }) {
   const checks = [];
   const add = (label, status, detail) => checks.push({ label, status, detail });
 
-  const pr = await resolvePrompt({ prompt, promptFile, canonicalPath: deps.canonicalPath });
+  add('shot exists', (await exists(shotDir(root, shotId))) ? 'pass' : 'fail', String(shotId));
+  const draftDir = shotDraftDir(root, shotId, version);
+  add('draft exists', (await exists(draftDir)) ? 'pass' : 'fail', `v${version}`);
+
+  const canonicalPath = path.join(draftDir, 'prompt.md');
+  const pr = await resolvePrompt({ prompt, promptFile, canonicalPath });
   let promptText = null;
   if (pr.error) add('prompt present', 'fail', pr.error);
   else { promptText = pr.text; add('prompt present', 'pass', pr.file ? `from ${pr.file}` : 'inline'); }
