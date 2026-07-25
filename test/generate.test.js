@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createElement } from '../src/element.js';
+import { createElement, writeStyleLock } from '../src/element.js';
 import { createShot, newDraft } from '../src/shot.js';
+import { sheetPromptPath } from '../src/paths.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
 
 async function withTemp(fn) {
@@ -12,132 +13,120 @@ async function withTemp(fn) {
   try { await fn(dir); } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
-// Deps double: batch returns a completed job; download writes a marker file.
 function deps() {
   const downloaded = [];
   return {
     downloaded,
-    runBatch: async (_runner, requests) =>
-      requests.map((r) => ({ ref: r.ref, id: 'job_1', status: 'completed',
-        outputUrl: 'https://cdn/job_1.png' })),
+    runBatch: async (_runner, requests) => {
+      deps._lastRequest = requests[0];
+      return requests.map((r) => ({ ref: r.ref, id: 'job_1', status: 'completed',
+        outputUrl: 'https://cdn/job_1.png' }));
+    },
     downloadTo: async (url, dest) => {
       downloaded.push({ url, dest });
-      const { writeFile, mkdir } = await import('node:fs/promises');
+      const { mkdir, writeFile: wf } = await import('node:fs/promises');
       await mkdir(path.dirname(dest), { recursive: true });
-      await writeFile(dest, 'BYTES');
+      await wf(dest, 'BYTES');
       return dest;
     },
   };
 }
 
-test('generateElementSheet saves output under sheets/<type>/vNNN and logs it', async () => {
+async function seedElement(root, name, sheet, id, promptText = 'a detailed prompt') {
+  const { mkdir } = await import('node:fs/promises');
+  await createElement(root, { type: 'characters', name });
+  await writeStyleLock(root, 'characters', name, { palette: ['#f00'] });
+  const pf = sheetPromptPath(root, 'characters', name, sheet, id);
+  await mkdir(path.dirname(pf), { recursive: true });
+  await writeFile(pf, promptText);
+}
+
+test('generateElementSheet saves output under sheets/<type>/<slug>/vNNN and logs it', async () => {
   await withTemp(async (root) => {
-    await createElement(root, { type: 'characters', name: 'cecilia' });
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
     const d = deps();
     const res = await generateElementSheet(root, {
-      type: 'characters', name: 'cecilia', sheet: 'turnaround',
-      model: 'nano_banana', prompt: 'turnaround of cecilia',
+      type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
     }, { runner: {}, ...d });
 
-    // File landed under the element's sheets/turnaround dir, versioned.
-    assert.match(res.outputPath, /elements\/characters\/cecilia\/sheets\/turnaround\/v001\./);
+    assert.match(res.outputPath, /sheets\/turnaround\/winter\/v001\.png$/);
+    assert.equal(res.sheetId, 'winter');
     assert.ok((await stat(res.outputPath)).isFile());
 
-    // generations.jsonl got an entry with the job id + model + output path.
-    const log = await readFile(
-      path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8');
-    const entry = JSON.parse(log.trim());
-    assert.equal(entry.jobId, 'job_1');
-    assert.equal(entry.model, 'nano_banana');
-    assert.equal(entry.sheet, 'turnaround');
-    assert.ok(entry.output.endsWith(path.basename(res.outputPath)));
+    const snap = path.join(path.dirname(res.outputPath), 'v001.prompt.md');
+    assert.equal(await readFile(snap, 'utf8'), 'a detailed prompt');
+
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.sheetType, 'turnaround');
+    assert.equal(log.sheetId, 'winter');
+    assert.equal(log.version, 'v001');
+    assert.equal(log.jobId, 'job_1');
   });
 });
 
-test('generateElementSheet passes reference images through as imageReferences', async () => {
+test('generateElementSheet versions within an instance (reused slug -> v002)', async () => {
   await withTemp(async (root) => {
-    await createElement(root, { type: 'characters', name: 'cecilia' });
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
     const d = deps();
-    let captured;
-    const runBatch = async (runner, requests) => {
-      captured = requests[0];
-      return d.runBatch(runner, requests);
-    };
-    await generateElementSheet(root, {
-      type: 'characters', name: 'cecilia', sheet: 'pose',
-      model: 'nano_banana', prompt: 'poses',
-      images: ['/ref/drawing.png', '/ref/turnaround.png'],
-    }, { runner: {}, runBatch, downloadTo: d.downloadTo });
-    assert.deepEqual(captured.opts.imageReferences, ['/ref/drawing.png', '/ref/turnaround.png']);
+    const spec = { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana' };
+    const a = await generateElementSheet(root, spec, { runner: {}, ...d });
+    const b = await generateElementSheet(root, spec, { runner: {}, ...d });
+    assert.match(a.outputPath, /winter\/v001\.png$/);
+    assert.match(b.outputPath, /winter\/v002\.png$/);
   });
 });
 
-test('generateElementSheet omits imageReferences when no images are given', async () => {
+test('generateElementSheet resolves the canonical prompt and passes images', async () => {
   await withTemp(async (root) => {
-    await createElement(root, { type: 'characters', name: 'cecilia' });
+    await seedElement(root, 'cecilia', 'pose', 'combat', 'pose prompt');
+    const ref = path.join(root, 'ref.png');
+    await writeFile(ref, 'x');
     const d = deps();
-    let captured;
-    const runBatch = async (runner, requests) => {
-      captured = requests[0];
-      return d.runBatch(runner, requests);
-    };
     await generateElementSheet(root, {
-      type: 'characters', name: 'cecilia', sheet: 'turnaround',
-      model: 'nano_banana', prompt: 'x',
-    }, { runner: {}, runBatch, downloadTo: d.downloadTo });
-    assert.equal('imageReferences' in captured.opts, false);
+      type: 'characters', name: 'cecilia', sheet: 'pose', id: 'combat', model: 'nano_banana',
+      images: [ref],
+    }, { runner: {}, ...d });
+    assert.equal(deps._lastRequest.opts.prompt, 'pose prompt');
+    assert.deepEqual(deps._lastRequest.opts.imageReferences, [ref]);
   });
 });
 
-test('generateShotDraft saves output into the draft dir', async () => {
+test('generateElementSheet throws on a hard failure (missing element)', async () => {
+  await withTemp(async (root) => {
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'ghost', sheet: 'turnaround', id: 'x', model: 'nano_banana',
+        prompt: 'p',
+      }, { runner: {}, ...deps() }),
+      /cannot generate.*element exists/i,
+    );
+  });
+});
+
+test('generateShotDraft reads the draft prompt.md and saves output', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
     const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'shot prompt');
     const d = deps();
     const res = await generateShotDraft(root, {
-      shotId: 's1', version: 1, model: 'seedance_2_0_mini', prompt: 'a shot',
+      shotId: 's1', version: 1, model: 'seedance_2_0_mini',
     }, { runner: {}, ...d });
     assert.equal(path.dirname(res.outputPath), dir);
     assert.match(res.outputPath, /drafts\/v001\/output\./);
-    assert.ok((await stat(res.outputPath)).isFile());
+    assert.equal(deps._lastRequest.opts.prompt, 'shot prompt');
   });
 });
 
-test('generateElementSheet refuses a nonexistent element (no partial scaffold)', async () => {
-  await withTemp(async (root) => {
-    await assert.rejects(
-      () => generateElementSheet(root, {
-        type: 'characters', name: 'ghost', sheet: 'turnaround',
-        model: 'nano_banana', prompt: 'x',
-      }, { runner: {}, ...deps() }),
-      /not found/i,
-    );
-    // Nothing was created, so `element create` still works afterward.
-    await createElement(root, { type: 'characters', name: 'ghost' });
-  });
-});
-
-test('generateElementSheet rejects an unknown sheet type', async () => {
-  await withTemp(async (root) => {
-    await createElement(root, { type: 'characters', name: 'cecilia' });
-    await assert.rejects(
-      () => generateElementSheet(root, {
-        type: 'characters', name: 'cecilia', sheet: 'bogus',
-        model: 'nano_banana', prompt: 'x',
-      }, { runner: {}, ...deps() }),
-      /unknown sheet/i,
-    );
-  });
-});
-
-test('generateShotDraft refuses a draft version that was never created', async () => {
+test('generateShotDraft throws when the draft prompt is empty', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
+    await newDraft(root, 's1');
+    await writeFile(path.join(root, 'shots', 's1', 'drafts', 'v001', 'prompt.md'), '   ');
     await assert.rejects(
-      () => generateShotDraft(root, {
-        shotId: 's1', version: 5, model: 'seedance_2_0_mini', prompt: 'x',
-      }, { runner: {}, ...deps() }),
-      /not found/i,
+      () => generateShotDraft(root, { shotId: 's1', version: 1, model: 'm' }, { runner: {}, ...deps() }),
+      /cannot generate.*empty/i,
     );
   });
 });
