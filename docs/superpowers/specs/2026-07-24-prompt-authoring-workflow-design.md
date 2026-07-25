@@ -126,6 +126,30 @@ empty** — the error names the exact file to fill.
 Existing guardrails still apply (element/shot/draft must exist; sheet type valid;
 positive version).
 
+## Validation & the `verify` command
+
+**Single source of truth.** All precondition/validation logic lives in one module
+(`src/validate.js`). Two entry points call it, so they can never drift:
+- **Generate commands** (`element sheet`, `shot generate`) — hard enforcement at
+  execution; a failed hard check aborts before any API call.
+- **`pipeline verify`** — an authoring-time dry check that runs the same checks (plus
+  authoring-artifact checks), prints a ✓/⚠/✗ checklist, and exits non-zero if any hard
+  check fails. Zero-credit — no API call.
+
+`pipeline verify element --type <t> --name <n> --sheet <sheetType> --id <slug>` reports:
+- ✓/✗ element exists; sheet type valid; slug present and valid
+- ✓/✗ prompt resolved and non-empty (naming the file it read)
+- ⚠ `style-lock.yaml` absent; ✗ present but unparseable
+- ✗ any referenced image path missing on disk
+
+A `pipeline verify shot --id <shotId> --version <n>` variant covers shots (shot/draft
+exist, prompt present and non-empty, referenced images exist).
+
+This is what lets authoring end with **confirmed-valid inputs**: the `element-author`
+skill runs `verify` before handing off, so the user sees a green checklist in Claude
+before switching to generation — and because generation re-runs the same module, a
+green check means generation won't fail on inputs.
+
 ## The `element-author` skill
 
 Shipped in the repo as a template (`templates/skills/element-author/SKILL.md`) and
@@ -144,9 +168,11 @@ manual steps:
 5. Show the prompt; iterate with the user (1–2 rounds).
 6. Write the finalized prompt to the canonical path
    (`sheets/<type>/<slug>/prompt.md`).
-7. Run the generate command (`pipeline element sheet … --id <slug>` reads the canonical
+7. Run `pipeline verify …` and show the ✓/⚠/✗ checklist; resolve any ✗ before
+   proceeding (the authoring-time confidence gate).
+8. Run the generate command (`pipeline element sheet … --id <slug>` reads the canonical
    prompt; pass `--image` references).
-8. Show the output; offer to refine + regenerate (new version under the same slug) or
+9. Show the output; offer to refine + regenerate (new version under the same slug) or
    accept.
 
 **Inputs the skill gathers and confirms before generating** (proposing defaults, never
@@ -181,9 +207,10 @@ Thereafter Claude reads `style-lock.yaml` when composing each sheet prompt.
 ## Code vs. convention
 
 - **Code:** `pipeline init` + templates; the sheet-instance data model (`paths.js`,
-  `generate.js`, `element.js`); `--id` and `--prompt-file` + canonical-default prompt
-  resolution + preconditions on the generate commands; per-version prompt snapshots;
-  `generations.jsonl` schema fields.
+  `generate.js`, `element.js`); a shared validation module (`src/validate.js`) used by
+  both the generate commands and `pipeline verify`; `--id` and `--prompt-file` +
+  canonical-default prompt resolution + preconditions on the generate commands;
+  per-version prompt snapshots; `generations.jsonl` schema fields.
 - **Convention (carried by `CLAUDE.md` + the skill):** the authoring sequence and
   style-lock authoring.
 
@@ -205,6 +232,10 @@ Unit tests, injected fakes, zero credits/network:
   new-instance vs. new-version-of-existing (reused slug appends a version).
 - Per-version prompt snapshot written with exact content; `generations.jsonl` schema.
 - Sheet-instance path builders and within-instance version increment.
+- Shared validator: `verify` and the generate preconditions call the same module and
+  agree (a case that passes `verify` passes generation's checks, and vice versa).
+- `verify` output: ✓/⚠/✗ checklist; exit non-zero on hard failure, zero on warn-only;
+  style-lock-absent shows ⚠ but exits zero; missing referenced image → ✗ + non-zero.
 - `pipeline init` scaffolds the dir, `CLAUDE.md`, and the skill; refuses non-empty dir.
 
 ## Out of scope (future)
