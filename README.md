@@ -29,11 +29,15 @@ shots, style-locks, and generated media — is *your* data: it's written to disk
 Each user runs everything under their own accounts; no credentials are shared.
 
 ```bash
-npm install                              # installs the Higgsfield CLI locally (not globally) + deps
+npm install                              # installs the Higgsfield CLI locally + deps
+npm link                                 # one-time: put `pipeline` on your PATH (symlinks the bin)
 npm run higgsfield -- auth login         # browser OAuth; session persists
 npm run higgsfield -- workspace list     # find your workspace id
 npm run higgsfield -- workspace set <id> # REQUIRED: selects the billing workspace
-npm run check-auth                       # preflight: verifies auth + workspace + Claude access
+npm run check-auth                       # preflight: auth + workspace + Claude access
+
+pipeline init ~/anim/my-project          # scaffold a project folder (CLAUDE.md + skill)
+cd ~/anim/my-project                      # run Claude Code from here so CLAUDE.md auto-loads
 ```
 
 `workspace set` is mandatory — generation fails with "No workspace selected"
@@ -47,11 +51,14 @@ directory. One install can serve many projects — run it from each project's fo
 ## Usage
 
 ```
+pipeline init <dir>
 pipeline element create --type <characters|props|scenes|other> --name <name>
-pipeline element sheet  --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file>]
+pipeline element sheet  --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...]
+pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <file> ...]
 pipeline shot create    --id <shotId> [--duration <s>] [--mode <m>] [--description <d>]
 pipeline shot draft     --id <shotId>
-pipeline shot generate  --id <shotId> --version <n> --model <m> --prompt <p> [--image <file>]
+pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...]
+pipeline verify shot    --id <shotId> --version <n>
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 ```
 
@@ -62,37 +69,25 @@ with `npm run higgsfield -- model get <model>`. List models with
 `npm run higgsfield -- model list` (e.g. `nano_banana` for images,
 `seedance_2_0` / `seedance_2_0_mini` for video).
 
-## Example: a character and a shot
+## Example
+
+The prompt-authoring happens in Claude Code via the **element-author** skill; the pipeline generates and preserves the result.
 
 ```bash
-# 1. Create a character element, then generate a turnaround sheet for it.
-node bin/pipeline.js element create --type characters --name cecilia
-node bin/pipeline.js element sheet \
-  --type characters --name cecilia --sheet turnaround \
-  --model nano_banana \
-  --prompt "flat cartoon character turnaround, front/side/back, plain background"
-# -> saved v001: elements/characters/cecilia/sheets/turnaround/v001.png
-
-# 2. Create a shot and open its first low-res draft.
-node bin/pipeline.js shot create --id s010_kitchen --duration 6 --mode narrative \
-  --description "Cecilia walks into the kitchen"
-node bin/pipeline.js shot draft --id s010_kitchen
-
-# 3. Generate the draft's output (low-res model to save credits).
-node bin/pipeline.js shot generate --id s010_kitchen --version 1 \
-  --model seedance_2_0_mini --prompt "Cecilia walks into a sunlit kitchen"
-# -> saved: shots/s010_kitchen/drafts/v001/output.mp4
-
-# 4. Claude reviews the draft against style-lock.yaml. If it drifts, note it in
-#    the draft's notes.md, open a new draft (shot draft ...), and regenerate.
-#    When a draft is good, promote it to final:
-node bin/pipeline.js shot promote --id s010_kitchen --version 1 \
-  --output shots/s010_kitchen/drafts/v001/output.mp4
-# -> promoted to final: shots/s010_kitchen/final/output.mp4
+# From your project folder (CLAUDE.md auto-loaded):
+pipeline element create --type characters --name cecilia
+cp ~/Downloads/cecilia-drawing.png elements/characters/cecilia/inputs/reference-images/ref.png
 ```
 
-Upscaling `final/` to production resolution is a separate step (not yet a built
-command) — iterate and promote at low resolution first, then upscale the locked shot.
+Then, in Claude Code: *"use element-author to make a turnaround for cecilia from that reference."* The skill authors `style-lock.yaml`, composes the detailed prompt (a real multi-angle turnaround, not a single figure), writes it to `sheets/turnaround/<slug>/prompt.md`, runs `pipeline verify`, and then:
+
+```bash
+pipeline element sheet --type characters --name cecilia --sheet turnaround --id default --model nano_banana \
+  --image elements/characters/cecilia/inputs/reference-images/ref.png
+# -> saved v001: .../sheets/turnaround/default/v001.png
+```
+
+Iterate (new version under the same slug) or start another instance (`--id summer-outfit`). Chain a finished sheet as an `--image` reference for pose sheets. Each render keeps its exact prompt in `vNNN.prompt.md`.
 
 ## Costs
 
