@@ -5,6 +5,7 @@ import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
+import { initProject } from '../src/init.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -116,9 +117,17 @@ async function main() {
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
     });
     if (!printChecklist(result)) process.exit(1);
+  } else if (cmd === 'init') {
+    const target = sub;
+    if (!target) fail('usage: pipeline init <dir>');
+    const res = await initProject(target);
+    console.log(`initialized project: ${res.dir}`);
+    for (const file of res.files) console.log(`  + ${file}`);
+    console.log('next: cd into it, run `claude`, then use the element-author skill.');
   } else {
     fail([
       'usage:',
+      '  pipeline init <dir>                        # scaffold a new project folder',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
