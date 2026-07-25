@@ -19,6 +19,12 @@ export function generationsLogPath(root, type, name) {
 export function sheetDir(root, type, name, sheetType) {
   return path.join(elementDir(root, type, name), 'sheets', sheetType);
 }
+export function sheetInstanceDir(root, type, name, sheetType, slug) {
+  return path.join(sheetDir(root, type, name, sheetType), slug);
+}
+export function sheetPromptPath(root, type, name, sheetType, slug) {
+  return path.join(sheetInstanceDir(root, type, name, sheetType, slug), 'prompt.md');
+}
 
 export function shotDir(root, shotId) {
   return path.join(root, 'shots', shotId);

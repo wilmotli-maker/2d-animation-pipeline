@@ -21,6 +21,16 @@ test('element paths follow elements/<type>/<name>/...', () => {
     '/tmp/root/elements/characters/cecilia/sheets/turnaround');
 });
 
+test('sheetInstanceDir nests a slug under the sheet type', () => {
+  assert.equal(p.sheetInstanceDir(ROOT, 'characters', 'cecilia', 'turnaround', 'winter-outfit'),
+    '/tmp/root/elements/characters/cecilia/sheets/turnaround/winter-outfit');
+});
+
+test('sheetPromptPath is the canonical prompt.md inside the instance', () => {
+  assert.equal(p.sheetPromptPath(ROOT, 'characters', 'cecilia', 'turnaround', 'winter-outfit'),
+    '/tmp/root/elements/characters/cecilia/sheets/turnaround/winter-outfit/prompt.md');
+});
+
 test('shot paths follow shots/<shotId>/...', () => {
   assert.equal(p.shotDir(ROOT, 's010_kitchen'),
     '/tmp/root/shots/s010_kitchen');
