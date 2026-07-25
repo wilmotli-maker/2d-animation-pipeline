@@ -63,26 +63,26 @@ async function main() {
     console.log(`promoted to final: ${r.finalPath}`);
   } else if (cmd === 'element' && sub === 'sheet') {
     const f = parseFlags(rest);
-    if (!f.type || !f.name || !f.sheet || !f.model || !f.prompt) {
-      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file> ...] [--root <dir>]');
+    if (!f.type || !f.name || !f.sheet || !f.id || !f.model) {
+      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
     }
     const res = await generateElementSheet(projectRoot(f.root), {
-      type: f.type, name: f.name, sheet: f.sheet, model: f.model, prompt: f.prompt,
-      images: collectFlag(rest, 'image'),
+      type: f.type, name: f.name, sheet: f.sheet, id: f.id, model: f.model,
+      prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved ${res.version}: ${res.outputPath}`);
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
-    if (!f.id || !f.version || !f.model || !f.prompt) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file> ...] [--root <dir>]');
+    if (!f.id || !f.version || !f.model) {
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
     }
     const genVersion = Number(f.version);
     if (!Number.isInteger(genVersion) || genVersion < 1) {
       fail('shot generate: --version must be a positive integer');
     }
     const res = await generateShotDraft(projectRoot(f.root), {
-      shotId: f.id, version: genVersion, model: f.model, prompt: f.prompt,
-      images: collectFlag(rest, 'image'),
+      shotId: f.id, version: genVersion, model: f.model,
+      prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
   } else {
@@ -92,8 +92,8 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
-      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --model <m> --prompt <p> [--image <file> ...]',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> --prompt <p> [--image <file> ...]',
+      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '',
       '--image is repeatable: pass it multiple times to send several reference',
       'images (e.g. the original drawing plus a generated turnaround).',
