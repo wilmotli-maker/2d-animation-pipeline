@@ -63,11 +63,8 @@ export async function generateShotDraft(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
 } = {}) {
   const { shotId, version, model, prompt, promptFile, images = [] } = spec;
-  const dir = shotDraftDir(root, shotId, version);
-  const canonicalPath = path.join(dir, 'prompt.md');
 
-  const v = await validateShotGenerate(root, { shotId, version, prompt, promptFile, images },
-    { canonicalPath });
+  const v = await validateShotGenerate(root, { shotId, version, prompt, promptFile, images });
   enforce(v, `shot ${shotId} v${version}`);
 
   const opts = { prompt: v.promptText };
@@ -78,6 +75,7 @@ export async function generateShotDraft(root, spec, {
     throw new Error(`shot draft ${shotId} v${version} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
   }
 
+  const dir = shotDraftDir(root, shotId, version);
   const outputPath = path.join(dir, `output${extFromUrl(result.outputUrl, '.mp4')}`);
   await downloadTo(result.outputUrl, outputPath);
   return { outputPath, jobId: result.id };

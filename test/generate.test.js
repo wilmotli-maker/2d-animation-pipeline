@@ -130,3 +130,13 @@ test('generateShotDraft throws when the draft prompt is empty', async () => {
     );
   });
 });
+
+test('generateShotDraft throws when the draft does not exist', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    await assert.rejects(
+      () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, { runner: {}, ...deps() }),
+      /cannot generate.*draft exists/i,
+    );
+  });
+});
