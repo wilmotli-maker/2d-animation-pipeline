@@ -6,20 +6,36 @@ description: Author a detailed Higgsfield prompt for an element sheet (character
 # Element Author
 
 Turn a rough creative intent into a validated, generation-ready element sheet.
-Follow the steps in order; do not skip the verify step.
+Follow the steps in order; do not skip the verify step. (The `build-element` skill
+calls this once per sheet when onboarding an element from a reference.)
 
 ## Inputs to gather and confirm (propose defaults, never assume silently)
 
 - Element type + name (e.g. `characters` / `cecilia`). The element must already
   exist — if not, run `pipeline element create --type <t> --name <n>` first.
-- Sheet type: `turnaround` | `pose` | `cycles`.
+- Sheet type: `turnaround` | `pose` | `cycles` (see *Sheet types* for what each needs).
 - Sheet id (slug): propose a short kebab-case slug from the intent (e.g.
   `winter-outfit`, `combat-stances`) and confirm it. Must match
   `^[a-z0-9][a-z0-9-]*$`. Reusing an existing slug adds a new version.
-- The rough creative intent.
+- The rough creative intent, plus any type-specific choices (see *Sheet types*).
 - The model (e.g. `nano_banana` for illustrated images).
 - Reference images: paths under the element's `inputs/reference-images/`, and/or a
   previously generated sheet to reference for consistency.
+
+## Sheet types
+
+Each type declares what to gather and which director mode to use. To add a new type
+later, add a block here AND add the type to `SHEET_TYPES` in `src/element.js` so the
+pipeline accepts it.
+
+- **turnaround** — six fixed angles (front, three-quarter front, side, three-quarter
+  rear, rear, face close-up) in one 16:9 sheet. No extra input. Director:
+  `illustration-director` Mode 2A (or the `banana-pro-director` equivalent for photoreal).
+- **pose** — distinct action poses in one 16:9 sheet. **Ask the user for the pose
+  set;** default: idle / walk mid-stride / run / jump apex / wave / sit-or-crouch.
+  Director: Mode 2B.
+- **cycles** — an animation cycle. **Ask which cycle** (walk, idle, run, …) and
+  compose it as evenly spaced keyframes of that motion across the panels.
 
 ## Procedure
 
@@ -30,10 +46,11 @@ Follow the steps in order; do not skip the verify step.
    `style-lock.yaml` capturing the locked design (palette, line weight, wardrobe,
    proportions / skin-hair-fabric, etc.), get the user's approval, and write it.
 2. **Read** the element's `style-lock.yaml`.
-3. **Compose** the sheet prompt: invoke the right director skill to write a
-   detailed prompt for the requested sheet type, incorporating the locked design
-   (e.g. a 6-panel multi-angle sheet for a turnaround — not a single figure).
-   Keep it lean when a reference image is provided — see *Prompt fidelity* below.
+3. **Gather type-specific choices** (pose set / cycle, per *Sheet types*), then
+   **compose** the sheet prompt: invoke the right director skill and mode to write a
+   detailed prompt incorporating the locked design (e.g. a 6-panel multi-angle sheet
+   for a turnaround — not a single figure). Keep it lean when a reference image is
+   provided — see *Prompt fidelity* below.
 4. **Iterate** with the user on the prompt (1–2 rounds).
 5. **Write** the finalized prompt to the canonical path (create the dir if needed):
    `elements/<type>/<name>/sheets/<sheetType>/<slug>/prompt.md`
