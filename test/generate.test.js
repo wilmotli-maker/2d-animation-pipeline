@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createElement, writeStyleLock } from '../src/element.js';
@@ -15,8 +15,10 @@ async function withTemp(fn) {
 
 function deps() {
   const downloaded = [];
+  const splits = [];
   return {
     downloaded,
+    splits,
     runBatch: async (_runner, requests) => {
       deps._lastRequest = requests[0];
       return requests.map((r) => ({ ref: r.ref, id: 'job_1', status: 'completed',
@@ -28,6 +30,16 @@ function deps() {
       await mkdir(path.dirname(dest), { recursive: true });
       await wf(dest, 'BYTES');
       return dest;
+    },
+    // Stand in for the real sharp-backed splitter: record the call and write
+    // one file per requested label so the test can assert on folder + names.
+    splitPanels: async (imagePath, outDir, labels) => {
+      splits.push({ imagePath, outDir, labels });
+      const { mkdir, writeFile: wf } = await import('node:fs/promises');
+      await mkdir(outDir, { recursive: true });
+      const out = [];
+      for (const l of labels) { const p = path.join(outDir, `${l}.png`); await wf(p, 'PANEL'); out.push(p); }
+      return out;
     },
   };
 }
@@ -62,6 +74,67 @@ test('generateElementSheet saves output under sheets/<type>/<slug>/vNNN and logs
     assert.equal(log.sheetId, 'winter');
     assert.equal(log.version, 'v001');
     assert.equal(log.jobId, 'job_1');
+  });
+});
+
+test('generateElementSheet auto-splits a turnaround into a version-named panel folder', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    const d = deps();
+    const res = await generateElementSheet(root, {
+      type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+    }, { runner: {}, ...d });
+
+    // Folder name matches the sheet name (v001.png -> v001/), sitting beside it.
+    assert.equal(d.splits.length, 1);
+    assert.equal(d.splits[0].imagePath, res.outputPath);
+    assert.match(res.panelsDir, /sheets\/turnaround\/winter\/v001$/);
+    assert.equal(res.panelsDir, path.join(path.dirname(res.outputPath), 'v001'));
+
+    assert.deepEqual(
+      (await readdir(res.panelsDir)).sort(),
+      ['01-front.png', '02-three-quarter-front.png', '03-side.png',
+        '04-three-quarter-rear.png', '05-rear.png', '06-face-closeup.png'],
+    );
+    assert.equal(res.panels.length, 6);
+
+    // Panels are recorded in the generation log for downstream reference.
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.panelsDir, res.panelsDir);
+    assert.equal(log.panels.length, 6);
+  });
+});
+
+test('generateElementSheet auto-splits a pose sheet with generic panel names', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'pose', 'combat', 'pose prompt');
+    const d = deps();
+    const res = await generateElementSheet(root, {
+      type: 'characters', name: 'cecilia', sheet: 'pose', id: 'combat', model: 'nano_banana',
+    }, { runner: {}, ...d });
+
+    assert.equal(d.splits.length, 1);
+    assert.match(res.panelsDir, /sheets\/pose\/combat\/v001$/);
+    assert.deepEqual(
+      (await readdir(res.panelsDir)).sort(),
+      ['panel-1.png', 'panel-2.png', 'panel-3.png', 'panel-4.png', 'panel-5.png', 'panel-6.png'],
+    );
+    assert.equal(res.panels.length, 6);
+  });
+});
+
+test('generateElementSheet leaves cycles sheets whole (no split)', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'cycles', 'walk', 'cycle prompt');
+    const d = deps();
+    const res = await generateElementSheet(root, {
+      type: 'characters', name: 'cecilia', sheet: 'cycles', id: 'walk', model: 'nano_banana',
+    }, { runner: {}, ...d });
+
+    assert.equal(d.splits.length, 0);
+    assert.equal(res.panelsDir, null);
+    assert.equal(res.panels, null);
   });
 });
 

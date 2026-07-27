@@ -29,11 +29,14 @@ later, add a block here AND add the type to `SHEET_TYPES` in `src/element.js` so
 pipeline accepts it.
 
 - **turnaround** — six fixed angles (front, three-quarter front, side, three-quarter
-  rear, rear, face close-up) in one 16:9 sheet. No extra input. Director:
-  `illustration-director` Mode 2A (or the `banana-pro-director` equivalent for photoreal).
-- **pose** — distinct action poses in one 16:9 sheet. **Ask the user for the pose
-  set;** default: idle / walk mid-stride / run / jump apex / wave / sit-or-crouch.
-  Director: Mode 2B.
+  rear, rear, face close-up) in one 16:9 sheet, composed as a 3×2 grid. No extra
+  input. Director: `illustration-director` Mode 2A (or the `banana-pro-director`
+  equivalent for photoreal). After generation the pipeline **auto-splits** the sheet
+  into per-angle panel files (see *Turnaround panels*).
+- **pose** — distinct action poses in one 16:9 sheet, composed as a 3×2 grid.
+  **Ask the user for the pose set;** default: idle / walk mid-stride / run / jump
+  apex / wave / sit-or-crouch. Director: Mode 2B. The pipeline **auto-splits** the
+  sheet into per-panel files (see *Sheet panels*).
 - **cycles** — an animation cycle. **Ask which cycle** (walk, idle, run, …) and
   compose it as evenly spaced keyframes of that motion across the panels.
 
@@ -60,7 +63,43 @@ pipeline accepts it.
 7. **Generate** (reads the canonical prompt written in step 5):
    `pipeline element sheet --type <t> --name <n> --sheet <sheetType> --id <slug> --model <m> [--image <ref> ...]`
 8. **Review** the output path with the user. Offer to refine the prompt and
-   regenerate (a new version under the same slug) or accept.
+   regenerate (a new version under the same slug) or accept. For a **turnaround**
+   or **pose**, also point out the auto-generated panel folder (see *Sheet panels*).
+
+## Sheet panels
+
+`turnaround` and `pose` sheets are a single 16:9 image in a 3×2 grid. The pipeline
+automatically splits that image into six per-panel files so later prompt-generation
+can reference one panel directly. For a generated `vNNN.png`, the panels land in a
+sibling folder **named after the sheet**:
+
+```
+elements/<type>/<name>/sheets/turnaround/<slug>/
+  v001.png                    # the all-in-one sheet
+  v001.prompt.md
+  v001/                       # folder name == sheet name
+    01-front.png
+    02-three-quarter-front.png
+    03-side.png
+    04-three-quarter-rear.png
+    05-rear.png
+    06-face-closeup.png
+```
+
+Turnaround panels carry the angle in the name (fixed 3×2 order); the numeric prefix
+preserves grid order and the angle slug is the stable handle. Pose panels use generic
+`panel-1`…`panel-6` names (grid order left→right, top→bottom), matching the pose set
+you chose for that sheet. To condition a downstream sheet or shot on one panel, pass
+it as a reference image — e.g. the side profile for a side-on shot:
+
+```
+pipeline element sheet --type characters --name cecilia --sheet pose --id combat \
+  --model nano_banana \
+  --image elements/characters/cecilia/sheets/turnaround/winter/v001/03-side.png
+```
+
+`cycles` sheets are left whole (the panels are frames of one continuous motion, not
+independently useful references).
 
 ## Prompt fidelity — keep it lean when a reference image is provided
 
