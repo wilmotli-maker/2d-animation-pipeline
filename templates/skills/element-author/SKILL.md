@@ -101,6 +101,18 @@ pipeline element sheet --type characters --name cecilia --sheet pose --id combat
 `cycles` sheets are left whole (the panels are frames of one continuous motion, not
 independently useful references).
 
+Sheets generated before auto-split existed (or any that are missing their folder)
+can be split **after the fact**. This scans existing sheets and splits only those
+without a panel folder — it never touches folders that already exist, so it is safe
+to re-run:
+
+```
+pipeline element split-panels                         # backfill the whole project
+pipeline element split-panels --type characters --name cecilia   # narrow the scan
+```
+
+Optional `--type` / `--name` / `--sheet` / `--id` flags narrow which sheets are scanned.
+
 ## Prompt fidelity — keep it lean when a reference image is provided
 
 With an image-reference model (e.g. Nano Banana Pro) the prompt and the reference

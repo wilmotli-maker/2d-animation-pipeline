@@ -27,6 +27,7 @@ pipeline). Put a character's reference drawing in its
 
 - `pipeline element create --type <characters|props|scenes|other> --name <name>`
 - `pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt-file <f>] [--image <f> ...]`
+- `pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>]` — backfill per-panel folders for existing turnaround/pose sheets
 - `pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <f> ...]`
 - `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt-file <f>]`
 - Credit cost draws from your Higgsfield account — check `higgsfield account transactions`.

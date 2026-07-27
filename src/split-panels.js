@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readdir, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { sheetDir, sheetInstanceDir } from './paths.js';
 
 // A turnaround is composed as one 16:9 sheet in a fixed 3×2 grid (see the
 // director's Mode 2A). These are the six angles in that reading order — top row
@@ -62,4 +64,69 @@ export async function splitPanels(imagePath, outDir, labels = TURNAROUND_PANELS,
     outputs.push(out);
   }
   return outputs;
+}
+
+// A generated sheet image is `vNNN.<img-ext>`; its panel folder is the sibling
+// `vNNN/`. Prompt snapshots (`vNNN.prompt.md`) are deliberately excluded.
+const SHEET_IMAGE_RE = /^(v\d+)\.(png|jpe?g|webp)$/i;
+
+async function listDirs(dir) {
+  try {
+    return (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
+}
+async function listFiles(dir) {
+  try {
+    return (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name);
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
+}
+async function pathExists(p) {
+  try { await access(p, constants.F_OK); return true; } catch { return false; }
+}
+
+// Split existing sheet versions that don't already have a panel folder — the
+// post-hoc counterpart to the auto-split at generation time. Walks
+// elements/<type>/<name>/sheets/<sheetType>/<slug>/ under `root`, and for every
+// splittable sheet type (SHEET_PANEL_LABELS) splits each `vNNN` image whose
+// `vNNN/` folder is missing. Existing folders are left untouched, so it is safe
+// to re-run. `filter` narrows the scan by { type, name, sheet, id }; omit a key
+// to include all. Returns one record per image: { image, panelsDir, status:
+// 'split' | 'skipped', panels?, reason? }. `splitPanels` is injectable for tests.
+export async function backfillPanels(root, filter = {}, { splitPanels: split = splitPanels } = {}) {
+  const elementsDir = path.join(root, 'elements');
+  const splittable = Object.keys(SHEET_PANEL_LABELS);
+  const results = [];
+
+  const types = filter.type ? [filter.type] : await listDirs(elementsDir);
+  for (const type of types) {
+    const names = filter.name ? [filter.name] : await listDirs(path.join(elementsDir, type));
+    for (const name of names) {
+      for (const sheet of splittable) {
+        if (filter.sheet && filter.sheet !== sheet) continue;
+        const slugs = filter.id ? [filter.id] : await listDirs(sheetDir(root, type, name, sheet));
+        for (const slug of slugs) {
+          const instanceDir = sheetInstanceDir(root, type, name, sheet, slug);
+          for (const file of await listFiles(instanceDir)) {
+            const m = SHEET_IMAGE_RE.exec(file);
+            if (!m) continue;
+            const image = path.join(instanceDir, file);
+            const panelsDir = path.join(instanceDir, m[1]);
+            if (await pathExists(panelsDir)) {
+              results.push({ image, panelsDir, status: 'skipped', reason: 'panel folder already exists' });
+              continue;
+            }
+            const panels = await split(image, panelsDir, SHEET_PANEL_LABELS[sheet]);
+            results.push({ image, panelsDir, status: 'split', panels });
+          }
+        }
+      }
+    }
+  }
+  return results;
 }
