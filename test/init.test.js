@@ -10,17 +10,22 @@ async function withTemp(fn) {
   try { await fn(dir); } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
-test('initProject scaffolds CLAUDE.md and the element-author skill', async () => {
+test('initProject scaffolds CLAUDE.md and all skill templates', async () => {
   await withTemp(async (base) => {
     const target = path.join(base, 'proj');
     const res = await initProject(target);
     assert.equal(res.dir, target);
     const claude = await readFile(path.join(target, 'CLAUDE.md'), 'utf8');
     assert.match(claude, /Style bible/);
-    const skill = await readFile(
+    const ea = await readFile(
       path.join(target, '.claude', 'skills', 'element-author', 'SKILL.md'), 'utf8');
-    assert.match(skill, /name: element-author/);
-    assert.ok((await stat(path.join(target, '.claude', 'skills', 'element-author', 'SKILL.md'))).isFile());
+    assert.match(ea, /name: element-author/);
+    const be = await readFile(
+      path.join(target, '.claude', 'skills', 'build-element', 'SKILL.md'), 'utf8');
+    assert.match(be, /name: build-element/);
+    // res.files lists every scaffolded file.
+    assert.ok(res.files.includes('.claude/skills/element-author/SKILL.md'));
+    assert.ok(res.files.includes('.claude/skills/build-element/SKILL.md'));
   });
 });
 
