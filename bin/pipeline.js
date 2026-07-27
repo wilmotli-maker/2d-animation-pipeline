@@ -4,6 +4,7 @@ import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
+import { backfillPanels } from '../src/split-panels.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 
@@ -83,6 +84,15 @@ async function main() {
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
     }, { runner: createRunner() });
     console.log(`saved ${res.version}: ${res.outputPath}`);
+  } else if (cmd === 'element' && sub === 'split-panels') {
+    const f = parseFlags(rest);
+    const results = await backfillPanels(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet, id: f.id,
+    });
+    const split = results.filter((r) => r.status === 'split');
+    const skipped = results.filter((r) => r.status === 'skipped');
+    for (const r of split) console.log(`  + ${r.panelsDir} (${r.panels.length} panels)`);
+    console.log(`split ${split.length} sheet(s), skipped ${skipped.length} already-split.`);
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
@@ -133,6 +143,7 @@ async function main() {
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
