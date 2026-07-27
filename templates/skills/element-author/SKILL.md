@@ -33,6 +33,7 @@ Follow the steps in order; do not skip the verify step.
 3. **Compose** the sheet prompt: invoke the right director skill to write a
    detailed prompt for the requested sheet type, incorporating the locked design
    (e.g. a 6-panel multi-angle sheet for a turnaround — not a single figure).
+   Keep it lean when a reference image is provided — see *Prompt fidelity* below.
 4. **Iterate** with the user on the prompt (1–2 rounds).
 5. **Write** the finalized prompt to the canonical path (create the dir if needed):
    `elements/<type>/<name>/sheets/<sheetType>/<slug>/prompt.md`
@@ -43,6 +44,25 @@ Follow the steps in order; do not skip the verify step.
    `pipeline element sheet --type <t> --name <n> --sheet <sheetType> --id <slug> --model <m> [--image <ref> ...]`
 8. **Review** the output path with the user. Offer to refine the prompt and
    regenerate (a new version under the same slug) or accept.
+
+## Prompt fidelity — keep it lean when a reference image is provided
+
+With an image-reference model (e.g. Nano Banana Pro) the prompt and the reference
+image compete: the more elaborate and prescriptive the prompt, the more the model
+reinterprets and drifts from the reference's actual rendering style. When a
+faithful reference exists, favour a **short, plain** prompt and let the reference
+carry the style.
+
+- Describe the design and panel layout concisely; avoid piling on emphatic
+  negatives and restatements ("NOT a three-quarter turn", "no vest or jacket…").
+- Include one anchor line: *"match the exact line weight, colouring and style of
+  the reference image — do not smooth, polish, or restyle."*
+- Make corrections **surgically** — change only the clause that was wrong; don't
+  rewrite the whole prompt. A longer "fix" prompt often drifts more than the
+  thing it was fixing.
+- If a regenerated version drifts from the reference, suspect prompt length
+  first, not a missing reference. Confirm the reference was actually sent with
+  `higgsfield generate get <jobId> --json` (check `input_images`).
 
 ## Shots
 
