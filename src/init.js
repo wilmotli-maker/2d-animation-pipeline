@@ -1,21 +1,23 @@
 import { fileURLToPath } from 'node:url';
-import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = path.join(here, '..', 'templates');
 
-// Empty dir or missing dir both count as safe to scaffold into.
-async function emptyOrMissing(dir) {
-  try { return (await readdir(dir)).length === 0; }
-  catch (err) { if (err.code === 'ENOENT') return true; throw err; }
+async function exists(p) {
+  try { await access(p, constants.F_OK); return true; } catch { return false; }
 }
 
 // Scaffold a new project folder: CLAUDE.md + every skill under templates/skills/.
+// Scaffolding alongside other content (e.g. a references/ folder the user created)
+// is fine; we only refuse if the dir is already an initialized project — i.e. a
+// CLAUDE.md or .claude/ is present — so we never clobber existing setup.
 export async function initProject(targetDir) {
   const dir = path.resolve(targetDir);
-  if (!(await emptyOrMissing(dir))) {
-    throw new Error(`refusing to init a non-empty directory: ${dir}`);
+  if ((await exists(path.join(dir, 'CLAUDE.md'))) || (await exists(path.join(dir, '.claude')))) {
+    throw new Error(`already initialized (CLAUDE.md or .claude/ present): ${dir}`);
   }
   await mkdir(dir, { recursive: true });
   const files = [];

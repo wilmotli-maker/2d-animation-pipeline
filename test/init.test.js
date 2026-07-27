@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { initProject } from '../src/init.js';
@@ -29,9 +29,21 @@ test('initProject scaffolds CLAUDE.md and all skill templates', async () => {
   });
 });
 
-test('initProject creates a missing target dir but refuses a non-empty one', async () => {
+test('initProject scaffolds alongside pre-existing content (e.g. a references/ folder)', async () => {
   await withTemp(async (base) => {
-    await writeFile(path.join(base, 'existing.txt'), 'x');
-    await assert.rejects(() => initProject(base), /non-empty/i);
+    await mkdir(path.join(base, 'references'), { recursive: true });
+    await writeFile(path.join(base, 'references', 'ref.png'), 'x');
+    const res = await initProject(base);
+    assert.equal(res.dir, base);
+    assert.match(await readFile(path.join(base, 'CLAUDE.md'), 'utf8'), /Style bible/);
+    // pre-existing content left untouched
+    assert.ok((await stat(path.join(base, 'references', 'ref.png'))).isFile());
+  });
+});
+
+test('initProject refuses to clobber an already-initialized project', async () => {
+  await withTemp(async (base) => {
+    await initProject(base);                        // first init succeeds
+    await assert.rejects(() => initProject(base), /already initialized/i);
   });
 });
