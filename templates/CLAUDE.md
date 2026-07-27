@@ -12,11 +12,12 @@
 
 ## How to work here
 
-This is an animation project driven by the 2d-animation pipeline. To create or
-iterate on a character/prop/scene sheet, use the **element-author** skill (in
-`.claude/skills/element-author/`). It gathers the inputs, reads the element's
-`style-lock.yaml`, invokes the right director skill to compose a detailed prompt,
-iterates with you, verifies the inputs (`pipeline verify`), and runs generation.
+This is an animation project driven by the 2d-animation pipeline. To onboard a **new
+element from a reference image** (create it, author its `style-lock.yaml`, and build a
+set of sheets), use the **build-element** skill. To create or iterate on a **single**
+sheet for an existing element, use the **element-author** skill. Both are in
+`.claude/skills/`. They gather inputs, read the element's `style-lock.yaml`, invoke the
+right director skill, verify (`pipeline verify`), and run generation.
 
 Element and shot data live here under `elements/` and `shots/` (created by the
 pipeline). Put a character's reference drawing in its
