@@ -15,6 +15,7 @@
     "pipeline": "node bin/pipeline.js"
   },
   "dependencies": {
+    "sharp": "^0.35.3",
     "yaml": "^2.5.0"
   },
   "devDependencies": {

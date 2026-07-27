@@ -4,6 +4,7 @@ import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
 import { appendGeneration } from './element.js';
 import { sheetInstanceDir, shotDraftDir } from './paths.js';
+import { splitPanels as defaultSplitPanels, SHEET_PANEL_LABELS } from './split-panels.js';
 import { validateElementSheet, validateShotGenerate } from './validate.js';
 
 // Highest vNNN in a directory (matches v001.png, v001.prompt.md, ...), + 1.
@@ -31,6 +32,7 @@ function enforce(v, what) {
 
 export async function generateElementSheet(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
+  splitPanels = defaultSplitPanels,
 } = {}) {
   const { type, name, sheet, id, model, prompt, promptFile, images = [] } = spec;
 
@@ -51,12 +53,24 @@ export async function generateElementSheet(root, spec, {
   await downloadTo(result.outputUrl, outputPath);
   await writeFile(path.join(dir, `${vtag}.prompt.md`), v.promptText);
 
+  // Turnaround and pose sheets are a single 3×2 grid; split them into per-panel
+  // files so later prompt-generation can reference one panel by name. The folder
+  // matches the sheet's name (e.g. v001.png -> v001/) and sits beside it.
+  let panelsDir = null;
+  let panels = null;
+  const panelLabels = SHEET_PANEL_LABELS[sheet];
+  if (panelLabels) {
+    panelsDir = path.join(dir, vtag);
+    panels = await splitPanels(outputPath, panelsDir, panelLabels);
+  }
+
   await appendGeneration(root, type, name, {
     sheetType: sheet, sheetId: id, version: vtag, model, jobId: result.id,
     prompt: v.promptText, promptFile: path.join(dir, `${vtag}.prompt.md`),
-    imageReferences: images, output: outputPath, status: 'generated',
+    imageReferences: images, output: outputPath, panelsDir, panels: panels || [],
+    status: 'generated',
   });
-  return { outputPath, jobId: result.id, version: vtag, sheetId: id };
+  return { outputPath, jobId: result.id, version: vtag, sheetId: id, panelsDir, panels };
 }
 
 export async function generateShotDraft(root, spec, {
