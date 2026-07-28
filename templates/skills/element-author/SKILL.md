@@ -138,3 +138,17 @@ For a shot, use `illustration-worldbuilder` / `cinema-worldbuilder` to compose,
 write the prompt to `shots/<id>/drafts/vNNN/prompt.md` (after `pipeline shot draft`),
 verify with `pipeline verify shot --id <id> --version <n>`, and generate with
 `pipeline shot generate --id <id> --version <n> --model <m>`.
+
+## Lip-sync shots (talking characters)
+
+When a shot lip-syncs a character to a **user-provided speech recording**:
+
+1. **Transcribe the recording** to get the exact words:
+   `pipeline voice transcribe --audio <wav>` — writes a `<wav>.txt` sidecar beside it
+   (local whisper.cpp; `--dir <folder>` does a whole folder at once and skips wavs that
+   already have a `.txt`).
+2. **Quote the sidecar verbatim** in the Seedance prompt (e.g. `the character says,
+   "<exact transcript>"`) — do not paraphrase or re-capitalize. The exact line is what
+   gives the generated speech its fidelity.
+3. **Generate** with the recording as the speech source:
+   `pipeline shot generate … --speech-audio <wav>` (see `docs/recipes/seedance-lipsync.md`).

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { projectRoot } from '../src/config.js';
+import { projectRoot, whisperModelPath } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
 import { backfillPanels } from '../src/split-panels.js';
+import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 
@@ -93,6 +94,26 @@ async function main() {
     const skipped = results.filter((r) => r.status === 'skipped');
     for (const r of split) console.log(`  + ${r.panelsDir} (${r.panels.length} panels)`);
     console.log(`split ${split.length} sheet(s), skipped ${skipped.length} already-split.`);
+  } else if (cmd === 'voice' && sub === 'transcribe') {
+    // --force is a bare boolean; the pair-based parsers can't see it, so pull it
+    // out first and parse the rest as --key value.
+    const argv = rest.filter((t) => t !== '--force');
+    const force = argv.length !== rest.length;
+    const f = parseFlags(argv);
+    const audios = collectFlag(argv, 'audio');
+    if (!audios.length && !f.dir) {
+      fail('usage: pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]');
+    }
+    const transcriber = getTranscriber(f.engine, { model: whisperModelPath(f['model-file']) });
+    const results = await transcribeInputs(
+      { audios, dir: f.dir || null, out: f.out || null, force },
+      { transcriber },
+    );
+    for (const r of results) {
+      console.log(`  ${r.status === 'transcribed' ? '+' : '='} ${r.sidecar}${r.status === 'skipped' ? ' (exists)' : ''}`);
+    }
+    const done = results.filter((r) => r.status === 'transcribed').length;
+    console.log(`transcribed ${done}, skipped ${results.length - done}.`);
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
@@ -153,6 +174,7 @@ async function main() {
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
+      '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',

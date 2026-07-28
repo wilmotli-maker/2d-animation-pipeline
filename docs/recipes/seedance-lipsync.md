@@ -30,8 +30,17 @@ speech arrives as a **video** reference:
 | **Blank video carrying the wav via `--video-references` + `--generate-audio true`** | Generated audio matches the wav's silence boundaries within ~1 frame; words correct. ✅ |
 
 The prompt should also quote the exact transcript line and name the reference video
-as the speech source. (Auto-quoting the transcript from a script file is a separate,
-not-yet-built feature; author the prompt by hand for now.)
+as the speech source. Get the exact transcript from the wav with:
+
+```bash
+pipeline voice transcribe --audio ART1.wav      # writes ART1.txt beside it
+```
+
+Then quote `ART1.txt`'s text **verbatim** in the prompt (e.g. `the character says,
+"<transcript>"`). `voice transcribe` uses local whisper.cpp (`brew install
+whisper-cpp` + a ggml model — it prints the exact download command if the model is
+missing); `--dir references/voices` transcribes a whole folder at once and skips wavs
+that already have a `.txt`.
 
 ## Gotchas
 

@@ -25,3 +25,17 @@ export const ELEMENT_TYPES = ['characters', 'props', 'scenes', 'other'];
 export function higgsfieldBin(root = REPO_ROOT) {
   return path.join(root, 'node_modules', '.bin', 'higgsfield');
 }
+
+// whisper.cpp binary for local speech-to-text. Not bundled — resolved from
+// WHISPER_CPP_BIN, else `whisper-cli` on PATH (install via `brew install
+// whisper-cpp`). A missing binary is reported with an install hint at call time.
+export function whisperBin() {
+  return process.env.WHISPER_CPP_BIN || 'whisper-cli';
+}
+
+// The ggml model file whisper.cpp loads. Precedence: explicit (--model-file) >
+// WHISPER_CPP_MODEL env > a default under the tool's own models/ dir. Model files
+// are not auto-downloaded; a missing one is reported with a download command.
+export function whisperModelPath(explicit, root = REPO_ROOT) {
+  return explicit || process.env.WHISPER_CPP_MODEL || path.join(root, 'models', 'ggml-base.en.bin');
+}

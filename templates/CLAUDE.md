@@ -29,5 +29,6 @@ pipeline). Put a character's reference drawing in its
 - `pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt-file <f>] [--image <f> ...]`
 - `pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>]` — backfill per-panel folders for existing turnaround/pose sheets
 - `pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <f> ...]`
-- `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt-file <f>]`
+- `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt-file <f>] [--speech-audio <wav>]`
+- `pipeline voice transcribe --audio <wav> [--dir <folder>] [--force]` — exact transcript sidecar (`<wav>.txt`) for lip-sync prompts; local whisper.cpp
 - Credit cost draws from your Higgsfield account — check `higgsfield account transactions`.
