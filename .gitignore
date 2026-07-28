@@ -10,4 +10,7 @@ scripts/sanity-checks/state/
 scripts/sanity-checks/fixtures/*
 !scripts/sanity-checks/fixtures/README.md
 
+# whisper.cpp model files for `pipeline voice transcribe` — downloaded, not source.
+models/
+
 .DS_Store
