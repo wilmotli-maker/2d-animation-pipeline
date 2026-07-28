@@ -110,3 +110,71 @@ test('validateShotGenerate checks shot + draft existence and the draft prompt', 
     assert.ok(noDraft.checks.some((c) => c.label === 'draft exists' && c.status === 'fail'));
   });
 });
+
+async function seedDraft(root, promptText = 'shot prompt') {
+  await createShot(root, { shotId: 's1', elements: [] });
+  const { dir } = await newDraft(root, 's1');
+  await writeFile(path.join(dir, 'prompt.md'), promptText);
+  return dir;
+}
+
+test('validateShotGenerate checks speech-audio / video / audio files exist', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+    const wav = path.join(root, 'ART1.wav');
+    await writeFile(wav, 'RIFF');
+
+    const good = await validateShotGenerate(root, { shotId: 's1', version: 1, speechAudio: wav });
+    assert.equal(good.ok, true);
+
+    const bad = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, speechAudio: '/no/ART1.wav', videos: ['/no/clip.mp4'],
+    });
+    assert.equal(bad.ok, false);
+    assert.ok(bad.checks.some((c) => c.label === 'speech audio' && c.status === 'fail'));
+    assert.ok(bad.checks.some((c) => c.label === 'reference video' && c.status === 'fail'));
+  });
+});
+
+test('validateShotGenerate enforces Seedance reference-count caps', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+    const many = (n, ext) => Array.from({ length: n }, (_, i) => `/x/${i}.${ext}`);
+
+    const tooManyVideos = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, videos: many(3, 'mp4'), speechAudio: '/x/s.wav',
+    });
+    assert.ok(tooManyVideos.checks.some((c) => c.label === 'video ref count' && c.status === 'fail'),
+      'speech-audio counts toward the 3-video cap');
+
+    const tooManyImages = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, images: many(10, 'png'),
+    });
+    assert.ok(tooManyImages.checks.some((c) => c.label === 'image ref count' && c.status === 'fail'));
+
+    const orphanAudio = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, audios: ['/x/a.wav'],
+    });
+    assert.ok(orphanAudio.checks.some((c) => c.label === 'audio ref anchor' && c.status === 'fail'));
+  });
+});
+
+test('validateShotGenerate warns on unknown enums but fails on bad boolean/duration', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+
+    const warned = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, resolution: '999p', aspectRatio: '5:7',
+    });
+    assert.equal(warned.ok, true, 'unknown enums warn, not fail (model-dependent)');
+    assert.ok(warned.checks.some((c) => c.label === 'resolution' && c.status === 'warn'));
+    assert.ok(warned.checks.some((c) => c.label === 'aspect ratio' && c.status === 'warn'));
+
+    const failed = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, generateAudio: 'yes', duration: '0',
+    });
+    assert.equal(failed.ok, false);
+    assert.ok(failed.checks.some((c) => c.label === 'generate-audio' && c.status === 'fail'));
+    assert.ok(failed.checks.some((c) => c.label === 'duration' && c.status === 'fail'));
+  });
+});

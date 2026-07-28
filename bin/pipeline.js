@@ -96,7 +96,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--root <dir>]');
     }
     const genVersion = Number(f.version);
     if (!Number.isInteger(genVersion) || genVersion < 1) {
@@ -105,6 +105,9 @@ async function main() {
     const res = await generateShotDraft(projectRoot(f.root), {
       shotId: f.id, version: genVersion, model: f.model,
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
+      speechAudio: f['speech-audio'], videos: collectFlag(rest, 'video'), audios: collectFlag(rest, 'audio'),
+      resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
+      generateAudio: f['generate-audio'], mode: f.mode,
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
   } else if (cmd === 'verify' && sub === 'element') {
@@ -120,11 +123,14 @@ async function main() {
   } else if (cmd === 'verify' && sub === 'shot') {
     const f = parseFlags(rest);
     if (!f.id || !f.version) {
-      fail('usage: pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
+      fail('usage: pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--root <dir>]');
     }
     const result = await validateShotGenerate(projectRoot(f.root), {
       shotId: f.id, version: Number(f.version),
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
+      speechAudio: f['speech-audio'], videos: collectFlag(rest, 'video'), audios: collectFlag(rest, 'audio'),
+      resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
+      generateAudio: f['generate-audio'],
     });
     if (!printChecklist(result)) process.exit(1);
   } else if (cmd === 'init') {
@@ -144,12 +150,15 @@ async function main() {
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
-      '  pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline verify shot --id <shotId> --version <n> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
       '',
-      '--image is repeatable: pass it multiple times to send several reference',
-      'images (e.g. the original drawing plus a generated turnaround).',
+      '--image / --video / --audio are repeatable: pass each multiple times to',
+      'send several references. For talking-character (Seedance) shots, pass the',
+      'speech recording via --speech-audio <wav>: it is wrapped into a blank',
+      'mid-gray video and sent as a video reference, which reproduces the',
+      "recording's exact words and pacing. Needs ffmpeg on PATH.",
       'Project data (elements/, shots/) is written under --root, else',
       '$ANIMATION_PIPELINE_ROOT, else the current directory.',
     ].join('\n'));

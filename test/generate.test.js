@@ -192,6 +192,52 @@ test('generateShotDraft reads the draft prompt.md and saves output', async () =>
   });
 });
 
+test('generateShotDraft wraps --speech-audio into a video ref and carries model params', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'talking head prompt');
+    const pose = path.join(root, 'pose.png');
+    const wav = path.join(root, 'ART1.wav');
+    await writeFile(pose, 'x');
+    await writeFile(wav, 'RIFF');
+
+    const d = deps();
+    const madeClips = [];
+    const makeBlankSpeechVideo = async (wavPath, outPath, optsIn) => {
+      madeClips.push({ wavPath, outPath, optsIn });
+      await writeFile(outPath, 'MP4');
+      return outPath;
+    };
+    await generateShotDraft(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_0',
+      images: [pose], speechAudio: wav,
+      resolution: '720p', duration: '5', aspectRatio: '3:4', generateAudio: 'true',
+    }, { runner: {}, ...d, makeBlankSpeechVideo });
+
+    // Blank speech video built from the wav, persisted beside the draft.
+    const speechRef = path.join(dir, 'speech-ref.mp4');
+    assert.equal(madeClips.length, 1);
+    assert.equal(madeClips[0].wavPath, wav);
+    assert.equal(madeClips[0].outPath, speechRef);
+    assert.equal(madeClips[0].optsIn.aspect, '3:4');
+
+    const opts = deps._lastRequest.opts;
+    assert.deepEqual(opts.imageReferences, [pose]);
+    assert.deepEqual(opts.videoReferences, [speechRef]);
+    assert.equal(opts.resolution, '720p');
+    assert.equal(opts.duration, '5');
+    assert.equal(opts.aspectRatio, '3:4');
+    assert.equal(opts.generateAudio, 'true');
+
+    // Provenance recorded next to the output for reproducibility.
+    const meta = JSON.parse(await readFile(path.join(dir, 'output.json'), 'utf8'));
+    assert.equal(meta.model, 'seedance_2_0');
+    assert.equal(meta.speechAudio, wav);
+    assert.equal(meta.jobId, 'job_1');
+  });
+});
+
 test('generateShotDraft throws when the draft prompt is empty', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
