@@ -3,7 +3,10 @@
 // runs jobs in PARALLEL. So we submit the whole batch first, then poll all
 // outstanding jobs together — real throughput, not serialized waits.
 
-const FAILURE_RE = /fail|error|cancel/i;
+// Moderation verdicts (nsfw / moderated / content_moderation / rejected) are
+// TERMINAL failures — the backend emits them once and never advances. Omitting
+// them here made such jobs poll until maxPolls (~1h). See docs/recipes.
+const FAILURE_RE = /fail|error|cancel|nsfw|moder|reject/i;
 
 export function isTerminalStatus(status) {
   if (typeof status !== 'string') return false;

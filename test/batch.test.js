@@ -12,6 +12,15 @@ test('isTerminalStatus recognizes completion and failure, not in-progress', () =
   assert.equal(isTerminalStatus('unknown'), false);
 });
 
+test('isTerminalStatus treats moderation verdicts as terminal failures', () => {
+  // These end a job permanently but were previously unrecognized, causing the
+  // poller to spin until maxPolls (~1h).
+  assert.equal(isTerminalStatus('nsfw'), true);
+  assert.equal(isTerminalStatus('moderated'), true);
+  assert.equal(isTerminalStatus('content_moderation'), true);
+  assert.equal(isTerminalStatus('rejected'), true);
+});
+
 // A fake runner: generate() hands back a submitted id; get() returns 'queued'
 // once then 'completed', so the poller must loop at least once.
 function fakeRunner() {
