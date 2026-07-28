@@ -5,6 +5,7 @@ import { downloadTo as defaultDownloadTo } from './download.js';
 import { appendGeneration } from './element.js';
 import { sheetInstanceDir, shotDraftDir } from './paths.js';
 import { splitPanels as defaultSplitPanels, SHEET_PANEL_LABELS } from './split-panels.js';
+import { makeBlankSpeechVideo as defaultMakeBlankSpeechVideo } from './speechclip.js';
 import { validateElementSheet, validateShotGenerate } from './validate.js';
 
 // Highest vNNN in a directory (matches v001.png, v001.prompt.md, ...), + 1.
@@ -75,22 +76,57 @@ export async function generateElementSheet(root, spec, {
 
 export async function generateShotDraft(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
+  makeBlankSpeechVideo = defaultMakeBlankSpeechVideo,
 } = {}) {
-  const { shotId, version, model, prompt, promptFile, images = [] } = spec;
+  const {
+    shotId, version, model, prompt, promptFile, images = [],
+    speechAudio, videos = [], audios = [],
+    resolution, duration, aspectRatio, generateAudio, mode,
+  } = spec;
 
-  const v = await validateShotGenerate(root, { shotId, version, prompt, promptFile, images });
+  const v = await validateShotGenerate(root, {
+    shotId, version, prompt, promptFile, images,
+    speechAudio, videos, audios, resolution, duration, aspectRatio, generateAudio,
+  });
   enforce(v, `shot ${shotId} v${version}`);
+
+  const dir = shotDraftDir(root, shotId, version);
+
+  // --speech-audio: wrap the wav into a blank mid-gray video and hand it to
+  // Seedance as a VIDEO reference (exact-pacing lip-sync trick). Persist it
+  // beside the output so the run is reproducible.
+  const videoReferences = [...videos];
+  if (speechAudio) {
+    const speechRef = path.join(dir, 'speech-ref.mp4');
+    await makeBlankSpeechVideo(speechAudio, speechRef, { aspect: aspectRatio || '3:4' });
+    videoReferences.unshift(speechRef);
+  }
 
   const opts = { prompt: v.promptText };
   if (images.length) opts.imageReferences = images;
+  if (videoReferences.length) opts.videoReferences = videoReferences;
+  if (audios.length) opts.audioReferences = audios;
+  if (resolution != null) opts.resolution = resolution;
+  if (duration != null) opts.duration = duration;
+  if (aspectRatio != null) opts.aspectRatio = aspectRatio;
+  if (generateAudio != null) opts.generateAudio = generateAudio;
+  if (mode != null) opts.mode = mode;
 
   const [result] = await runBatch(runner, [{ ref: `${shotId}/v${version}`, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
     throw new Error(`shot draft ${shotId} v${version} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
   }
 
-  const dir = shotDraftDir(root, shotId, version);
   const outputPath = path.join(dir, `output${extFromUrl(result.outputUrl, '.mp4')}`);
   await downloadTo(result.outputUrl, outputPath);
+
+  // Record what produced this take, for parity with element-sheet bookkeeping.
+  await writeFile(path.join(dir, 'output.json'), JSON.stringify({
+    model, jobId: result.id, prompt: v.promptText,
+    imageReferences: images, videoReferences, audioReferences: audios,
+    resolution, duration, aspectRatio, generateAudio, mode,
+    speechAudio: speechAudio || null, output: outputPath,
+  }, null, 2) + '\n');
+
   return { outputPath, jobId: result.id };
 }

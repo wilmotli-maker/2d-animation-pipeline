@@ -57,7 +57,7 @@ pipeline element sheet  --type <t> --name <n> --sheet <turnaround|pose|cycles> -
 pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <file> ...]
 pipeline shot create    --id <shotId> [--duration <s>] [--mode <m>] [--description <d>]
 pipeline shot draft     --id <shotId>
-pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...]
+pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]
 pipeline verify shot    --id <shotId> --version <n>
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 ```
@@ -68,6 +68,12 @@ All commands accept `--root <dir>`. `--image` feeds a local reference image
 with `npm run higgsfield -- model get <model>`. List models with
 `npm run higgsfield -- model list` (e.g. `nano_banana` for images,
 `seedance_2_0` / `seedance_2_0_mini` for video).
+
+For talking-character (Seedance) shots, pass the speech recording via
+`--speech-audio <wav>`: the pipeline wraps it into a blank mid-gray video and
+sends it as a video reference, which reproduces the recording's exact words and
+pacing. Needs `ffmpeg` on `PATH`. See
+[docs/recipes/seedance-lipsync.md](docs/recipes/seedance-lipsync.md).
 
 ## Example
 
