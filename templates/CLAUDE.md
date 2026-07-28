@@ -31,4 +31,5 @@ pipeline). Put a character's reference drawing in its
 - `pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <f> ...]`
 - `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt-file <f>] [--speech-audio <wav>]`
 - `pipeline voice transcribe --audio <wav> [--dir <folder>] [--force]` — exact transcript sidecar (`<wav>.txt`) for lip-sync prompts; local whisper.cpp
+- `pipeline sync-skills` — refresh this project's `.claude/skills/` from the current pipeline templates (run after the tool updates)
 - Credit cost draws from your Higgsfield account — check `higgsfield account transactions`.
