@@ -43,6 +43,56 @@ test('buildGenerateArgs expands imageReferences to repeated --image-references',
   ]);
 });
 
+test('buildGenerateArgs expands videoReferences and audioReferences to repeated flags', () => {
+  const args = buildGenerateArgs('seedance_2_0', {
+    prompt: 'x',
+    videoReferences: ['/speech.mp4'],
+    audioReferences: ['/a.wav', '/b.wav'],
+    wait: false,
+  });
+  assert.deepEqual(args, [
+    'generate', 'create', 'seedance_2_0',
+    '--prompt', 'x',
+    '--video-references', '/speech.mp4',
+    '--audio-references', '/a.wav',
+    '--audio-references', '/b.wav',
+  ]);
+});
+
+test('buildGenerateArgs emits scalar model params and stringifies booleans', () => {
+  const args = buildGenerateArgs('seedance_2_0', {
+    prompt: 'talking head',
+    imageReferences: ['/pose.png'],
+    videoReferences: ['/speech.mp4'],
+    resolution: '720p',
+    duration: 5,
+    generateAudio: true,
+    aspectRatio: '3:4',
+    mode: 'fast',
+    wait: false,
+  });
+  assert.deepEqual(args, [
+    'generate', 'create', 'seedance_2_0',
+    '--prompt', 'talking head',
+    '--image-references', '/pose.png',
+    '--video-references', '/speech.mp4',
+    '--resolution', '720p',
+    '--duration', '5',
+    '--generate-audio', 'true',
+    '--aspect-ratio', '3:4',
+    '--mode', 'fast',
+  ]);
+});
+
+test('buildGenerateArgs stringifies generateAudio:false rather than dropping it', () => {
+  const args = buildGenerateArgs('seedance_2_0', { prompt: 'x', generateAudio: false, wait: false });
+  assert.deepEqual(args, [
+    'generate', 'create', 'seedance_2_0',
+    '--prompt', 'x',
+    '--generate-audio', 'false',
+  ]);
+});
+
 test('generate returns parsed job id on success and requests JSON output', async () => {
   const { exec, calls } = fakeExec({ code: 0, stdout: '{"id":"job_1","status":"queued"}', stderr: '' });
   const runner = createRunner({ exec, bin: 'higgsfield' });

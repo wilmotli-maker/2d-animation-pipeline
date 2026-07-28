@@ -39,6 +39,20 @@ const MEDIA_FLAGS = {
   sketch: '--sketch',
 };
 
+// Scalar model parameters (mostly video models, e.g. seedance_2_0). Emitted only
+// when present; values are stringified (booleans become "true"/"false"). Which a
+// given model accepts is MODEL-DEPENDENT — consult `model get <model>`. camelCase
+// opt key -> kebab CLI flag.
+const SCALAR_PARAMS = {
+  resolution: '--resolution',
+  duration: '--duration',
+  generateAudio: '--generate-audio',
+  aspectRatio: '--aspect-ratio',
+  mode: '--mode',
+  bitrateMode: '--bitrate-mode',
+  genre: '--genre',
+};
+
 // Exported for direct unit testing of arg construction.
 export function buildGenerateArgs(model, opts = {}) {
   const args = ['generate', 'create', model];
@@ -51,6 +65,17 @@ export function buildGenerateArgs(model, opts = {}) {
   // model enforces its own cap (e.g. nano_banana allows 8) and rejects overflow.
   if (Array.isArray(opts.imageReferences)) {
     for (const ref of opts.imageReferences) args.push('--image-references', String(ref));
+  }
+  // Video/audio reference arrays mirror imageReferences (repeat the flag). The
+  // model enforces its own caps (Seedance: ≤3 video, ≤3 audio) and rejects overflow.
+  if (Array.isArray(opts.videoReferences)) {
+    for (const ref of opts.videoReferences) args.push('--video-references', String(ref));
+  }
+  if (Array.isArray(opts.audioReferences)) {
+    for (const ref of opts.audioReferences) args.push('--audio-references', String(ref));
+  }
+  for (const [key, flag] of Object.entries(SCALAR_PARAMS)) {
+    if (opts[key] != null) args.push(flag, String(opts[key]));
   }
   if (Array.isArray(opts.extraArgs)) args.push(...opts.extraArgs);
   if (opts.wait) args.push('--wait');
