@@ -52,6 +52,7 @@ directory. One install can serve many projects — run it from each project's fo
 
 ```
 pipeline init <dir>
+pipeline sync-skills    [--root <dir>]   # refresh a project's .claude/skills/ after the tool updates
 pipeline element create --type <characters|props|scenes|other> --name <name>
 pipeline element sheet  --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...]
 pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <file> ...]

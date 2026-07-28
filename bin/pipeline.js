@@ -6,6 +6,7 @@ import { createRunner } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
 import { backfillPanels } from '../src/split-panels.js';
 import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
+import { syncSkills } from '../src/sync-skills.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 
@@ -161,10 +162,20 @@ async function main() {
     console.log(`initialized project: ${res.dir}`);
     for (const file of res.files) console.log(`  + ${file}`);
     console.log('next: cd into it, run `claude`, then use the element-author skill.');
+  } else if (cmd === 'sync-skills') {
+    // Single-word command with only an optional --root; `sub` may carry the flag.
+    const f = parseFlags([sub, ...rest].filter((x) => x != null));
+    const results = await syncSkills(projectRoot(f.root));
+    for (const r of results) {
+      console.log(`  ${r.status === 'unchanged' ? '=' : '+'} .claude/skills/${r.name}/SKILL.md (${r.status})`);
+    }
+    const changed = results.filter((r) => r.status !== 'unchanged').length;
+    console.log(`synced ${results.length} skill(s), ${changed} added/updated.`);
   } else {
     fail([
       'usage:',
       '  pipeline init <dir>                        # scaffold a new project folder',
+      '  pipeline sync-skills [--root <dir>]        # refresh a project\'s .claude/skills/ from the current templates',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
