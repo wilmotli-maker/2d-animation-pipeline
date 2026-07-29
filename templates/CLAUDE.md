@@ -15,9 +15,11 @@
 This is an animation project driven by the 2d-animation pipeline. To onboard a **new
 element from a reference image** (create it, author its `style-lock.yaml`, and build a
 set of sheets), use the **build-element** skill. To create or iterate on a **single**
-sheet for an existing element, use the **element-author** skill. Both are in
-`.claude/skills/`. They gather inputs, read the element's `style-lock.yaml`, invoke the
-right director skill, verify (`pipeline verify`), and run generation.
+sheet for an existing element, use the **element-author** skill. To create or iterate
+on a **video shot** (including talking / lip-sync shots), use the **shot-author** skill.
+All three are in `.claude/skills/`. They gather inputs, read the relevant locked design,
+invoke the right director skill, verify (`pipeline verify`), and run generation. For
+lip-sync specifics see `docs/recipes/seedance-lipsync.md`.
 
 Element and shot data live here under `elements/` and `shots/` (created by the
 pipeline). Put a character's reference drawing in its
