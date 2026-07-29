@@ -109,6 +109,13 @@ music or lyrics). See `shots/*/drafts/*/prompt.md` for worked examples.
 - **Prompt drift.** If a take drifts from the reference image, suspect prompt length
   first. Confirm the reference was actually sent: `higgsfield generate get <jobId>
   --json` (check `input_images`).
+- **No magically appearing props.** A gesture cue that *names an object* (e.g. "a
+  casual sip-the-coffee beat") makes Seedance materialize the literal prop in-hand
+  mid-shot — and a prop named in the *spoken line* can reinforce it. Keep gesture
+  cues object-free (empty-handed motion only: shrug, open-handed gesture, flourish).
+  When the line names props, add an explicit guard: hands stay empty the whole shot,
+  no cup/mug/objects ever appear even though the line mentions them, nothing is picked
+  up or conjured — the character only talks and gestures with empty hands.
 - **Don't hand-write the prompt.** Always compose via the worldbuilder / character-loop
   director so the style stack stays consistent across shots.
 
