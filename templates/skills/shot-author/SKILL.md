@@ -87,6 +87,36 @@ blank-video-carrying-the-wav anchors both content and timing — generated-audio
 boundaries match the source wav within ~1 frame. Full writeup:
 `docs/recipes/seedance-lipsync.md`.
 
+### Long / drift-prone wavs (stutter, repeated or doubled words)
+
+On longer lines (~7–10s+) the generated audio can stutter or repeat words. Fix in
+this order:
+
+1. **Simplify the prompt first — this is the primary fix.** A long, repetitive prompt
+   is itself a cause of speech drift: a bloated 10s shot stuttered, and cutting the
+   prompt to ~1/3 (lead with the exact line, then terse mouth / eyes / no-props /
+   clean-green rules) produced a clean 10s take. Note that comparably long *Art* shots
+   (9–14s) were clean with lean prompts — length alone isn't the problem, prompt bloat
+   is. So hone the prompt before assuming the shot must be split. Keep the exact-words
+   and "each word once, no repeats/doubles/stutters/echoes" guard, but drop the prose.
+2. **Re-roll.** The stutter is somewhat nondeterministic; a fresh draw of the leaned
+   prompt often lands clean.
+3. **Segment-and-stitch (fallback, only if 1–2 fail).** Split the wav into two shorter
+   phrases on a silence gap; generate phrase 1; pick a **resting-pose frame from
+   phrase 1's tail** (after the mouth closes) and pass it as the **single image
+   reference** to generate phrase 2 — a lone image reference becomes that shot's first
+   frame, giving continuity. Then concatenate `p1[0:cut] + p2`, choosing the cut so the
+   inter-phrase gap matches the original wav's gap (measure with `silencedetect`). To
+   fix mouth-interior colors on phrase 2 (a closed-mouth start frame carries no
+   open-mouth colors), add a second image reference: an **open-mouth frame** from
+   phrase 1, and tell the prompt to use it *only* for mouth color, not pose.
+   - **Seam pop:** the model repaints frame 1 in its own pass, so phrase 2's first
+     frame is *not* pixel-identical to phrase 1's tail (~22 dB PSNR) — and Seedance's
+     `start_image` param does **not** pixel-lock it either (tested: no better than a
+     plain image reference). Hide the small residual jump with a 2–3 frame
+     **crossfade** at the seam (the resting pose is static, so the dissolve is
+     invisible); don't chase a pixel-perfect generation.
+
 ## Prompt structure (what the director produces)
 
 A Seedance shot prompt has: **Style & Mood** (register + setting) · **Dynamic
