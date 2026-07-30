@@ -62,13 +62,12 @@ never hand-write the Seedance prompt from scratch:
 10. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
     (copied verbatim — pass the full path to the draft's mp4, not a bare name):
     `pipeline shot promote --id <id> --version <n> --output shots/<id>/drafts/vNNN/output.mp4`
-    The final clip is always written as `shots/<id>/final/output.<ext>` — the filename
-    is fixed, so it does **not** carry the version. The link back to the source draft
-    is `shots/<id>/final/source-draft.txt`, which promote writes with the promoted
-    version (e.g. `v006`). So it's never a mystery which draft is live: after
-    promoting, **read `source-draft.txt` and state the mapping to the user**
-    (`v006 → final/output.mp4`), and log the promotion in that draft's `notes.md` so
-    the chosen take is traceable from both ends.
+    The final clip is written as `shots/<id>/final/<id>-vNNN.<ext>` (e.g.
+    `art-talk-01-v006.mp4`) — the filename **carries the promoted version**, so which
+    draft is live is obvious at a glance. Promote also writes
+    `shots/<id>/final/source-draft.txt` with that version as a machine-readable
+    pointer. After promoting, log the promotion in that draft's `notes.md` so the
+    chosen take is traceable from both ends.
 
 ## Lip-sync shots (talking characters) — the load-bearing recipe
 

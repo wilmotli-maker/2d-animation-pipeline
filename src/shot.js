@@ -56,7 +56,9 @@ export async function newDraft(root, shotId) {
 
 export async function promoteDraft(root, shotId, version, outputFile) {
   const ext = path.extname(outputFile) || '.out';
-  const dest = path.join(shotFinalDir(root, shotId), `output${ext}`);
+  // Name the final clip after the shot + promoted draft version (e.g.
+  // art-talk-01-v006.mp4) so which draft is live is obvious from the filename.
+  const dest = path.join(shotFinalDir(root, shotId), `${shotId}-${formatVersion(version)}${ext}`);
   await copyFile(outputFile, dest);
   await writeFile(path.join(shotFinalDir(root, shotId), 'source-draft.txt'),
     `${formatVersion(version)}\n`);

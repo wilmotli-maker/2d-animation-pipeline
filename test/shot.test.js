@@ -61,8 +61,9 @@ test('promoteDraft copies a draft output into final/ and records its source', as
     const d = await newDraft(root, 's1');
     const src = path.join(d.dir, 'output.mp4');
     await writeFile(src, 'FAKEVIDEO');
-    await promoteDraft(root, 's1', 1, src);
-    const finalOut = await readFile(path.join(root, 'shots', 's1', 'final', 'output.mp4'), 'utf8');
+    const r = await promoteDraft(root, 's1', 1, src);
+    assert.equal(path.basename(r.finalPath), 's1-v001.mp4');
+    const finalOut = await readFile(path.join(root, 'shots', 's1', 'final', 's1-v001.mp4'), 'utf8');
     assert.equal(finalOut, 'FAKEVIDEO');
     const source = await readFile(path.join(root, 'shots', 's1', 'final', 'source-draft.txt'), 'utf8');
     assert.match(source.trim(), /v001/);
