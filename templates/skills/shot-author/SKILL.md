@@ -59,8 +59,16 @@ never hand-write the Seedance prompt from scratch:
    accept/regenerate decision in `drafts/vNNN/notes.md`. To refine, go back to
    step 2 (new version); correct the prompt **surgically** — change only the clause
    that was wrong.
-10. **Promote the keeper** to `shots/<id>/final/`:
-    `pipeline shot promote --id <id> --version <n> --output output.mp4`
+10. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
+    (copied verbatim — pass the full path to the draft's mp4, not a bare name):
+    `pipeline shot promote --id <id> --version <n> --output shots/<id>/drafts/vNNN/output.mp4`
+    The final clip is always written as `shots/<id>/final/output.<ext>` — the filename
+    is fixed, so it does **not** carry the version. The link back to the source draft
+    is `shots/<id>/final/source-draft.txt`, which promote writes with the promoted
+    version (e.g. `v006`). So it's never a mystery which draft is live: after
+    promoting, **read `source-draft.txt` and state the mapping to the user**
+    (`v006 → final/output.mp4`), and log the promotion in that draft's `notes.md` so
+    the chosen take is traceable from both ends.
 
 ## Lip-sync shots (talking characters) — the load-bearing recipe
 
