@@ -93,7 +93,7 @@ export function matteEngine({
   exec = streamingExec,
 } = {}) {
   return {
-    async run({ input, output, format = 'prores4444' }) {
+    async run({ input, output, format = 'prores4444', despill = true }) {
       if (!(await pathExists(model))) {
         throw new Error(
           `matte model not found at ${model} — download it:\n` +
@@ -103,6 +103,7 @@ export function matteEngine({
       const args = [
         ...runner.prefixArgs, script,
         '--input', input, '--output', output, '--model', model, '--format', format,
+        '--despill', despill ? 'true' : 'false',
       ];
       const { code, stdout, stderr } = await exec(runner.bin, args);
       if (code !== 0) {
@@ -121,7 +122,7 @@ export function matteEngine({
 // Matte one shot version. Returns the resolved source, the written output, and
 // whatever the sidecar reported (frame count, timing, alpha stats).
 export async function matteShot(root, spec, { engine }) {
-  const { shotId, version = null, format = 'prores4444', input = null } = spec;
+  const { shotId, version = null, format = 'prores4444', input = null, despill = true } = spec;
   if (!shotId) throw new Error('matteShot: shotId is required');
 
   const fmt = MATTE_FORMATS[format];
@@ -138,6 +139,6 @@ export async function matteShot(root, spec, { engine }) {
   // For a PNG sequence `output` is itself the folder; otherwise ensure its parent.
   await mkdir(fmt.ext == null ? output : path.dirname(output), { recursive: true });
 
-  const report = await engine.run({ input: source, output, format });
+  const report = await engine.run({ input: source, output, format, despill });
   return { source, output, ...report };
 }

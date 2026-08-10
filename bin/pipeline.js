@@ -136,7 +136,10 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
-      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--input <file>] [--model-file <path>] [--root <dir>]');
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--despill <true|false>] [--input <file>] [--model-file <path>] [--root <dir>]');
+    }
+    if (f.despill != null && f.despill !== 'true' && f.despill !== 'false') {
+      fail('shot matte: --despill must be true or false');
     }
     const version = f.version == null || f.version === 'final' ? null : Number(f.version);
     if (version != null && (!Number.isInteger(version) || version < 1)) {
@@ -144,9 +147,14 @@ async function main() {
     }
     const res = await matteShot(projectRoot(f.root), {
       shotId: f.id, version, format: f.format || 'prores4444', input: f.input,
+      despill: f.despill !== 'false',
     }, { engine: matteEngine({ model: matteModelPath(f['model-file']) }) });
     console.log(`matted ${res.frames} frames from ${res.source}`);
     console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, coverage ${res.meanCoverage})`);
+    if (res.edgeGreenBefore != null) {
+      const pct = (v) => `${(v * 100).toFixed(1)}%`;
+      console.log(`  despill: edge spill ${pct(res.edgeGreenBefore)} -> ${pct(res.edgeGreenAfter)}`);
+    }
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -195,7 +203,7 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
-      '  pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '  pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--despill <true|false>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',

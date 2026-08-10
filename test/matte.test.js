@@ -145,8 +145,22 @@ test('matteEngine passes input, output, model and format to the sidecar', async 
     assert.deepEqual(calls[0].args, [
       'run', 'python', '/repo/python/matte.py',
       '--input', '/in.mp4', '--output', '/out.mov',
-      '--model', model, '--format', 'prores4444',
+      '--model', model, '--format', 'prores4444', '--despill', 'true',
     ]);
+  });
+});
+
+test('matteEngine despills by default and can be turned off', async () => {
+  await withTemp(async (dir) => {
+    const model = await seedModel(dir);
+    const { calls, exec } = fakeExec();
+    const engine = matteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', model, exec });
+
+    await engine.run({ input: '/in.mp4', output: '/out.mov' });
+    assert.deepEqual(calls[0].args.slice(-2), ['--despill', 'true']);
+
+    await engine.run({ input: '/in.mp4', output: '/out.mov', despill: false });
+    assert.deepEqual(calls[1].args.slice(-2), ['--despill', 'false']);
   });
 });
 
@@ -257,6 +271,19 @@ test('matteShot rejects an unknown format and names the valid ones', async () =>
       /unknown --format "gif".*prores4444/s,
     );
     assert.ok(Object.keys(MATTE_FORMATS).includes('prores4444'));
+  });
+});
+
+test('matteShot passes despill through to the engine, defaulting on', async () => {
+  await withTemp(async (root) => {
+    await seedShot(root, 'art-talk-01', { plainOutput: true });
+    const on = fakeEngine();
+    await matteShot(root, { shotId: 'art-talk-01' }, { engine: on });
+    assert.equal(on.seen[0].despill, true);
+
+    const off = fakeEngine();
+    await matteShot(root, { shotId: 'art-talk-01', despill: false }, { engine: off });
+    assert.equal(off.seen[0].despill, false);
   });
 });
 

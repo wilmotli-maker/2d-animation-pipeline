@@ -60,7 +60,7 @@ export function matteScriptPath(root = REPO_ROOT) {
 
 // Python packages the matte sidecar imports. Kept here (not in the script) so
 // the uv invocation and the MATTE_PYTHON error message can't drift apart.
-export const MATTE_DEPS = ['numpy', 'pillow', 'onnxruntime'];
+export const MATTE_DEPS = ['numpy', 'pillow', 'onnxruntime', 'scipy'];
 
 // How to invoke the Python sidecar. Default is `uv run --with ...`, which
 // resolves deps per-run with no venv for the user to manage. MATTE_PYTHON

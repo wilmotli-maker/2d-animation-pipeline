@@ -96,7 +96,7 @@ Separately, **75–99% of edge-band pixels are green-contaminated** across all 1
 2. **Width-adaptive trimap** — never uniform erosion. Compute medial axis + distance transform; the **skeleton is always definite-foreground regardless of structure width**, so every connected structure keeps a ≥1 px spine, and the band radius is local: `r = min(r_max, dt − 1)`. Torso gets a 10 px band; a 9 px antenna gets 2 px. §6 shows why this is not optional.
 3. **Band refinement** with a matting head trained on thin structures (ViTMatte / FBA), not a fixed-window guided filter — a window wider than the structure averages it away.
 4. **Colour key as recall backstop** — see 4.2.
-5. **Despill keyed to the same local radius**, so a thin structure's spine is never despilled.
+5. **Despill by inverting the compositing equation**, not by radius or hue. Every edge pixel is `C = a·F + (1−a)·B` for plate colour `B`, so `F = (C − (1−a)B) / a` removes the plate's contribution exactly. This **supersedes the "despill keyed to local radius" this plan originally specified**, and is strictly better: at `a == 1` it reduces to the *identity*, so in-design greens and the spine of every thin structure are untouched by construction rather than by a heuristic that needs tuning and can be wrong. Verified at 0.000000/255 drift across 63,375 fully-opaque pixels; edge spill **25.2% → 4.7%** on the reference frame. `B` is estimated per frame on a coarse grid from pixels the matte itself calls background, which tracks plate gradients and survives the localized dark streaks that would poison a single global median.
 6. **Temporal pass: motion-compensated or gradient-gated**, never a plain median (§6, mode 3).
 7. Unpremultiply, write RGBA.
 
@@ -150,6 +150,22 @@ Follows the `transcribe.js` / whisper.cpp precedent exactly: an external engine 
 
 The general lesson for the remaining PRs: **a matting stage can fail silently and still produce a large, well-formed file.** Every stage needs an invariant it checks about its own output, not just a non-zero exit code.
 
+### Working practices these PRs established
+
+**Invariants must be tight enough to fail.** The first despill guard allowed 1.5/255 of drift on opaque pixels and the real value was 1.447 — it passed by a hair and would have caught nothing. The actual guarantee is *exactness* at `a == 1`, so the threshold is now 0.01 and the measured value is 0.000000 across 63,375 pixels. A barely-passing invariant is worse than none: it reads as verification while providing no protection.
+
+**Validate before publishing the artifact.** Encoding necessarily finishes before the output can be measured, so a rejected matte has already been written. The sidecar encodes to `alpha.partial.mov` and only `os.replace`s it into position once every check passes — otherwise the partial is discarded. Without this, a failed run leaves a plausible file that a later step, or a person, can mistake for a good one. (Keep the real extension last: `alpha.mov.partial` leaves ffmpeg unable to choose a muxer.)
+
+**Iterate on 3 frames, not 145.** A full clip is ~10 minutes, which is slow enough that mistakes get discovered by long runs instead of by fast ones — a `NameError` in the report block survived all the way to a complete 145-frame render. A 3-frame clip exercises exactly the same path in ~13 s:
+
+```bash
+ffmpeg -i <shot>/final/output.mp4 -frames:v 3 -c:v libx264 -pix_fmt yuv420p smoke.mp4
+uv run --with numpy,pillow,onnxruntime,scipy python python/matte.py \
+  --input smoke.mp4 --output smoke-alpha.mov --model models/birefnet-dis.onnx
+```
+
+The Node tests cannot cover any of this — every bug in these two PRs was in the Python sidecar, which they do not execute. Run the smoke clip after touching `matte.py`.
+
 ---
 
 ## 6. Thin structures — the failure mode that shapes the design
@@ -172,7 +188,7 @@ Every character has skeleton p1 = **2 px**. **7.5–12.5% of every silhouette li
 1. **Erosion annihilates the core.** No definite-FG survives when `w ≤ 2r`. → *width-adaptive trimap (4.1.2).*
 2. **Refinement window averages it away** — alpha collapses to ~0.3. Insidious: it *fades* rather than deletes, reading as sloppy compositing rather than a bug. → *matting head, not fixed-window filter.*
 3. **Temporal median deletes moving thin structures.** If a stalk sweeps more than its own width between frames, the ±2-frame median *is* background — it erases the antenna exactly when it moves fastest, and the body is untouched so aggregate QC sees nothing. → *motion-compensated or gradient-gated; safe fallback is percentile-80 instead of median.*
-4. **Despill consumes the whole structure** — thin structures have almost no interior, so "the interior is protected" is false for them. → *despill keyed to local radius.*
+4. **Despill consumes the whole structure** — thin structures have almost no interior, so "the interior is protected" is false for them. → *resolved by the compositing-equation despill in §4.1.5: protection follows alpha, not radius, so a thin structure's opaque spine is exempt automatically no matter how narrow it is.*
 
 **Class B — matte never found it**
 
