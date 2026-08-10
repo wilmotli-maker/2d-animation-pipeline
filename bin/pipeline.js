@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { projectRoot, whisperModelPath } from '../src/config.js';
+import { projectRoot, whisperModelPath, matteModelPath } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
@@ -9,6 +9,7 @@ import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { syncSkills } from '../src/sync-skills.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
+import { matteShot, matteEngine } from '../src/matte.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -132,6 +133,20 @@ async function main() {
       generateAudio: f['generate-audio'], mode: f.mode,
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
+  } else if (cmd === 'shot' && sub === 'matte') {
+    const f = parseFlags(rest);
+    if (!f.id) {
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--input <file>] [--model-file <path>] [--root <dir>]');
+    }
+    const version = f.version == null || f.version === 'final' ? null : Number(f.version);
+    if (version != null && (!Number.isInteger(version) || version < 1)) {
+      fail('shot matte: --version must be a positive integer or "final"');
+    }
+    const res = await matteShot(projectRoot(f.root), {
+      shotId: f.id, version, format: f.format || 'prores4444', input: f.input,
+    }, { engine: matteEngine({ model: matteModelPath(f['model-file']) }) });
+    console.log(`matted ${res.frames} frames from ${res.source}`);
+    console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, coverage ${res.meanCoverage})`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -180,6 +195,7 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
+      '  pipeline shot matte --id <shotId> [--version <n|final>] [--format prores4444|webm|png] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',

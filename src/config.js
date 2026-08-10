@@ -39,3 +39,38 @@ export function whisperBin() {
 export function whisperModelPath(explicit, root = REPO_ROOT) {
   return explicit || process.env.WHISPER_CPP_MODEL || path.join(root, 'models', 'ggml-base.en.bin');
 }
+
+// --- shot matte ----------------------------------------------------------
+
+// BiRefNet-DIS weights for `pipeline shot matte`. DIS is trained for
+// fine-structure segmentation, which is why it was picked over five
+// alternatives — see docs/plans/shot-matte-alpha.md §6. Same policy as the
+// whisper model: ~930 MB, so it is downloaded rather than bundled, and a
+// missing file is reported with the exact curl command.
+export const MATTE_MODEL_URL =
+  'https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-DIS-epoch_590.onnx';
+
+export function matteModelPath(explicit, root = REPO_ROOT) {
+  return explicit || process.env.MATTE_MODEL || path.join(root, 'models', 'birefnet-dis.onnx');
+}
+
+export function matteScriptPath(root = REPO_ROOT) {
+  return path.join(root, 'python', 'matte.py');
+}
+
+// Python packages the matte sidecar imports. Kept here (not in the script) so
+// the uv invocation and the MATTE_PYTHON error message can't drift apart.
+export const MATTE_DEPS = ['numpy', 'pillow', 'onnxruntime'];
+
+// How to invoke the Python sidecar. Default is `uv run --with ...`, which
+// resolves deps per-run with no venv for the user to manage. MATTE_PYTHON
+// overrides with an interpreter that already has MATTE_DEPS importable — for
+// CI, or for anyone who would rather not have uv fetch wheels each run.
+export function matteRunner() {
+  const explicit = process.env.MATTE_PYTHON;
+  if (explicit) return { bin: explicit, prefixArgs: [] };
+  return {
+    bin: 'uv',
+    prefixArgs: ['run', '--quiet', ...MATTE_DEPS.flatMap((d) => ['--with', d]), 'python'],
+  };
+}

@@ -134,11 +134,21 @@ Follows the `transcribe.js` / whisper.cpp precedent exactly: an external engine 
 | `docs/recipes/` | a matte recipe alongside `seedance-lipsync.md` |
 | `templates/skills/shot-author/SKILL.md` | mention the matte step so it is discoverable |
 
-**Runtime:** Python sidecar invoked through `uv run --with numpy,scipy,scikit-image,onnxruntime`, keeping deps hermetic with no venv to manage. Same shape as requiring whisper.cpp via brew.
+**Runtime:** Python sidecar invoked through `uv run --with numpy,pillow,onnxruntime`, keeping deps hermetic with no venv to manage. Same shape as requiring whisper.cpp via brew. `MATTE_PYTHON` overrides with a pre-provisioned interpreter for CI.
+
+**Execution provider: CPU, deliberately.** CoreML is the obvious reach on Apple silicon and it does not work here — converting the ~930 MB BiRefNet graph wedged at **9.6 GB RSS with zero CPU progress after 10 minutes**, never reaching the decoder. CPU loads the session in 1.4 s and runs **~4.4 s/frame**, so a 121-frame 5 s shot takes ~9 minutes. That is slow enough to matter for a 14-shot batch (~2 h) but it is unattended work, and correctness beats a hang. `--providers` is exposed to retest CoreML later. Revisiting this is the obvious first performance task once the feature is correct.
 
 **Encoding:** `-c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le -alpha_bits 16` — AE reads it natively and the alpha is not subsampled. PNG sequence as lossless fallback, VP9 `yuva420p` for web.
 
 **Env overrides:** `MATTE_MODEL`, `MATTE_PYTHON` — mirroring `WHISPER_CPP_MODEL` / `WHISPER_CPP_BIN`.
+
+### Two implementation gotchas, both found by running it
+
+**BiRefNet emits logits, not probabilities.** They must pass through a sigmoid before the min-max rescale. Skipping it rescales a near-linear range instead of a saturated one, producing a smooth gradient rather than a mask: measured **97% of pixels neither opaque nor transparent, coverage 0.010 where the correct value is 0.259**. Input scaling also divides by the frame's own max rather than by 255 — identical whenever some pixel hits 255, which is exactly why it is easy to miss. With both corrected the output matches the bake-off reference to a mean absolute difference of 0.00000.
+
+**That bug exited 0 and wrote a plausible 181 MB file.** Nothing downstream would have caught it until a compositor opened the clip. So the sidecar now asserts a shape invariant before reporting success: a correct matte confines soft pixels to the silhouette edge (~1% on this corpus), and a mostly-soft result is refused with an explanatory error. `meanSoftFraction` is reported for the QC stage to threshold more precisely later.
+
+The general lesson for the remaining PRs: **a matting stage can fail silently and still produce a large, well-formed file.** Every stage needs an invariant it checks about its own output, not just a non-zero exit code.
 
 ---
 
