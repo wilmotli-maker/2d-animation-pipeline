@@ -117,6 +117,32 @@ A green plate leaves a green fringe (75–99% of edge pixels, §3). A **mid-gray
 
 This costs regeneration credits, so it applies to **new shots only** and is a refinement, not a requirement. Nothing in §4.1 depends on it. It belongs in this plan as a follow-up change to the shot-author skill's background wording, not as a blocker.
 
+### 4.4 Rejected: silhouette erosion (`--edge-bias`) — built, measured, removed
+
+Despill only acts where alpha < 1, so spill baked into *fully opaque* pixels (the green on AI2's antenna ball rims) is out of its reach. The obvious extension is to move the silhouette boundary inward so that ring becomes partial alpha and despill can correct it — a signed distance field on the opaque silhouette, with a signed parameter to erode or dilate.
+
+It was implemented and measured. **Do not rebuild it without new evidence.**
+
+| bias | protect thin | green in composite | coverage | antenna spine >0.5 |
+|---|---|---|---|---|
+| 0 | — | 0.86% | 25.87% | 100.0% |
+| −2 | on | 0.66% | 24.90% | 95.8% |
+| −2 | off | 0.53% | 24.03% | 88.2% |
+| −5 | off | 0.54% | 22.44% | 65.4% |
+
+Why it was dropped:
+
+1. **The ceiling is low and it is a real ceiling.** With thin-structure protection the result saturates at 0.66%, because 76% of opaque-green pixels sit >3 px deep — they *are* the chest cross and LED. 0.86% × 0.76 ≈ 0.65% matches the floor. Protected erosion removes the boundary spill available to it and then stops; going further only eats design colour and antennae.
+2. **The 0.20-point gain was never shown to be visible**, while the costs were: ~1% of silhouette area, and a dark rim on eroded edges that bias 0 does not have.
+3. **A band low-pass fixed the wrong thing.** It cut high-frequency alpha energy 4× (0.132 → 0.032) and improved thin-structure retention, but at the composite level only 656 px in the inspected crop changed at all (1.62%, mean 0.42/255) — indistinguishable from unsmoothed even at 10× side by side. The metric moved; the picture did not.
+
+Two transferable lessons:
+
+- **Smoothing alpha before thresholding destroys thin structures** (spine 96.2% → 83.1%), because the blur pushes them under the cutoff. If any future stage needs a smoother boundary, filter *after* the threshold, restricted to the transition band.
+- **Structure width must be propagated from the medial axis, not read per-pixel.** Capping erosion by a pixel's own depth-from-boundary silently disables it exactly at the boundary, where it is needed — every measurement came out identical before this was caught.
+
+Removed in favour of the bias-0 output, which the reviewer judged preferable. Recoverable from reflog at `f6d7aa7` / `7139fe0` if ever wanted.
+
 ---
 
 ## 5. Implementation
@@ -155,6 +181,8 @@ The general lesson for the remaining PRs: **a matting stage can fail silently an
 **Invariants must be tight enough to fail.** The first despill guard allowed 1.5/255 of drift on opaque pixels and the real value was 1.447 — it passed by a hair and would have caught nothing. The actual guarantee is *exactness* at `a == 1`, so the threshold is now 0.01 and the measured value is 0.000000 across 63,375 pixels. A barely-passing invariant is worse than none: it reads as verification while providing no protection.
 
 **Validate before publishing the artifact.** Encoding necessarily finishes before the output can be measured, so a rejected matte has already been written. The sidecar encodes to `alpha.partial.mov` and only `os.replace`s it into position once every check passes — otherwise the partial is discarded. Without this, a failed run leaves a plausible file that a later step, or a person, can mistake for a good one. (Keep the real extension last: `alpha.mov.partial` leaves ffmpeg unable to choose a muxer.)
+
+**A metric is not a result until it shows up in composited pixels.** Several claims this feature produced were metric-true and picture-false. The discipline that separates them: composite the RGBA over a neutral background, diff against the variant you are comparing, and look at the per-pixel magnitude and how many pixels move. Despill passes that test — edge-band green 10.3% → 4.6% in the *composited* result, max per-pixel delta 46/255. The edge-bias band low-pass fails it — 656 px changed, mean 0.42/255, invisible at 10×. Report the second kind as "measured, not visible", never as a quality improvement.
 
 **Iterate on 3 frames, not 145.** A full clip is ~10 minutes, which is slow enough that mistakes get discovered by long runs instead of by fast ones — a `NameError` in the report block survived all the way to a complete 145-frame render. A 3-frame clip exercises exactly the same path in ~13 s:
 
