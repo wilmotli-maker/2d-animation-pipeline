@@ -25,11 +25,16 @@ import time
 import numpy as np
 from PIL import Image
 
-# BiRefNet's fixed input geometry and the ImageNet normalization it was trained
-# with. These must match what the model expects exactly; they are not tunable.
+# Per-model recipes, keyed to --quality (mirrors MATTE_MODELS in src/config.js).
+# These are NOT interchangeable and must match each model exactly — see the note
+# on alpha_for(). Both networks take a fixed 1024x1024 input.
 NET_SIZE = 1024
-MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+MODELS = {
+    # BiRefNet-DIS: ImageNet normalization, emits logits (needs sigmoid).
+    'best': dict(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), sigmoid=True),
+    # isnet-general-use: mean 0.5 / std 1.0, output used directly (no sigmoid).
+    'fast': dict(mean=(0.5, 0.5, 0.5), std=(1.0, 1.0, 1.0), sigmoid=False),
+}
 
 
 def log(msg):
@@ -84,37 +89,45 @@ def encoder_args(fmt, width, height, fps, output, source):
     raise SystemExit(f'unknown format: {fmt}')
 
 
-def make_session(model, providers):
+def make_session(model, providers, threads=4):
     import onnxruntime as ort
     avail = ort.get_available_providers()
     chosen = [p for p in providers if p in avail] or ['CPUExecutionProvider']
-    log(f'onnxruntime providers: {chosen}')
+    log(f'onnxruntime providers: {chosen}, threads={threads}')
     opts = ort.SessionOptions()
     opts.log_severity_level = 3
+    # Pinned deliberately. Letting onnxruntime use every core is 1.5x SLOWER on
+    # the fast model — the efficiency cores drag the pool. Measured optimum is 4.
+    opts.intra_op_num_threads = threads
     return ort.InferenceSession(model, sess_options=opts, providers=chosen)
 
 
-def alpha_for(session, frame, size):
+def alpha_for(session, frame, size, cfg):
     """Alpha plane for one RGB frame, resized back to the source geometry.
 
-    Mirrors rembg's BiRefNet session step for step. Two details are load-bearing
-    and both were learned the hard way:
+    Mirrors each model's reference (rembg) session step for step. Three details
+    are load-bearing and all were learned the hard way:
 
-      * The network emits LOGITS. They must go through a sigmoid before the
-        min-max rescale. Skipping it rescales a near-linear range instead of a
-        saturated one, which yields a smooth gradient rather than a mask —
-        measured 97% of pixels neither opaque nor transparent, and a coverage of
-        0.010 where the correct answer is 0.259.
+      * Whether the network emits LOGITS is per-model. BiRefNet does and needs a
+        sigmoid before the min-max rescale; isnet does not. Applying the wrong
+        one rescales a near-linear range instead of a saturated one, yielding a
+        smooth gradient rather than a mask — measured 97% of pixels neither
+        opaque nor transparent, and coverage 0.010 where the answer is 0.259.
+        It renders a plausible full-size file and exits 0; the soft-fraction
+        check in main() is what catches it.
+      * mean/std are per-model too (ImageNet for BiRefNet, 0.5/1.0 for isnet).
       * Input scaling divides by the frame's own max, not by 255. Identical
         whenever some pixel hits 255, which is why it is easy to miss.
     """
     small = Image.fromarray(frame).resize((NET_SIZE, NET_SIZE), Image.LANCZOS)
     ary = np.asarray(small, dtype=np.float32)
     ary = ary / max(float(ary.max()), 1e-6)
-    x = np.ascontiguousarray(((ary - MEAN) / STD).transpose(2, 0, 1)[None])
+    mean = np.array(cfg['mean'], dtype=np.float32)
+    std = np.array(cfg['std'], dtype=np.float32)
+    x = np.ascontiguousarray(((ary - mean) / std).transpose(2, 0, 1)[None])
 
-    logits = session.run(None, {session.get_inputs()[0].name: x})[0][:, 0, :, :]
-    pred = 1.0 / (1.0 + np.exp(-logits))
+    out = session.run(None, {session.get_inputs()[0].name: x})[0][:, 0, :, :]
+    pred = 1.0 / (1.0 + np.exp(-out)) if cfg['sigmoid'] else out
     lo, hi = float(pred.min()), float(pred.max())
     # Per-frame min-max is what the reference does, and the bake-off numbers were
     # measured with it. It is also a temporal-flicker hazard: the same true alpha
@@ -248,6 +261,12 @@ def main():
     ap.add_argument('--model', required=True)
     ap.add_argument('--format', default='prores4444')
     ap.add_argument('--despill', default='true', choices=['true', 'false'])
+    ap.add_argument('--quality', default='best', choices=sorted(MODELS),
+                    help='selects the pre/post-processing recipe; must match the '
+                         'weights passed to --model')
+    ap.add_argument('--threads', type=int, default=4,
+                    help='onnxruntime intra-op threads; 4 measured optimal, '
+                         'all-cores is 1.5x slower')
     # CPU by default, deliberately. CoreML looks attractive on Apple silicon but
     # converting this ~930 MB graph wedges: measured 9.6 GB RSS and zero CPU
     # progress after 10 minutes, having spawned no decoder. CPU loads in 1.4 s and
@@ -258,7 +277,8 @@ def main():
     width, height, fps, expected = probe(args.input)
     log(f'{os.path.basename(args.input)}: {width}x{height} @ {fps:.3f}fps, {expected or "?"} frames')
 
-    session = make_session(args.model, args.providers.split(','))
+    cfg = MODELS[args.quality]
+    session = make_session(args.model, args.providers.split(','), args.threads)
 
     # Encode to a sibling temp path and only move it into place once every
     # invariant below has passed, so a rejected matte never reaches args.output.
@@ -290,7 +310,7 @@ def main():
             if not buf or len(buf) < frame_bytes:
                 break
             frame = np.frombuffer(buf, np.uint8).reshape(height, width, 3)
-            a = alpha_for(session, frame, (width, height))
+            a = alpha_for(session, frame, (width, height), cfg)
 
             rgb = frame
             if do_despill:
@@ -364,6 +384,8 @@ def main():
         'maxCoverage': round(float(np.max(coverage)), 4),
         'meanSoftFraction': round(mean_soft, 4),
         'despill': do_despill,
+        'quality': args.quality,
+        'threads': args.threads,
     }
 
     if do_despill and green_before:

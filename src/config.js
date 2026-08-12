@@ -42,16 +42,59 @@ export function whisperModelPath(explicit, root = REPO_ROOT) {
 
 // --- shot matte ----------------------------------------------------------
 
-// BiRefNet-DIS weights for `pipeline shot matte`. DIS is trained for
-// fine-structure segmentation, which is why it was picked over five
-// alternatives — see docs/plans/shot-matte-alpha.md §6. Same policy as the
-// whisper model: ~930 MB, so it is downloaded rather than bundled, and a
-// missing file is reported with the exact curl command.
-export const MATTE_MODEL_URL =
-  'https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-DIS-epoch_590.onnx';
+// Weights for `pipeline shot matte`, keyed by --quality. Same policy as the
+// whisper model: downloaded rather than bundled, and a missing file is reported
+// with the exact curl command.
+//
+//   best — BiRefNet-DIS, trained for fine-structure segmentation. Picked over
+//          five alternatives (docs/plans/shot-matte-alpha.md §6) and the model
+//          the reviewed ArtAI corpus was matted with.
+//   fast — isnet-general-use. 8.6x faster on real shots with no structural
+//          regression, but a measurably WIDER matte (+20-43% edge-band pixels)
+//          which admits more plate green on some shots. For iteration, not
+//          delivery — see docs/plans/shot-matte-performance.md §3.
+//
+// Pre/post-processing differs per model and lives in python/matte.py under the
+// same keys. It is NOT interchangeable: birefnet applies a sigmoid to its
+// logits, isnet does not. Read any new model's recipe from the reference
+// implementation rather than assuming it.
+export const MATTE_MODELS = {
+  best: {
+    file: 'birefnet-dis.onnx',
+    url: 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/BiRefNet-DIS-epoch_590.onnx',
+  },
+  fast: {
+    file: 'isnet-general-use.onnx',
+    url: 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
+  },
+};
+export const MATTE_DEFAULT_QUALITY = 'best';
 
-export function matteModelPath(explicit, root = REPO_ROOT) {
-  return explicit || process.env.MATTE_MODEL || path.join(root, 'models', 'birefnet-dis.onnx');
+export function matteModelPath(explicit, quality = MATTE_DEFAULT_QUALITY, root = REPO_ROOT) {
+  if (explicit) return explicit;
+  // MATTE_MODEL pins one file and therefore ignores --quality; MATTE_MODEL_DIR
+  // relocates the whole set (e.g. to ~/.u2net, where rembg downloads them).
+  if (process.env.MATTE_MODEL) return process.env.MATTE_MODEL;
+  const model = MATTE_MODELS[quality];
+  if (!model) {
+    throw new Error(
+      `unknown matte quality "${quality}" (expected: ${Object.keys(MATTE_MODELS).join(', ')})`);
+  }
+  return path.join(process.env.MATTE_MODEL_DIR || path.join(root, 'models'), model.file);
+}
+
+export function matteModelUrl(quality = MATTE_DEFAULT_QUALITY) {
+  return (MATTE_MODELS[quality] || MATTE_MODELS[MATTE_DEFAULT_QUALITY]).url;
+}
+
+// onnxruntime threads per inference. Measured optimum is 4: letting it default
+// to all 18 cores is 1.5x SLOWER on the fast model, because the efficiency cores
+// drag the pool. Running several workers instead does not help either — this
+// workload is memory-bandwidth bound and one process already saturates the
+// machine (docs/plans/shot-matte-performance.md §2c-2d).
+export function matteThreads(explicit) {
+  const n = Number(explicit ?? process.env.MATTE_THREADS);
+  return Number.isInteger(n) && n > 0 ? n : 4;
 }
 
 export function matteScriptPath(root = REPO_ROOT) {

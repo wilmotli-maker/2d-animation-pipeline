@@ -4,8 +4,17 @@ import { mkdtemp, rm, writeFile, mkdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  MATTE_FORMATS, resolveSourceClip, parseMatteReport, matteEngine, matteShot, streamingExec,
+  MATTE_FORMATS, MATTE_QUALITIES, resolveSourceClip, parseMatteReport,
+  matteEngine, matteShot, streamingExec,
 } from '../src/matte.js';
+import { matteModelPath, matteModelUrl, matteThreads } from '../src/config.js';
+
+// Read a flag's value out of an argv array. Position-independent on purpose:
+// asserting with slice(-2) breaks the moment a new flag is appended.
+function flagValue(args, flag) {
+  const i = args.indexOf(flag);
+  return i === -1 ? undefined : args[i + 1];
+}
 
 async function withTemp(fn) {
   const dir = await mkdtemp(path.join(tmpdir(), 'matte-'));
@@ -146,6 +155,7 @@ test('matteEngine passes input, output, model and format to the sidecar', async 
       'run', 'python', '/repo/python/matte.py',
       '--input', '/in.mp4', '--output', '/out.mov',
       '--model', model, '--format', 'prores4444', '--despill', 'true',
+      '--quality', 'best', '--threads', '4',
     ]);
   });
 });
@@ -157,11 +167,74 @@ test('matteEngine despills by default and can be turned off', async () => {
     const engine = matteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', model, exec });
 
     await engine.run({ input: '/in.mp4', output: '/out.mov' });
-    assert.deepEqual(calls[0].args.slice(-2), ['--despill', 'true']);
+    assert.equal(flagValue(calls[0].args, '--despill'), 'true');
 
     await engine.run({ input: '/in.mp4', output: '/out.mov', despill: false });
-    assert.deepEqual(calls[1].args.slice(-2), ['--despill', 'false']);
+    assert.equal(flagValue(calls[1].args, '--despill'), 'false');
   });
+});
+
+// --- quality + threads ---------------------------------------------------
+
+test('matteEngine defaults to quality=best and 4 threads', async () => {
+  await withTemp(async (dir) => {
+    const model = await seedModel(dir);
+    const { calls, exec } = fakeExec();
+    const engine = matteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', model, exec });
+    await engine.run({ input: '/in.mp4', output: '/out.mov' });
+    assert.equal(flagValue(calls[0].args, '--quality'), 'best');
+    assert.equal(flagValue(calls[0].args, '--threads'), '4');
+  });
+});
+
+test('matteEngine forwards quality and threads to the sidecar', async () => {
+  await withTemp(async (dir) => {
+    const model = await seedModel(dir);
+    const { calls, exec } = fakeExec();
+    const engine = matteEngine({
+      runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', model, exec,
+      quality: 'fast', threads: 6,
+    });
+    await engine.run({ input: '/in.mp4', output: '/out.mov' });
+    assert.equal(flagValue(calls[0].args, '--quality'), 'fast');
+    assert.equal(flagValue(calls[0].args, '--threads'), '6');
+  });
+});
+
+test('matteEngine names the right weights and URL for the requested quality', async () => {
+  await withTemp(async (dir) => {
+    const { exec } = fakeExec();
+    // No model file on disk, so the download hint fires and we can read it.
+    const engine = matteEngine({
+      runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+      quality: 'fast', model: path.join(dir, 'isnet-general-use.onnx'),
+    });
+    await assert.rejects(
+      () => engine.run({ input: '/in.mp4', output: '/out.mov' }),
+      /quality fast.*isnet-general-use\.onnx/s,
+    );
+  });
+});
+
+test('matteModelPath resolves a distinct file per quality', () => {
+  const best = matteModelPath(null, 'best', '/repo');
+  const fast = matteModelPath(null, 'fast', '/repo');
+  assert.match(best, /birefnet-dis\.onnx$/);
+  assert.match(fast, /isnet-general-use\.onnx$/);
+  assert.notEqual(best, fast);
+  assert.notEqual(matteModelUrl('best'), matteModelUrl('fast'));
+});
+
+test('matteModelPath rejects an unknown quality rather than guessing', () => {
+  assert.throws(() => matteModelPath(null, 'turbo', '/repo'), /unknown matte quality "turbo"/);
+});
+
+test('matteThreads defaults to the measured optimum and takes an override', () => {
+  assert.equal(matteThreads(), 4);
+  assert.equal(matteThreads(6), 6);
+  assert.equal(matteThreads('nonsense'), 4);
+  assert.equal(matteThreads(0), 4);
+  assert.deepEqual(MATTE_QUALITIES.sort(), ['best', 'fast']);
 });
 
 test('matteEngine errors with a download hint when the model is missing', async () => {

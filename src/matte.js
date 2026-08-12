@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import {
-  matteModelPath, matteRunner, matteScriptPath, MATTE_MODEL_URL, MATTE_DEPS,
+  matteModelPath, matteRunner, matteScriptPath, matteModelUrl, matteThreads,
+  MATTE_DEPS, MATTE_MODELS, MATTE_DEFAULT_QUALITY,
 } from './config.js';
 import { shotFinalDir, shotDraftDir, shotAlphaPath } from './paths.js';
 
@@ -38,6 +39,8 @@ export const MATTE_FORMATS = {
   webm: { ext: 'webm' },
   png: { ext: null },
 };
+
+export const MATTE_QUALITIES = Object.keys(MATTE_MODELS);
 
 // Which clip to matte. `version` null/'final' means the promoted clip.
 // promoteDraft() names finals `<shotId>-vNNN.<ext>`, so prefer that — it is the
@@ -89,21 +92,29 @@ export function parseMatteReport(stdout) {
 export function matteEngine({
   runner = matteRunner(),
   script = matteScriptPath(),
-  model = matteModelPath(),
+  quality = MATTE_DEFAULT_QUALITY,
+  model = null,
+  threads = matteThreads(),
   exec = streamingExec,
 } = {}) {
+  // Resolved here rather than in the parameter default so `quality` can drive it.
+  const weights = model || matteModelPath(null, quality);
   return {
     async run({ input, output, format = 'prores4444', despill = true }) {
-      if (!(await pathExists(model))) {
+      if (!(await pathExists(weights))) {
         throw new Error(
-          `matte model not found at ${model} — download it:\n` +
-          `  curl -L -o "${model}" ${MATTE_MODEL_URL}\n` +
-          '(or set MATTE_MODEL, or pass --model-file)');
+          `matte model for --quality ${quality} not found at ${weights} — download it:\n` +
+          `  curl -L -o "${weights}" ${matteModelUrl(quality)}\n` +
+          '(or set MATTE_MODEL_DIR, MATTE_MODEL, or pass --model-file)');
       }
       const args = [
         ...runner.prefixArgs, script,
-        '--input', input, '--output', output, '--model', model, '--format', format,
+        '--input', input, '--output', output, '--model', weights, '--format', format,
         '--despill', despill ? 'true' : 'false',
+        // --quality selects the pre/post recipe on the Python side; it MUST match
+        // the weights above or the matte comes out a gradient instead of a mask.
+        '--quality', quality,
+        '--threads', String(threads),
       ];
       const { code, stdout, stderr } = await exec(runner.bin, args);
       if (code !== 0) {
@@ -121,6 +132,13 @@ export function matteEngine({
 
 // Matte one shot version. Returns the resolved source, the written output, and
 // whatever the sidecar reported (frame count, timing, alpha stats).
+//
+// Matte several shots SEQUENTIALLY. Running them concurrently does not help:
+// measured aggregate throughput is flat at ~2.3 fps from 1 to 12 worker
+// processes, because this workload is memory-bandwidth bound and a single
+// 4-thread process already saturates the machine. A 2-way run of the ArtAI
+// corpus measured at best 1.24x and cost 20 minutes of idle time waiting for the
+// slower job in each pair. See docs/plans/shot-matte-performance.md §2d.
 export async function matteShot(root, spec, { engine }) {
   const { shotId, version = null, format = 'prores4444', input = null, despill = true } = spec;
   if (!shotId) throw new Error('matteShot: shotId is required');
