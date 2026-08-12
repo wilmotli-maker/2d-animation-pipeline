@@ -109,24 +109,41 @@ Combined, on the measured corpus:
 
 **~7× end-to-end.** That is the difference between a matte pass you schedule and one you just run.
 
-### Which model should be the default?
+### Which model should be the default? — validated, and the answer changed
 
-Recommend **`isnet-general-use` as `--quality fast`, and make it the default**, with `birefnet-dis` retained as `--quality best`. It is 8.4× faster and not measurably worse on the hardest frame in the corpus. But this is a quality call on a shipping deliverable, so it wants sign-off rather than a silent switch — and it should be validated on more than one frame before flipping the default (see §4).
+The §4 validation was run. **`birefnet-dis` stays the default; `isnet-general-use` ships as `--quality fast` for iteration.**
 
-Keep `birefnet-dis` available regardless: it is the model the corpus that shipped was matted with, so reproducing those exact results has to remain possible.
+Three shots matted with both — `ai-alt2-talk-01`, `ai-alt2-talk-03` (largest antenna excursion), `art-talk-04` (longest, only true chroma-green plate). 723 frames at **0.48 s/frame**, confirming 8.6× on real footage including despill.
+
+**No structural regression.** Antennae never disappear under either model (0 zero-frames across both robot shots). Background cleanliness 100% for both. Coverage matches to within 0.15 points.
+
+**But the edges are genuinely softer**, and it is visible:
+
+| | birefnet-dis | isnet-general-use |
+|---|---|---|
+| soft-pixel fraction | 0.74–0.76% | **0.92–1.34%** |
+| edge-band pixel count | ~15.7–16.9 k | **18.9–22.4 k (+20–43%)** |
+| visible edge green, `art-talk-04` | 2.87% | **4.54%** |
+| visible edge green, `ai-alt2-talk-03` | 0.76% | **0.43%** |
+
+isnet's matte is wider. At 7× the antenna ball carries a soft pale halo and the apron ribbon on `art-talk-04` carries a green fringe that birefnet does not produce — a wider matte admits more plate-contaminated pixels at higher alpha, which despill cannot fully recover because they are not fully transparent. The `ai-alt2-talk-03` result runs the other way, so this is shot-dependent rather than a uniform penalty, but "sometimes worse, sometimes better" is not a basis for changing what ships.
+
+**So the speed win applies where it is actually needed.** The pain was never the one-off delivery render; it was that re-running to evaluate a despill or temporal change costs two hours. `--quality fast` makes that loop ~8× shorter, and final output keeps the model the reviewed corpus was built with.
+
+| use | model | 2,173 frames |
+|---|---|---|
+| iteration, previews, QC development | `--quality fast` | **~18 min** |
+| delivery | `--quality best` (default) | ~128 min → ~85 min with thread pinning |
 
 ---
 
-## 4. Validate before flipping the default
+## 4. Validation — done
 
-The quality comparison in §2b is **one frame of one shot**. Before `isnet-general-use` becomes the default:
+Ran on `ai-alt2-talk-01`, `ai-alt2-talk-03`, `art-talk-04` (723 frames, ~6 min). Results and the revised recommendation are in §3 above.
 
-1. Matte 3 shots with each model — include `ai-alt2-talk-03` (largest antenna excursion) and `art-talk-04` (longest, only genuine chroma-green plate).
-2. Compare with the existing QC: coverage, bg cleanliness, interior, soft fraction, and per-frame antenna presence across every frame.
-3. Composite both over a checkerboard and diff — report where they differ and by how much, not just that a metric moved.
-4. Human review of the side-by-side clips.
+**Worth recording: the single-frame comparison in §2b was misleading.** On one frame isnet looked equal-or-better (spine 0.992 vs 0.996, *better* on spine >0.9), which pointed at making it the default. Across three full shots the softer edge shows up consistently — +20–43% edge-band pixels — and on one shot costs 58% more visible green fringe. One frame was not enough to see it.
 
-At 8.4× this costs ~10 minutes of compute, so there is no reason to skip it.
+**Implementation note for `--quality`:** pre/post-processing is **per-model and not interchangeable**. `birefnet-dis` uses ImageNet mean/std and applies a sigmoid to its logits; `isnet-general-use` uses mean 0.5 / std 1.0 and **no sigmoid**. Both then min-max normalize and both divide the input by the frame's own max rather than 255. Getting the sigmoid wrong produces a smooth gradient rather than a mask, which renders a plausible full-size file and exits 0 — it cost a complete 145-frame render to catch the first time. Any model added here needs its recipe read from the reference implementation, not assumed, and the soft-fraction invariant already in the sidecar is what catches the mistake.
 
 ---
 
