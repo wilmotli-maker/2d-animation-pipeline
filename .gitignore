@@ -13,4 +13,10 @@ scripts/sanity-checks/fixtures/*
 # whisper.cpp model files for `pipeline voice transcribe` — downloaded, not source.
 models/
 
+# Raw evaluation renders (multi-hundred-MB .mov alpha passes). Only the small
+# web/ comparison clips are versioned; the sources stay local.
+evaluation/
+
+__pycache__/
+
 .DS_Store
