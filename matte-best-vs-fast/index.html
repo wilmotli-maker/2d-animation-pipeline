@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matte evaluation — quality=best vs quality=fast</title>
+<style>
+  :root {
+    --bg: #14151a; --panel: #1c1e25; --line: #2c2f39;
+    --fg: #e8e9ee; --dim: #9aa0b0; --accent: #7cc4ff; --warn: #ffcc66; --good: #7ddba0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 5rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .75rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 0 0 .5rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+  p { color: var(--dim); max-width: 78ch; }
+  .sub { color: var(--dim); margin: 0 0 2rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .75rem; margin: 1.5rem 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; }
+  .card .n { font-size: 1.5rem; font-weight: 600; letter-spacing: -.02em; }
+  .card .l { color: var(--dim); font-size: .82rem; }
+  .good { color: var(--good); } .warn { color: var(--warn); }
+  table { border-collapse: collapse; width: 100%; font-size: .87rem; margin: 1rem 0; }
+  th, td { padding: .45rem .6rem; text-align: right; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  th { color: var(--dim); font-weight: 500; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  tbody tr:hover { background: #ffffff08; }
+  .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem; margin: 1.25rem 0; }
+  video { width: 100%; border-radius: 8px; background: #000; display: block; }
+  .legend { display: flex; gap: 0; margin: .6rem 0 .1rem; font-size: .78rem; color: var(--dim); }
+  .legend span { flex: 1; text-align: center; padding: .3rem; border-top: 2px solid var(--line); }
+  .legend span:nth-child(1) { border-top-color: #6b7280; }
+  .legend span:nth-child(2) { border-top-color: var(--good); }
+  .legend span:nth-child(3) { border-top-color: var(--accent); }
+  .meta { display: flex; flex-wrap: wrap; gap: 1.25rem; font-size: .8rem; color: var(--dim); margin-top: .6rem; }
+  .meta b { color: var(--fg); font-weight: 600; }
+  .note { background: #1a1d26; border-left: 3px solid var(--warn); padding: .8rem 1rem; border-radius: 0 8px 8px 0; margin: 1.25rem 0; }
+  .note p { margin: 0; color: #cfd3de; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; background: #ffffff10; padding: .1em .35em; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Matte evaluation — <code>quality=best</code> vs <code>quality=fast</code></h1>
+<p class="sub">All 13 Art + AI_ALT2 shots · 2,173 frames · matted with both models</p>
+
+<div class="cards">
+  <div class="card"><div class="n good">7.4&times;</div><div class="l">faster end to end</div></div>
+  <div class="card"><div class="n">128 → 17.3 min</div><div class="l">whole corpus</div></div>
+  <div class="card"><div class="n good">0</div><div class="l">missing-antenna frames, either model</div></div>
+  <div class="card"><div class="n warn">+50%</div><div class="l">soft-edge pixels on fast</div></div>
+</div>
+
+<p>
+  <b>best</b> = BiRefNet-DIS (928&nbsp;MB), the model the shipped
+  <code>with-alpha/</code> set was matted with. <b>fast</b> = isnet-general-use
+  (179&nbsp;MB). Both runs use identical despill and the same source clips —
+  the promoted <code>-vNNN</code> take where one exists.
+</p>
+
+<div class="note"><p>
+  <b>What the numbers do not cover:</b> edge quality. There is no validated
+  automated metric for it here, which is the entire reason for the videos below.
+  The structural metrics (background, interior, antenna presence) say the two
+  models are equivalent; whether <b>fast</b>’s wider, softer edge matters is a
+  judgement call to make by eye.
+</p></div>
+
+<h2>Summary</h2>
+<table>
+  <thead><tr>
+    <th>shot</th><th>frames</th><th>best (s)</th><th>fast (s)</th><th>speedup</th>
+    <th>soft best</th><th>soft fast</th><th>bg</th><th>interior</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>art-talk-01</td><td>121</td><td>802</td><td>58</td><td class="good">13.8&times;</td><td>0.76%</td><td>0.88%</td><td>100.00%</td><td>99.5%</td></tr>
+    <tr><td>art-talk-02</td><td>97</td><td>684</td><td>46</td><td class="good">14.9&times;</td><td>0.75%</td><td>0.97%</td><td>100.00%</td><td>99.7%</td></tr>
+    <tr><td>art-talk-03</td><td>217</td><td>1847</td><td>105</td><td class="good">17.6&times;</td><td>0.74%</td><td>0.89%</td><td>99.94%</td><td>99.5%</td></tr>
+    <tr><td>art-talk-04</td><td>361</td><td>2440</td><td>175</td><td class="good">13.9&times;</td><td>0.76%</td><td>0.92%</td><td>100.00%</td><td>98.3%</td></tr>
+    <tr><td>art-talk-05</td><td>121</td><td>745</td><td>60</td><td class="good">12.4&times;</td><td>0.75%</td><td>0.93%</td><td>100.00%</td><td>98.2%</td></tr>
+    <tr><td>art-talk-06</td><td>145</td><td>839</td><td>71</td><td class="good">11.8&times;</td><td>0.77%</td><td>0.90%</td><td>100.00%</td><td>99.7%</td></tr>
+    <tr><td>art-talk-07</td><td>97</td><td>585</td><td>48</td><td class="good">12.2&times;</td><td>0.74%</td><td>0.88%</td><td>100.00%</td><td>98.0%</td></tr>
+    <tr><td>ai-alt2-talk-01</td><td>121</td><td>682</td><td>59</td><td class="good">11.6&times;</td><td>0.75%</td><td>1.09%</td><td>100.00%</td><td>99.3%</td></tr>
+    <tr><td>ai-alt2-talk-02</td><td>241</td><td>1127</td><td>116</td><td class="good">9.7&times;</td><td>0.77%</td><td>1.14%</td><td>100.00%</td><td>100.0%</td></tr>
+    <tr><td>ai-alt2-talk-02a</td><td>97</td><td>559</td><td>47</td><td class="good">11.9&times;</td><td>0.83%</td><td>1.55%</td><td>100.00%</td><td>93.8%*</td></tr>
+    <tr><td>ai-alt2-talk-03</td><td>241</td><td>1204</td><td>115</td><td class="good">10.5&times;</td><td>0.75%</td><td>1.37%</td><td>99.99%</td><td>98.5%</td></tr>
+    <tr><td>ai-alt2-talk-04</td><td>145</td><td>832</td><td>70</td><td class="good">11.9&times;</td><td>0.76%</td><td>1.12%</td><td>100.00%</td><td>99.9%</td></tr>
+    <tr><td>ai-alt2-talk-05</td><td>145</td><td>581</td><td>69</td><td class="good">8.4&times;</td><td>0.82%</td><td>1.48%</td><td>99.79%</td><td>99.2%</td></tr>
+  </tbody>
+</table>
+<p style="font-size:.8rem">
+  Per-shot <em>best</em> times ran 2-way concurrent, so they overstate single-shot
+  cost; the honest comparison is total wall clock, <b>7675s vs 1039s = 7.4&times;</b>.
+  <br>* the 93.8% on <code>ai-alt2-talk-02a</code> is a false positive in the QC
+  reference — a light halo in the source that a chroma threshold calls foreground.
+  Both models score it identically and the composite is solid.
+</p>
+
+<h2>Antennae — the thin-structure test</h2>
+<p>
+  AI_ALT2’s antenna stalks narrow to 4&nbsp;px. Across all 990 robot frames,
+  <b>neither model drops a single frame</b>. The 38–39% dip on
+  <code>ai-alt2-talk-03</code> appears in both, which is what makes it genuine
+  antenna motion rather than matte failure.
+</p>
+<table>
+  <thead><tr><th>shot</th><th>frames</th><th>zero-antenna (best)</th><th>zero-antenna (fast)</th><th>worst dip best</th><th>worst dip fast</th></tr></thead>
+  <tbody>
+    <tr><td>ai-alt2-talk-01</td><td>121</td><td class="good">0</td><td class="good">0</td><td>16%</td><td>14%</td></tr>
+    <tr><td>ai-alt2-talk-02</td><td>241</td><td class="good">0</td><td class="good">0</td><td>10%</td><td>10%</td></tr>
+    <tr><td>ai-alt2-talk-02a</td><td>97</td><td class="good">0</td><td class="good">0</td><td>4%</td><td>5%</td></tr>
+    <tr><td>ai-alt2-talk-03</td><td>241</td><td class="good">0</td><td class="good">0</td><td>38%</td><td>39%</td></tr>
+    <tr><td>ai-alt2-talk-04</td><td>145</td><td class="good">0</td><td class="good">0</td><td>6%</td><td>6%</td></tr>
+    <tr><td>ai-alt2-talk-05</td><td>145</td><td class="good">0</td><td class="good">0</td><td>3%</td><td>4%</td></tr>
+  </tbody>
+</table>
+
+<h2>Shot by shot</h2>
+<p>
+  Three panels: source on the green plate, then each matte composited over a
+  checkerboard so transparency is legible. Look for edge softness and any green
+  fringe on the <b>fast</b> panel — that is where the two differ.
+</p>
+
+<div id="shots"></div>
+
+<script>
+const SHOTS = [
+  ['art-talk-01', 121, '5.0s'], ['art-talk-02', 97, '4.0s'], ['art-talk-03', 217, '9.0s'],
+  ['art-talk-04', 361, '15.0s'], ['art-talk-05', 121, '5.0s'], ['art-talk-06', 145, '6.0s'],
+  ['art-talk-07', 97, '4.0s'], ['ai-alt2-talk-01', 121, '5.0s'], ['ai-alt2-talk-02', 241, '10.0s'],
+  ['ai-alt2-talk-02a', 97, '4.0s'], ['ai-alt2-talk-03', 241, '10.0s'],
+  ['ai-alt2-talk-04', 145, '6.0s'], ['ai-alt2-talk-05', 145, '6.0s'],
+];
+document.getElementById('shots').innerHTML = SHOTS.map(([id, n, dur]) => `
+  <div class="shot">
+    <h3>${id}</h3>
+    <video controls preload="metadata" loop src="comparisons/${id}.mp4"></video>
+    <div class="legend"><span>source (green plate)</span><span>quality = best</span><span>quality = fast</span></div>
+    <div class="meta"><span><b>${n}</b> frames</span><span><b>${dur}</b></span>
+      <span>alpha: <b>alpha-fast/${id}-alpha-fast.mov</b></span></div>
+  </div>`).join('');
+</script>
+
+<h2>Files</h2>
+<p>
+  <code>comparisons/</code> — the 13 three-panel clips above.<br>
+  <code>alpha-fast/</code> — the <code>quality=fast</code> ProRes 4444 RGBA output,
+  straight (unpremultiplied) alpha, one per shot.<br>
+  The shipped <code>quality=best</code> mattes are unchanged in
+  <code>shots/&lt;id&gt;/final/alpha.mov</code> and
+  <code>shots/art-ai-alt2-candidates/with-alpha/</code>.
+</p>
+<p style="font-size:.82rem">
+  Regenerate: <code>pipeline shot matte --id &lt;shot&gt; --quality fast</code>
+</p>
+
+</div>
+</body>
+</html>
