@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { projectRoot, whisperModelPath, matteModelPath, matteThreads } from '../src/config.js';
+import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
@@ -136,12 +136,12 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
-      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--quality best|fast] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>] [--root <dir>]');
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>] [--root <dir>]');
     }
     if (f.despill != null && f.despill !== 'true' && f.despill !== 'false') {
       fail('shot matte: --despill must be true or false');
     }
-    const quality = f.quality || 'best';
+    const quality = f.quality || MATTE_DEFAULT_QUALITY;
     if (!MATTE_QUALITIES.includes(quality)) {
       fail(`shot matte: --quality must be one of ${MATTE_QUALITIES.join(', ')}`);
     }
@@ -216,8 +216,8 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
-      '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality best|fast] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
-      '        --quality best (default) is BiRefNet-DIS, the model the reviewed corpus was matted with. --quality fast is ~8x quicker for iteration, at the cost of a wider matte that admits more plate green on some shots.',
+      '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',

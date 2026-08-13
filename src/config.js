@@ -46,13 +46,17 @@ export function whisperModelPath(explicit, root = REPO_ROOT) {
 // whisper model: downloaded rather than bundled, and a missing file is reported
 // with the exact curl command.
 //
-//   best — BiRefNet-DIS, trained for fine-structure segmentation. Picked over
-//          five alternatives (docs/plans/shot-matte-alpha.md §6) and the model
-//          the reviewed ArtAI corpus was matted with.
-//   fast — isnet-general-use. 8.6x faster on real shots with no structural
-//          regression, but a measurably WIDER matte (+20-43% edge-band pixels)
-//          which admits more plate green on some shots. For iteration, not
-//          delivery — see docs/plans/shot-matte-performance.md §3.
+//   fast — isnet-general-use. DEFAULT. 7.4x faster over a full corpus with no
+//          structural regression: background cleanliness, interior integrity and
+//          antenna presence all match `best` (zero missing-antenna frames across
+//          990 AI_ALT2 frames, for both). Its matte is measurably wider — ~50%
+//          more soft pixels, +20-43% edge-band pixels — which admits more plate
+//          green on some shots. Reviewed side by side on all 13 ArtAI shots and
+//          accepted as the default.
+//   best — BiRefNet-DIS, trained for fine-structure segmentation and picked over
+//          five alternatives (docs/plans/shot-matte-alpha.md §6). Tighter edges,
+//          ~7x slower. The shipped ArtAI with-alpha/ set was matted with it, so
+//          reproducing those exact files requires --quality best.
 //
 // Pre/post-processing differs per model and lives in python/matte.py under the
 // same keys. It is NOT interchangeable: birefnet applies a sigmoid to its
@@ -68,7 +72,7 @@ export const MATTE_MODELS = {
     url: 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx',
   },
 };
-export const MATTE_DEFAULT_QUALITY = 'best';
+export const MATTE_DEFAULT_QUALITY = 'fast';
 
 export function matteModelPath(explicit, quality = MATTE_DEFAULT_QUALITY, root = REPO_ROOT) {
   if (explicit) return explicit;

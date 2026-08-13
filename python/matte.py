@@ -261,7 +261,7 @@ def main():
     ap.add_argument('--model', required=True)
     ap.add_argument('--format', default='prores4444')
     ap.add_argument('--despill', default='true', choices=['true', 'false'])
-    ap.add_argument('--quality', default='best', choices=sorted(MODELS),
+    ap.add_argument('--quality', default='fast', choices=sorted(MODELS),
                     help='selects the pre/post-processing recipe; must match the '
                          'weights passed to --model')
     ap.add_argument('--threads', type=int, default=4,

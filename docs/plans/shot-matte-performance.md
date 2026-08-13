@@ -109,9 +109,13 @@ Combined, on the measured corpus:
 
 **~7× end-to-end.** That is the difference between a matte pass you schedule and one you just run.
 
-### Which model should be the default? — validated, and the answer changed
+### Which model should be the default? — decided by review
 
-The §4 validation was run. **`birefnet-dis` stays the default; `isnet-general-use` ships as `--quality fast` for iteration.**
+**`isnet-general-use` (`--quality fast`) is the default. `birefnet-dis` remains available as `--quality best`.**
+
+The evidence below argued for the opposite, and that recommendation was superseded by review. The full corpus was re-matted with `fast` (7.4×, 128 → 17.3 min), all 13 shots were compared side by side in `evaluation/matte-best-vs-fast/`, and the wider edge was judged acceptable against the speed. The measurements stand as written — what changed is the weighing of them, which is a judgement about acceptable output, not something the numbers settle on their own.
+
+**Consequence:** the shipped ArtAI `with-alpha/` set was matted with `best`. Regenerating any of those files now needs `--quality best` explicitly, or the output will differ from what was reviewed and delivered.
 
 Three shots matted with both — `ai-alt2-talk-01`, `ai-alt2-talk-03` (largest antenna excursion), `art-talk-04` (longest, only true chroma-green plate). 723 frames at **0.48 s/frame**, confirming 8.6× on real footage including despill.
 
@@ -126,14 +130,14 @@ Three shots matted with both — `ai-alt2-talk-01`, `ai-alt2-talk-03` (largest a
 | visible edge green, `art-talk-04` | 2.87% | **4.54%** |
 | visible edge green, `ai-alt2-talk-03` | 0.76% | **0.43%** |
 
-isnet's matte is wider. At 7× the antenna ball carries a soft pale halo and the apron ribbon on `art-talk-04` carries a green fringe that birefnet does not produce — a wider matte admits more plate-contaminated pixels at higher alpha, which despill cannot fully recover because they are not fully transparent. The `ai-alt2-talk-03` result runs the other way, so this is shot-dependent rather than a uniform penalty, but "sometimes worse, sometimes better" is not a basis for changing what ships.
+isnet's matte is wider. At 7× the antenna ball carries a soft pale halo and the apron ribbon on `art-talk-04` carries a green fringe that birefnet does not produce — a wider matte admits more plate-contaminated pixels at higher alpha, which despill cannot fully recover because they are not fully transparent. The `ai-alt2-talk-03` result runs the other way, so it is shot-dependent rather than a uniform penalty.
 
-**So the speed win applies where it is actually needed.** The pain was never the one-off delivery render; it was that re-running to evaluate a despill or temporal change costs two hours. `--quality fast` makes that loop ~8× shorter, and final output keeps the model the reviewed corpus was built with.
+The soft-fraction gap reproduced on all 13 shots in the full run (0.88–1.55% vs 0.74–0.83%), so it is a predictable property of the model rather than noise — which is what made it safe to accept knowingly.
 
 | use | model | 2,173 frames |
 |---|---|---|
-| iteration, previews, QC development | `--quality fast` | **~18 min** |
-| delivery | `--quality best` (default) | ~128 min → ~85 min with thread pinning |
+| everything, unless stated otherwise | `--quality fast` (default) | **17.3 min, measured** |
+| reproducing a matte made before this switch | `--quality best` | ~128 min |
 
 ---
 

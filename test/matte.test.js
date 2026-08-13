@@ -7,7 +7,7 @@ import {
   MATTE_FORMATS, MATTE_QUALITIES, resolveSourceClip, parseMatteReport,
   matteEngine, matteShot, streamingExec,
 } from '../src/matte.js';
-import { matteModelPath, matteModelUrl, matteThreads } from '../src/config.js';
+import { matteModelPath, matteModelUrl, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 
 // Read a flag's value out of an argv array. Position-independent on purpose:
 // asserting with slice(-2) breaks the moment a new flag is appended.
@@ -155,7 +155,7 @@ test('matteEngine passes input, output, model and format to the sidecar', async 
       'run', 'python', '/repo/python/matte.py',
       '--input', '/in.mp4', '--output', '/out.mov',
       '--model', model, '--format', 'prores4444', '--despill', 'true',
-      '--quality', 'best', '--threads', '4',
+      '--quality', 'fast', '--threads', '4',
     ]);
   });
 });
@@ -176,15 +176,28 @@ test('matteEngine despills by default and can be turned off', async () => {
 
 // --- quality + threads ---------------------------------------------------
 
-test('matteEngine defaults to quality=best and 4 threads', async () => {
+test('matteEngine defaults to quality=fast and 4 threads', async () => {
   await withTemp(async (dir) => {
     const model = await seedModel(dir);
     const { calls, exec } = fakeExec();
     const engine = matteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', model, exec });
     await engine.run({ input: '/in.mp4', output: '/out.mov' });
-    assert.equal(flagValue(calls[0].args, '--quality'), 'best');
+    assert.equal(flagValue(calls[0].args, '--quality'), MATTE_DEFAULT_QUALITY);
+    assert.equal(flagValue(calls[0].args, '--quality'), 'fast');
     assert.equal(flagValue(calls[0].args, '--threads'), '4');
   });
+});
+
+// The Node default and the sidecar's own argparse default must agree: the CLI
+// always passes --quality explicitly, but anything invoking matte.py directly
+// gets the argparse default, and a silent disagreement would mean the two paths
+// produce different mattes.
+test('the sidecar argparse default matches MATTE_DEFAULT_QUALITY', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../python/matte.py', import.meta.url), 'utf8');
+  const m = /--quality',\s*default='([a-z]+)'/.exec(src);
+  assert.ok(m, 'could not find the --quality default in python/matte.py');
+  assert.equal(m[1], MATTE_DEFAULT_QUALITY);
 });
 
 test('matteEngine forwards quality and threads to the sidecar', async () => {
