@@ -12,7 +12,9 @@
     "check-auth": "bash scripts/check-auth.sh",
     "sanity:free": "bash scripts/sanity-checks/run-free-checks.sh",
     "test": "node --test",
-    "pipeline": "node bin/pipeline.js"
+    "pipeline": "node bin/pipeline.js",
+    "web:index": "node scripts/update-web-index.js",
+    "web:index:check": "node scripts/update-web-index.js --check"
   },
   "dependencies": {
     "sharp": "^0.35.3",
