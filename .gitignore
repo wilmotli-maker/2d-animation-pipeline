@@ -10,13 +10,15 @@ scripts/sanity-checks/state/
 scripts/sanity-checks/fixtures/*
 !scripts/sanity-checks/fixtures/README.md
 
-# whisper.cpp model files for `pipeline voice transcribe` — downloaded, not source.
+# Model weights: whisper.cpp ggml for `voice transcribe`, BiRefNet ONNX for
+# `shot matte`. Downloaded on demand, not source — see docs/plans/shot-matte-alpha.md.
 models/
 
 # Raw evaluation renders (multi-hundred-MB .mov alpha passes). Only the small
 # web/ comparison clips are versioned; the sources stay local.
 evaluation/
 
+# Bytecode from the python/ matte sidecar.
 __pycache__/
 
 .DS_Store

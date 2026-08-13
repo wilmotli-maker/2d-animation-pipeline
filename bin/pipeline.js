@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { projectRoot, whisperModelPath } from '../src/config.js';
+import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner } from '../src/cli.js';
@@ -9,6 +9,7 @@ import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { syncSkills } from '../src/sync-skills.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
+import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -132,6 +133,41 @@ async function main() {
       generateAudio: f['generate-audio'], mode: f.mode,
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
+  } else if (cmd === 'shot' && sub === 'matte') {
+    const f = parseFlags(rest);
+    if (!f.id) {
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>] [--root <dir>]');
+    }
+    if (f.despill != null && f.despill !== 'true' && f.despill !== 'false') {
+      fail('shot matte: --despill must be true or false');
+    }
+    const quality = f.quality || MATTE_DEFAULT_QUALITY;
+    if (!MATTE_QUALITIES.includes(quality)) {
+      fail(`shot matte: --quality must be one of ${MATTE_QUALITIES.join(', ')}`);
+    }
+    if (f.threads != null && !(Number.isInteger(Number(f.threads)) && Number(f.threads) > 0)) {
+      fail('shot matte: --threads must be a positive integer');
+    }
+    const version = f.version == null || f.version === 'final' ? null : Number(f.version);
+    if (version != null && (!Number.isInteger(version) || version < 1)) {
+      fail('shot matte: --version must be a positive integer or "final"');
+    }
+    const res = await matteShot(projectRoot(f.root), {
+      shotId: f.id, version, format: f.format || 'prores4444', input: f.input,
+      despill: f.despill !== 'false',
+    }, {
+      engine: matteEngine({
+        quality,
+        model: f['model-file'] || matteModelPath(null, quality),
+        threads: matteThreads(f.threads),
+      }),
+    });
+    console.log(`matted ${res.frames} frames from ${res.source}`);
+    console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, quality ${res.quality}, coverage ${res.meanCoverage})`);
+    if (res.edgeGreenBefore != null) {
+      const pct = (v) => `${(v * 100).toFixed(1)}%`;
+      console.log(`  despill: edge spill ${pct(res.edgeGreenBefore)} -> ${pct(res.edgeGreenAfter)}`);
+    }
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -180,6 +216,8 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
+      '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',

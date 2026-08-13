@@ -41,3 +41,23 @@ export function shotDraftDir(root, shotId, version) {
 export function shotFinalDir(root, shotId) {
   return path.join(shotDir(root, shotId), 'final');
 }
+
+// Where a per-version artifact belongs: the promoted clip's final/ dir when
+// version is null or 'final', otherwise that draft's own folder. Mattes are
+// written next to the clip they were pulled from so the two never separate.
+export function shotVersionDir(root, shotId, version = null) {
+  return version == null || version === 'final'
+    ? shotFinalDir(root, shotId)
+    : shotDraftDir(root, shotId, version);
+}
+
+// The RGBA output of `pipeline shot matte`. `ext` null means a numbered PNG
+// sequence, which is a folder rather than a single file.
+export function shotAlphaPath(root, shotId, version = null, ext = 'mov') {
+  const dir = shotVersionDir(root, shotId, version);
+  return ext == null ? path.join(dir, 'alpha') : path.join(dir, `alpha.${ext}`);
+}
+
+export function shotMatteQcDir(root, shotId, version = null) {
+  return path.join(shotVersionDir(root, shotId, version), 'qc');
+}
