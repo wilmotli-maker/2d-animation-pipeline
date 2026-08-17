@@ -136,26 +136,81 @@ test('validateShotGenerate checks speech-audio / video / audio files exist', asy
   });
 });
 
-test('validateShotGenerate enforces Seedance reference-count caps', async () => {
+test('validateShotGenerate enforces Seedance 2.0 reference-count caps', async () => {
   await withTemp(async (root) => {
     await seedDraft(root);
     const many = (n, ext) => Array.from({ length: n }, (_, i) => `/x/${i}.${ext}`);
 
     const tooManyVideos = await validateShotGenerate(root, {
-      shotId: 's1', version: 1, videos: many(3, 'mp4'), speechAudio: '/x/s.wav',
+      shotId: 's1', version: 1, model: 'seedance_2_0', videos: many(3, 'mp4'), speechAudio: '/x/s.wav',
     });
     assert.ok(tooManyVideos.checks.some((c) => c.label === 'video ref count' && c.status === 'fail'),
       'speech-audio counts toward the 3-video cap');
 
     const tooManyImages = await validateShotGenerate(root, {
-      shotId: 's1', version: 1, images: many(10, 'png'),
+      shotId: 's1', version: 1, model: 'seedance_2_0', images: many(10, 'png'),
     });
     assert.ok(tooManyImages.checks.some((c) => c.label === 'image ref count' && c.status === 'fail'));
 
     const orphanAudio = await validateShotGenerate(root, {
-      shotId: 's1', version: 1, audios: ['/x/a.wav'],
+      shotId: 's1', version: 1, model: 'seedance_2_0', audios: ['/x/a.wav'],
     });
     assert.ok(orphanAudio.checks.some((c) => c.label === 'audio ref anchor' && c.status === 'fail'));
+  });
+});
+
+test('an omitted model falls back to the 2.0 caps and says so', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+    const many = (n, ext) => Array.from({ length: n }, (_, i) => `/x/${i}.${ext}`);
+    const r = await validateShotGenerate(root, { shotId: 's1', version: 1, images: many(10, 'png') });
+    const c = r.checks.find((c) => c.label === 'image ref count');
+    assert.equal(c.status, 'fail');
+    assert.match(c.detail, /default/);
+  });
+});
+
+test('Seedance 2.5 allows counts that 2.0 rejects', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+    const many = (n, ext) => Array.from({ length: n }, (_, i) => `/x/${i}.${ext}`);
+
+    // 10 images: fails on 2.0 (cap 9), passes on 2.5 (cap 30).
+    const on25 = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5', images: many(10, 'png'),
+    });
+    assert.ok(!on25.checks.some((c) => c.label === 'image ref count' && c.status === 'fail'),
+      '2.5 permits 10 images');
+
+    // 2.5 states no video sub-cap: 5 videos must not fail the video-count check.
+    const manyVideos25 = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5', videos: many(5, 'mp4'),
+    });
+    assert.ok(!manyVideos25.checks.some((c) => c.label === 'video ref count' && c.status === 'fail'),
+      '2.5 has no video sub-cap');
+
+    // But the 50-total cap still bites.
+    const overTotal = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5', images: many(30, 'png'), videos: many(21, 'mp4'),
+    });
+    assert.ok(overTotal.checks.some((c) => c.label === 'total ref count' && c.status === 'fail'),
+      '2.5 still enforces the 50-total cap');
+  });
+});
+
+test('resolution enum is model-aware: 1080p ok on 2.0, warned on 2.5', async () => {
+  await withTemp(async (root) => {
+    await seedDraft(root);
+    const on20 = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_0', resolution: '1080p',
+    });
+    assert.ok(!on20.checks.some((c) => c.label === 'resolution'), '2.0 supports 1080p');
+
+    const on25 = await validateShotGenerate(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5', resolution: '1080p',
+    });
+    assert.ok(on25.checks.some((c) => c.label === 'resolution' && c.status === 'warn'),
+      '2.5 caps at 720p, so 1080p warns');
   });
 });
 

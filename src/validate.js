@@ -66,15 +66,42 @@ export async function validateElementSheet(root, { type, name, sheet, id, prompt
   return { checks, ok, promptText };
 }
 
+// Per-model reference caps and enums, from `higgsfield model get <model>`.
+// These are MODEL-DEPENDENT: Seedance 2.0 and 2.5 differ enough that one set of
+// hardcoded numbers would document one model while enforcing another. A null
+// cap means the model states no sub-limit for that category — skip the check.
+// `null` values in an enum list mean "do not enum-check this field".
+const MODEL_RULES = {
+  seedance_2_0: {
+    caps: { images: 9, videos: 3, audios: 3, total: 12 },
+    resolutions: ['480p', '720p', '1080p', '4k'],
+    aspectRatios: ['3:4', '16:9', '9:16', '1:1', '4:3', '21:9', 'auto'],
+  },
+  seedance_2_0_mini: {
+    caps: { images: 9, videos: 3, audios: 3, total: 12 },
+    resolutions: ['480p', '720p', '1080p', '4k'],
+    aspectRatios: ['3:4', '16:9', '9:16', '1:1', '4:3', '21:9', 'auto'],
+  },
+  seedance_2_5: {
+    // `model get seedance_2_5`: ≤50 total, ≤30 images; no video/audio sub-caps.
+    caps: { images: 30, videos: null, audios: null, total: 50 },
+    resolutions: ['480p', '720p'],
+    aspectRatios: ['3:4', '16:9', '9:16', '1:1', '4:3', '21:9', 'auto'],
+  },
+};
+
+// Unknown/omitted model: fall back to Seedance 2.0's rules. They are the
+// tightest, so a real overflow still surfaces; the detail line names the
+// fallback so the message is not misleading.
+const DEFAULT_MODEL = 'seedance_2_0';
+function modelRules(model) {
+  return { model: model || DEFAULT_MODEL, rules: MODEL_RULES[model] || MODEL_RULES[DEFAULT_MODEL] };
+}
+
 // Validate an existing shot draft before generating its output. Computes the
 // canonical draft prompt path itself and checks shot/draft existence.
-// Video-model reference enums. Values are MODEL-DEPENDENT, so a mismatch is a
-// warning (the model may still accept it), not a hard failure.
-const RESOLUTIONS = ['480p', '720p', '1080p', '4k'];
-const ASPECT_RATIOS = ['3:4', '16:9', '9:16', '1:1', '4:3'];
-
 export async function validateShotGenerate(root, {
-  shotId, version, prompt, promptFile, images = [],
+  shotId, version, model, prompt, promptFile, images = [],
   speechAudio, videos = [], audios = [],
   resolution, duration, aspectRatio, generateAudio,
 }) {
@@ -100,23 +127,34 @@ export async function validateShotGenerate(root, {
   for (const vid of videos) add('reference video', (await exists(vid)) ? 'pass' : 'fail', vid);
   for (const aud of audios) add('reference audio', (await exists(aud)) ? 'pass' : 'fail', aud);
 
-  // Seedance reference-count rules (`model get seedance_2_0`). --speech-audio
+  // Reference-count rules, per model (`model get <model>`). --speech-audio
   // becomes a video reference, so it counts toward the video cap.
+  const { model: resolvedModel, rules } = modelRules(model);
+  const { caps } = rules;
+  const forModel = resolvedModel === model ? resolvedModel : `${resolvedModel} (default)`;
   const videoCount = videos.length + (speechAudio != null ? 1 : 0);
   const totalRefs = images.length + videoCount + audios.length;
-  if (images.length > 9) add('image ref count', 'fail', `${images.length} image refs exceed the max of 9`);
-  if (videoCount > 3) add('video ref count', 'fail', `${videoCount} video refs exceed the max of 3`);
-  if (audios.length > 3) add('audio ref count', 'fail', `${audios.length} audio refs exceed the max of 3`);
-  if (totalRefs > 12) add('total ref count', 'fail', `${totalRefs} references exceed the max of 12`);
+  if (caps.images != null && images.length > caps.images) {
+    add('image ref count', 'fail', `${images.length} image refs exceed the max of ${caps.images} for ${forModel}`);
+  }
+  if (caps.videos != null && videoCount > caps.videos) {
+    add('video ref count', 'fail', `${videoCount} video refs exceed the max of ${caps.videos} for ${forModel}`);
+  }
+  if (caps.audios != null && audios.length > caps.audios) {
+    add('audio ref count', 'fail', `${audios.length} audio refs exceed the max of ${caps.audios} for ${forModel}`);
+  }
+  if (caps.total != null && totalRefs > caps.total) {
+    add('total ref count', 'fail', `${totalRefs} references exceed the max of ${caps.total} for ${forModel}`);
+  }
   if (audios.length && images.length === 0 && videoCount === 0) {
     add('audio ref anchor', 'fail', 'audio references need at least one image or video/speech reference');
   }
 
-  if (resolution != null && !RESOLUTIONS.includes(resolution)) {
-    add('resolution', 'warn', `"${resolution}" not in ${RESOLUTIONS.join('/')} — the model may reject it`);
+  if (resolution != null && !rules.resolutions.includes(resolution)) {
+    add('resolution', 'warn', `"${resolution}" not in ${rules.resolutions.join('/')} for ${forModel} — the model may reject it`);
   }
-  if (aspectRatio != null && !ASPECT_RATIOS.includes(aspectRatio)) {
-    add('aspect ratio', 'warn', `"${aspectRatio}" not in ${ASPECT_RATIOS.join('/')} — the model may reject it`);
+  if (aspectRatio != null && !rules.aspectRatios.includes(aspectRatio)) {
+    add('aspect ratio', 'warn', `"${aspectRatio}" not in ${rules.aspectRatios.join('/')} for ${forModel} — the model may reject it`);
   }
   if (generateAudio != null
     && !(generateAudio === true || generateAudio === false
