@@ -46,10 +46,18 @@ layout), omit `--root` everywhere and paths are the top-level `shots/<id>/…`.
 - Style register → which worldbuilder director (see *Choosing the director*).
 - Reference images: a pose/turnaround panel of each character (from the element's
   `sheets/.../<slug>/<panel>.png`), plus any environment plate. Passed as `--image`.
-- Model (`seedance_2_0` for video).
+- Model (`seedance_2_5` for video — the current default; `seedance_2_0` still works).
+  2.5 needs `--mode omni_reference` whenever you pass any reference (its default
+  `t2v` rejects reference media) and has no `genre` knob.
 - For a **talking shot**: the speech recording (`.wav`). See *Lip-sync shots*.
-- Seedance knobs: `--resolution` (480p/720p), `--duration` (s), `--aspect-ratio`
-  (e.g. `3:4`), `--generate-audio` (`true`/`false`).
+- Seedance knobs: `--resolution` (480p/720p on 2.5), `--duration` (s),
+  `--aspect-ratio` (e.g. `3:4`), `--generate-audio` (`true`/`false`), and on 2.5
+  `--mode omni_reference`.
+- **Resolution: draft AND finish at 480p, then upscale.** 2.5's 720p carries
+  little more real detail than its 480p but costs twice as much (2.0 vs 4.0 cr/s).
+  Generate at `--resolution 480p`, then enlarge the promoted final to 1080p with
+  `pipeline shot upscale` (step 11). Cheaper than generating at 720p, and higher
+  resolution.
 
 ## Choosing the director
 
@@ -82,8 +90,9 @@ never hand-write the Seedance prompt from scratch:
    Seedance reference caps in *Gotchas*):
    `pipeline verify shot --id <id> --version <n> [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
 8. **Generate** (reads the canonical prompt from step 6):
-   `pipeline shot generate --id <id> --version <n> --model seedance_2_0 [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
+   `pipeline shot generate --id <id> --version <n> --model seedance_2_5 --mode omni_reference [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] --resolution 480p [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
    Submissions can take >2 min (upload latency) — run submit+poll in the background.
+   Draft at `--resolution 480p`; the crisp final comes from the upscale in step 11.
 9. **Review with the user.** Watch `drafts/vNNN/output.mp4`. Log the
    accept/regenerate decision in `drafts/vNNN/notes.md`. To refine, go back to
    step 2 (new version); correct the prompt **surgically** — change only the clause
@@ -98,6 +107,13 @@ never hand-write the Seedance prompt from scratch:
     `shots/<id>/final/source-draft.txt` with that version as a machine-readable
     pointer. After promoting, log the promotion in that draft's `notes.md` so the
     chosen take is traceable from both ends.
+11. **Upscale the final** (when drafting at 480p — the recommended path):
+    `pipeline shot upscale --id <id> [--root episodes/<N>]`
+    Enlarges the promoted final to 1080p and writes `shots/<id>/final/upscaled-1080p.mp4`
+    beside it, with a `.json` sidecar recording model/job/source. `topaz_video` is
+    the default and best preserves flat-2D line art; add `--resolution 2160p` for 4K,
+    or `--model bytedance_video_upscale` for a cheaper (softer) pass. Needs `ffmpeg`.
+    The upscaled file is the deliverable; the promoted 480p clip stays as the master.
 
 ## Lip-sync shots (talking characters) — the load-bearing recipe
 
@@ -170,10 +186,11 @@ music or lyrics). See `shots/*/drafts/*/prompt.md` (or
   `nsfw` moderation flag (`status: nsfw`, no output). The helper fills `0x7f7f7f`.
   Treat `nsfw`/`moderated`/`rejected` as **terminal** when polling — a re-roll often
   passes (it's somewhat nondeterministic).
-- **Seedance reference caps** (from `higgsfield model get seedance_2_0`): ≤9 image
-  refs (incl. start/end), ≤3 video refs, ≤3 audio refs, ≤12 total; audio refs need at
-  least one image/video/start/end; `mode: fast` supports only 480p/720p. `verify
-  shot` enforces these — run it before generating.
+- **Seedance reference caps** (from `higgsfield model get <model>`, model-dependent):
+  **2.5** — ≤30 image refs, ≤50 total, no video/audio sub-cap; **2.0** — ≤9 image,
+  ≤3 video, ≤3 audio, ≤12 total. Audio refs need at least one image/video/start/end.
+  `verify shot` enforces the caps for the model you pass via `--model` (defaults to
+  2.0's tighter caps if omitted) — run it before generating.
 - **Prompt drift.** If a take drifts from the reference image, suspect prompt length
   first. Confirm the reference was actually sent: `higgsfield generate get <jobId>
   --json` (check `input_images`).

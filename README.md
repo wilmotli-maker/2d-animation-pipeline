@@ -59,8 +59,9 @@ pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <
 pipeline shot create    --id <shotId> [--duration <s>] [--mode <m>] [--description <d>]
 pipeline shot draft     --id <shotId>
 pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <f> | --prompt <p>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]
-pipeline verify shot    --id <shotId> --version <n>
+pipeline verify shot    --id <shotId> --version <n> [--model <m>]
 pipeline shot promote   --id <shotId> --version <n> --output <file>
+pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
 ```
 
 Run any command via `node bin/pipeline.js <...>` or `npm run pipeline -- <...>`.
@@ -68,13 +69,35 @@ All commands accept `--root <dir>`. `--image` feeds a local reference image
 (auto-uploaded); the correct flag is model-dependent, so check a model's inputs
 with `npm run higgsfield -- model get <model>`. List models with
 `npm run higgsfield -- model list` (e.g. `nano_banana` for images,
-`seedance_2_0` / `seedance_2_0_mini` for video).
+`seedance_2_5` / `seedance_2_0` for video).
 
 For talking-character (Seedance) shots, pass the speech recording via
 `--speech-audio <wav>`: the pipeline wraps it into a blank mid-gray video and
 sends it as a video reference, which reproduces the recording's exact words and
 pacing. Needs `ffmpeg` on `PATH`. See
 [docs/recipes/seedance-lipsync.md](docs/recipes/seedance-lipsync.md).
+
+**Seedance 2.5** is the recommended video model. Unlike 2.0 it needs
+`--mode omni_reference` whenever you pass any reference (its default `t2v`
+rejects reference media), and it has no `genre` knob. It caps at 720p — but its
+720p carries little more real detail than its 480p, so the cheapest path to a
+crisp final is to **draft and finish at 480p, then upscale** (below) rather than
+generate at 720p.
+
+### Draft at 480p, finish with an upscale
+
+`pipeline shot upscale` enlarges a finalized clip to 1080p or higher via a
+dedicated upscaler, so generation only ever pays for 480p:
+
+```bash
+pipeline shot upscale --id mayor-mono-03            # promoted final -> upscaled-1080p.mp4 beside it
+pipeline shot upscale --id mayor-mono-03 --version 3 --resolution 2160p
+```
+
+`topaz_video` (the default) preserves line weight and paper texture on flat
+2D art; `bytedance_video_upscale` is cheaper but smooths fine detail. The result
+lands next to the source as `upscaled-<res>.mp4` with a JSON sidecar recording
+how it was made. Needs `ffmpeg` on `PATH`.
 
 ## Example
 
@@ -100,8 +123,25 @@ Iterate (new version under the same slug) or start another instance (`--id summe
 
 Generation draws credits from your own Higgsfield account. The authoritative
 record of spend is `npm run higgsfield -- account transactions` (the balance
-field is cached and lags). Observed: **image ≈ 2 credits, video ≈ 22.5 credits** —
-hence low-res iteration and a single final upscale.
+field is cached and lags; it also only returns a recent window, so trust
+per-job charges over any running total it reports).
+
+Measured video rates (per second of output, 2026-08):
+
+| model / path | rate | notes |
+|---|---|---|
+| Seedance 2.0 @ 720p | 4.5 cr/s | flat, no per-job overhead |
+| Seedance 2.5 @ 720p | ~4.0 cr/s | ~11% cheaper than 2.0 |
+| **Seedance 2.5 @ 480p** | **2.0 cr/s** | half the 720p rate |
+| Topaz upscale → 1080p | ~2.3 cr + 0.18/s | e.g. 4s ≈ 3 cr, 15s ≈ 5 cr; `high` bitrate is free |
+| Bytedance upscale → 1080p | ~0.8 cr / 4s | cheaper, softer result |
+
+Images are near-free by comparison (Nano Banana Pro ≈ 2 cr, Flux Kontext ≈ 1.5).
+
+**Draft at 480p, upscale the final.** For a 44s set of shots, generating at 480p
+and finishing with Topaz costs roughly half of generating at 720p natively — and
+delivers 1080p instead. Video dominates the bill, so this is the single biggest
+lever on cost.
 
 ## Development
 

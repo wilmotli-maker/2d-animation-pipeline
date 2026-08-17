@@ -31,7 +31,8 @@ pipeline). Put a character's reference drawing in its
 - `pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt-file <f>] [--image <f> ...]`
 - `pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>]` — backfill per-panel folders for existing turnaround/pose sheets
 - `pipeline verify element --type <t> --name <n> --sheet <s> --id <slug> [--image <f> ...]`
-- `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt-file <f>] [--speech-audio <wav>]`
+- `pipeline shot create --id <shotId>` · `pipeline shot draft --id <shotId>` · `pipeline shot generate --id <shotId> --version <n> --model seedance_2_5 --mode omni_reference --resolution 480p [--prompt-file <f>] [--speech-audio <wav>]`
+- `pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution 1080p|2160p]` — enlarge the finalized clip; pairs with 480p drafting
 - `pipeline voice transcribe --audio <wav> [--dir <folder>] [--force]` — exact transcript sidecar (`<wav>.txt`) for lip-sync prompts; local whisper.cpp
 - `pipeline sync-skills` — refresh this project's `.claude/skills/` from the current pipeline templates (run after the tool updates)
 - Credit cost draws from your Higgsfield account — check `higgsfield account transactions`.
