@@ -85,7 +85,7 @@ export async function generateShotDraft(root, spec, {
   } = spec;
 
   const v = await validateShotGenerate(root, {
-    shotId, version, prompt, promptFile, images,
+    shotId, version, model, prompt, promptFile, images,
     speechAudio, videos, audios, resolution, duration, aspectRatio, generateAudio,
   });
   enforce(v, `shot ${shotId} v${version}`);
