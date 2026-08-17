@@ -140,3 +140,49 @@ test('listModels and getModel issue the right commands', async () => {
   assert.deepEqual(calls[0].args, ['model', 'list', '--json']);
   assert.deepEqual(calls[1].args, ['model', 'get', 'soul-model', '--json']);
 });
+
+test('upload returns the media id and issues upload create', async () => {
+  const { exec, calls } = fakeExec({
+    code: 0,
+    stdout: '{"id":"653374d0-c278-4f0e-9c1f-9691e792f375","type":"video","url":"https://x/v.mp4"}',
+    stderr: '',
+  });
+  const runner = createRunner({ exec });
+  const res = await runner.upload('/tmp/clip.mp4');
+  assert.equal(res.id, '653374d0-c278-4f0e-9c1f-9691e792f375');
+  assert.equal(res.type, 'video');
+  assert.equal(res.url, 'https://x/v.mp4');
+  assert.deepEqual(calls[0].args, ['upload', 'create', '/tmp/clip.mp4', '--json']);
+});
+
+test('upload accepts an array-wrapped response', async () => {
+  const { exec } = fakeExec({ code: 0, stdout: '[{"id":"abc","type":"video"}]', stderr: '' });
+  const runner = createRunner({ exec });
+  assert.equal((await runner.upload('/tmp/a.mp4')).id, 'abc');
+});
+
+test('upload accepts a bare id string', async () => {
+  const { exec } = fakeExec({ code: 0, stdout: '["abc"]', stderr: '' });
+  const runner = createRunner({ exec });
+  const res = await runner.upload('/tmp/a.mp4');
+  assert.equal(res.id, 'abc');
+  assert.equal(res.type, null);
+});
+
+test('upload throws when the response carries no id', async () => {
+  const { exec } = fakeExec({ code: 0, stdout: '{"detail":"nope"}', stderr: '' });
+  const runner = createRunner({ exec });
+  await assert.rejects(() => runner.upload('/tmp/a.mp4'), /no media id/);
+});
+
+test('upload throws on non-JSON output', async () => {
+  const { exec } = fakeExec({ code: 0, stdout: 'not json at all', stderr: '' });
+  const runner = createRunner({ exec });
+  await assert.rejects(() => runner.upload('/tmp/a.mp4'), /not JSON/);
+});
+
+test('upload surfaces a non-zero exit as HiggsfieldError', async () => {
+  const { exec } = fakeExec({ code: 4, stdout: '', stderr: 'file not found' });
+  const runner = createRunner({ exec });
+  await assert.rejects(() => runner.upload('/tmp/missing.mp4'), HiggsfieldError);
+});

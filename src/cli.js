@@ -113,5 +113,30 @@ export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {})
     async getModel(modelType) {
       return run(['model', 'get', modelType]);
     },
+    // Upload a local file and get back a media id usable anywhere a reference
+    // flag accepts `<path-or-id>`.
+    //
+    // Media flags DO accept a local path and auto-upload it, so this looks
+    // redundant — but for VIDEO inputs that inline upload can hang: `generate
+    // create` stops returning while still creating and billing the job, so the
+    // caller blocks forever on work that already succeeded, and a killed
+    // process can leave a retry in flight that bills a duplicate. Uploading
+    // first is a short, self-contained call that either returns an id or
+    // throws. Prefer it for video.
+    async upload(filePath) {
+      const out = await run(['upload', 'create', String(filePath)]);
+      let parsed;
+      try {
+        parsed = JSON.parse(out);
+      } catch {
+        throw new HiggsfieldError(`upload create ${filePath}: response was not JSON: ${out.slice(0, 200)}`);
+      }
+      const rec = Array.isArray(parsed) ? parsed[0] : parsed;
+      const id = typeof rec === 'string' ? rec : rec?.id;
+      if (!id) {
+        throw new HiggsfieldError(`upload create ${filePath}: no media id in response: ${out.slice(0, 200)}`);
+      }
+      return { id, type: rec?.type ?? null, url: rec?.url ?? null };
+    },
   };
 }
