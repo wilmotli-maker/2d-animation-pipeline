@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunner, HiggsfieldError, buildGenerateArgs } from '../src/cli.js';
+import { createRunner, HiggsfieldError, buildGenerateArgs, inheritStderrExec } from '../src/cli.js';
 
 // A fake executor records the args it was called with and returns a scripted result.
 function fakeExec(result) {
@@ -185,4 +185,23 @@ test('upload surfaces a non-zero exit as HiggsfieldError', async () => {
   const { exec } = fakeExec({ code: 4, stdout: '', stderr: 'file not found' });
   const runner = createRunner({ exec });
   await assert.rejects(() => runner.upload('/tmp/missing.mp4'), HiggsfieldError);
+});
+
+test('inheritStderrExec captures stdout and reports the exit code', async () => {
+  // node prints to stdout and exits 0 — stderr is inherited, not captured.
+  const res = await inheritStderrExec(process.execPath, ['-e', 'process.stdout.write("hello")']);
+  assert.equal(res.code, 0);
+  assert.equal(res.stdout, 'hello');
+  assert.equal(res.stderr, '');
+});
+
+test('inheritStderrExec reports a non-zero exit without throwing', async () => {
+  const res = await inheritStderrExec(process.execPath, ['-e', 'process.exit(3)']);
+  assert.equal(res.code, 3);
+});
+
+test('inheritStderrExec reports a spawn failure as code 127', async () => {
+  const res = await inheritStderrExec('/no/such/binary-xyz', ['x']);
+  assert.equal(res.code, 127);
+  assert.match(res.stderr, /ENOENT|spawn/);
 });

@@ -2,7 +2,7 @@
 import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
-import { createRunner } from '../src/cli.js';
+import { createRunner, inheritStderrExec } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft } from '../src/generate.js';
 import { backfillPanels } from '../src/split-panels.js';
 import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
@@ -10,6 +10,7 @@ import { syncSkills } from '../src/sync-skills.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
+import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -168,6 +169,27 @@ async function main() {
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  despill: edge spill ${pct(res.edgeGreenBefore)} -> ${pct(res.edgeGreenAfter)}`);
     }
+  } else if (cmd === 'shot' && sub === 'upscale') {
+    const f = parseFlags(rest);
+    if (!f.id) {
+      fail('usage: pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>] [--root <dir>]');
+    }
+    const model = f.model || UPSCALE_DEFAULT_MODEL;
+    if (!UPSCALE_MODELS[model]) {
+      fail(`shot upscale: --model must be one of ${Object.keys(UPSCALE_MODELS).join(', ')}`);
+    }
+    const version = f.version == null || f.version === 'final' ? null : Number(f.version);
+    if (version != null && (!Number.isInteger(version) || version < 1)) {
+      fail('shot upscale: --version must be a positive integer or "final"');
+    }
+    const res = await upscaleShot(projectRoot(f.root), {
+      shotId: f.id, version, input: f.input, model,
+      resolution: f.resolution, aspectRatio: f['aspect-ratio'],
+      modelVersion: f['model-version'], preset: f.preset, fps: f.fps,
+      // The upscaler create call hangs if stderr is a captured pipe; inherit it.
+    }, { runner: createRunner({ exec: inheritStderrExec }) });
+    console.log(`upscaled ${res.source}`);
+    console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, job ${res.jobId})`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -217,6 +239,7 @@ async function main() {
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
       '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
