@@ -1,6 +1,6 @@
 ---
 name: shot-author
-description: Author a Seedance video shot for this animation project — compose the prompt from a rough idea and reference images, verify, generate, critique, and promote. Use when creating or iterating on a shot, a talking/lip-sync shot, an action or loop shot, or any Seedance clip under shots/.
+description: Author a Seedance video shot for this animation project — compose the prompt from a rough idea and reference images, verify, generate, critique, and promote. Use when creating or iterating on a shot, a talking/lip-sync shot, an action or loop shot, or any Seedance clip under shots/ (top-level, or episodes/<N>/shots/ in an episodic project).
 ---
 
 # Shot Author
@@ -11,10 +11,37 @@ the prompt with a worldbuilder director, runs the verify gate, generates, and dr
 the critique → regenerate → promote loop. Keep it interactive — every generate is a
 real credit cost (check `higgsfield account transactions`).
 
+## Episode root (episodic projects)
+
+If the project has a top-level `episodes/` folder, shots are organized **per
+episode** under `episodes/<N>/shots/<id>/…`. Before doing anything else, **confirm
+which episode** with the user (don't assume the latest). Then, on **every** `pipeline
+shot …` and `pipeline verify shot …` command below, pass `--root episodes/<N>` — that
+is what lands the shot's data (`shot.yaml`, drafts, final) under
+`episodes/<N>/shots/…`. Wherever this skill writes a `shots/<id>/…` path, read it as
+`episodes/<N>/shots/<id>/…`.
+
+Two things stay **top-level and cwd-relative** regardless of episode:
+
+- **Run every command from the project's top directory** (the one holding
+  `episodes/` and `elements/`), never from inside an episode folder. `--root` only
+  redirects where shot data is *written*; `--image`/`--speech-audio`/`--output`
+  paths are resolved against the current directory.
+- **Element references are shared across episodes** — `--image elements/…` refs (and
+  `--output episodes/<N>/shots/…` on promote) are cwd-relative from that top
+  directory. Elements live once at the top-level `elements/`; never duplicate them
+  per episode.
+
+`pipeline voice transcribe` needs **no** `--root` — its `.txt` sidecar is written
+next to the `--audio` wav. If the project has **no** `episodes/` folder (flat
+layout), omit `--root` everywhere and paths are the top-level `shots/<id>/…`.
+
 ## Inputs to gather and confirm (propose defaults, never assume silently)
 
+- Episode (episodic projects only): which `episodes/<N>` this shot belongs to →
+  threads `--root episodes/<N>` through the shot commands (see *Episode root*).
 - Shot id (kebab-case slug, e.g. `art-talk-01`). If it doesn't exist yet, create it:
-  `pipeline shot create --id <id> [--duration <s>] [--mode <m>] [--description <d>]`.
+  `pipeline shot create --id <id> [--root episodes/<N>] [--duration <s>] [--mode <m>] [--description <d>]`.
 - Creative intent for the shot (who/what, action, mood, setting).
 - Style register → which worldbuilder director (see *Choosing the director*).
 - Reference images: a pose/turnaround panel of each character (from the element's
@@ -36,10 +63,12 @@ never hand-write the Seedance prompt from scratch:
 
 ## Procedure
 
-1. **Ensure the shot exists** (`pipeline shot create …` if not) and confirm
-   `shots/<id>/shot.yaml` (`duration`, `mode`, `description`).
-2. **Open a draft version:** `pipeline shot draft --id <id>` → creates
-   `shots/<id>/drafts/vNNN/`. Each iteration is a new version under the same shot.
+1. **Confirm the episode** (episodic projects — see *Episode root*), then **ensure
+   the shot exists** (`pipeline shot create … [--root episodes/<N>]` if not) and
+   confirm `shots/<id>/shot.yaml` (`duration`, `mode`, `description`).
+2. **Open a draft version:** `pipeline shot draft --id <id> [--root episodes/<N>]` →
+   creates `shots/<id>/drafts/vNNN/`. Each iteration is a new version under the same
+   shot.
 3. **For a talking shot, transcribe first** (see *Lip-sync shots* — do this before
    composing so the exact line goes into the prompt).
 4. **Compose the prompt.** Invoke the chosen director skill on the reference
@@ -51,17 +80,18 @@ never hand-write the Seedance prompt from scratch:
    `shots/<id>/drafts/vNNN/prompt.md`.
 7. **Verify** — run and resolve any ✗ before spending credits (it enforces the
    Seedance reference caps in *Gotchas*):
-   `pipeline verify shot --id <id> --version <n> [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
+   `pipeline verify shot --id <id> --version <n> [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
 8. **Generate** (reads the canonical prompt from step 6):
-   `pipeline shot generate --id <id> --version <n> --model seedance_2_0 [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
+   `pipeline shot generate --id <id> --version <n> --model seedance_2_0 [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
    Submissions can take >2 min (upload latency) — run submit+poll in the background.
 9. **Review with the user.** Watch `drafts/vNNN/output.mp4`. Log the
    accept/regenerate decision in `drafts/vNNN/notes.md`. To refine, go back to
    step 2 (new version); correct the prompt **surgically** — change only the clause
    that was wrong.
 10. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
-    (copied verbatim — pass the full path to the draft's mp4, not a bare name):
-    `pipeline shot promote --id <id> --version <n> --output shots/<id>/drafts/vNNN/output.mp4`
+    (copied verbatim — pass the full cwd-relative path to the draft's mp4, not a bare
+    name; in an episodic project that path includes the `episodes/<N>/` prefix):
+    `pipeline shot promote --id <id> --version <n> [--root episodes/<N>] --output episodes/<N>/shots/<id>/drafts/vNNN/output.mp4`
     The final clip is written as `shots/<id>/final/<id>-vNNN.<ext>` (e.g.
     `art-talk-01-v006.mp4`) — the filename **carries the promoted version**, so which
     draft is live is obvious at a glance. Promote also writes
@@ -131,7 +161,8 @@ Description** (the action/performance, timed to the reference) · **Static
 Description** (fixed character/wardrobe/background, "carrying from the attached pose
 reference image") · a **Reference video (speech)** line for talking shots · a
 **Diegetic audio** line (the character's own voice / footsteps / room tone — *never*
-music or lyrics). See `shots/*/drafts/*/prompt.md` for worked examples.
+music or lyrics). See `shots/*/drafts/*/prompt.md` (or
+`episodes/*/shots/*/drafts/*/prompt.md` in an episodic project) for worked examples.
 
 ## Gotchas / common mistakes
 

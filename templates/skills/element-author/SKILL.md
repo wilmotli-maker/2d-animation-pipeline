@@ -134,10 +134,16 @@ carry the style.
 
 ## Shots
 
-For a shot, use `illustration-worldbuilder` / `cinema-worldbuilder` to compose,
-write the prompt to `shots/<id>/drafts/vNNN/prompt.md` (after `pipeline shot draft`),
-verify with `pipeline verify shot --id <id> --version <n>`, and generate with
-`pipeline shot generate --id <id> --version <n> --model <m>`.
+For a shot, prefer the **`shot-author`** skill — it owns the full compose → verify →
+generate → promote loop, including episodic projects (shots under
+`episodes/<N>/shots/…`, threaded via `--root episodes/<N>`). In short: use
+`illustration-worldbuilder` / `cinema-worldbuilder` to compose, write the prompt to
+`shots/<id>/drafts/vNNN/prompt.md` (after `pipeline shot draft`; in an episodic
+project this is `episodes/<N>/shots/<id>/…` and every `pipeline shot`/`verify shot`
+command takes `--root episodes/<N>`), verify with
+`pipeline verify shot --id <id> --version <n> [--root episodes/<N>]`, and generate
+with `pipeline shot generate --id <id> --version <n> --model <m> [--root episodes/<N>]`.
+Elements are shared across episodes — reference them from the top-level `elements/`.
 
 ## Lip-sync shots (talking characters)
 

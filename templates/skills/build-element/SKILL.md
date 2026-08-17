@@ -10,6 +10,11 @@ This skill orchestrates the whole onboarding; per-sheet authoring is delegated t
 **element-author** skill. Keep the flow interactive — confirm the style-lock and the
 sheet plan before spending credits; every generate step is a real credit cost.
 
+**Elements are shared across episodes.** They live once at the top-level `elements/`
+(not under `episodes/<N>/`), so an element built for one episode is reusable by every
+shot in every episode. Run these commands from the project's top directory with no
+`--root` — the episode split applies only to shots, not elements.
+
 ## Procedure
 
 1. **Gather inputs (confirm, don't assume):** element type
