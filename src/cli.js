@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { higgsfieldBin } from './config.js';
 import { parseJobResult } from './jobresult.js';
 
@@ -22,6 +22,27 @@ export function defaultExec(bin, args) {
         stdout: stdout || '',
         stderr: stderr || (err ? String(err.message) : ''),
       });
+    });
+  });
+}
+
+// stderr-inheriting executor. Some higgsfield subcommands — notably
+// `generate create` for the upscalers (topaz_video, bytedance_video_upscale) —
+// render a progress UI to stderr and HANG indefinitely when stderr is a
+// captured pipe, before the job is even created. With stderr inherited (a TTY
+// or the parent's stderr) the same call returns a job id in ~1s and exits.
+// matte.js hit the identical issue with its python sidecar. stdout is still
+// captured — that's the JSON the parsers read; stderr is not, so it cannot feed
+// a HiggsfieldError message, which is an acceptable trade for these calls.
+export function inheritStderrExec(bin, args) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let spawnError = '';
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'inherit'] });
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.on('error', (err) => { spawnError = String(err.message); });
+    child.on('close', (code) => {
+      resolve({ code: spawnError ? 127 : code ?? 0, stdout, stderr: spawnError });
     });
   });
 }
@@ -51,6 +72,10 @@ const SCALAR_PARAMS = {
   mode: '--mode',
   bitrateMode: '--bitrate-mode',
   genre: '--genre',
+  // Upscaler params (bytedance_video_upscale).
+  modelVersion: '--model-version',
+  preset: '--preset',
+  fps: '--fps',
 };
 
 // Exported for direct unit testing of arg construction.
