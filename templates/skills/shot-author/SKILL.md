@@ -21,6 +21,10 @@ is what lands the shot's data (`shot.yaml`, drafts, final) under
 `episodes/<N>/shots/…`. Wherever this skill writes a `shots/<id>/…` path, read it as
 `episodes/<N>/shots/<id>/…`.
 
+Per-episode **dialogue** — the speech `.wav`s and their transcribed `.txt` sidecars —
+lives alongside the shots in `episodes/<N>/voices/`. Transcribe and reference from
+there: `--dir episodes/<N>/voices`, `--speech-audio episodes/<N>/voices/<name>.wav`.
+
 Two things stay **top-level and cwd-relative** regardless of episode:
 
 - **Run every command from the project's top directory** (the one holding
@@ -121,7 +125,8 @@ To make Seedance reproduce a speech recording's **exact words AND snappy pacing*
 
 1. **Transcribe the wav** for the exact line:
    `pipeline voice transcribe --audio <wav>` → writes a `<wav>.txt` sidecar (local
-   whisper.cpp; `--dir <folder>` does a whole folder and skips wavs already done).
+   whisper.cpp; `--dir <folder>` does a whole folder and skips wavs already done — in
+   an episodic project the folder is `episodes/<N>/voices`).
 2. **Quote the sidecar verbatim** in the prompt — `the character says, "<exact
    transcript>"` — do not paraphrase or re-capitalize. On a fast line that nearly
    fills the shot, also add *"say exactly and only this line, no added words, mouth
