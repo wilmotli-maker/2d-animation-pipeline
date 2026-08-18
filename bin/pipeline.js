@@ -11,6 +11,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
+import { reportFromLogs, formatReportTable } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -213,6 +214,21 @@ async function main() {
       generateAudio: f['generate-audio'],
     });
     if (!printChecklist(result)) process.exit(1);
+  } else if (cmd === 'credits' && sub === 'report') {
+    const argv = rest.filter((t) => t !== '--saved-only' && t !== '--json');
+    const savedOnly = argv.length !== rest.length || rest.includes('--saved-only');
+    const asJson = rest.includes('--json');
+    const f = parseFlags(argv);
+    const report = await reportFromLogs(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet,
+      since: f.since, until: f.until, task: f.task,
+      by: f.by || 'sheet', savedOnly,
+    });
+    if (asJson) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatReportTable(report));
+    }
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -247,6 +263,7 @@ async function main() {
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify shot --id <shotId> --version <n> [--model <m>] [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
+      '  pipeline credits report [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>] [--task <label>] [--by element|sheet|shot|day|model|task|kind] [--saved-only] [--json]',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',

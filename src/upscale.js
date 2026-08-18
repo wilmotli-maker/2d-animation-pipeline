@@ -3,6 +3,7 @@ import { access, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
+import { estimateCredits } from './credits.js';
 import { resolveSourceClip } from './matte.js';
 import { shotUpscalePath } from './paths.js';
 
@@ -74,6 +75,10 @@ export async function upscaleShot(root, spec, {
     if (value != null) opts[key] = value;
   }
 
+  const { credits, source: creditsSource } = await estimateCredits({
+    runner, model, videoReferences: [media.id], ...opts,
+  });
+
   const ref = `${shotId}/${version == null ? 'final' : `v${version}`}`;
   const [result] = await runBatch(runner, [{ ref, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
@@ -91,6 +96,7 @@ export async function upscaleShot(root, spec, {
     source, sourceMediaId: media.id,
     params: { ...opts, videoReferences: [media.id] },
     upscaledAt: new Date().toISOString(),
+    credits, creditsSource, kind: 'upscale',
   }, null, 2) + '\n');
 
   return { outputPath, sidecar, jobId: result.id, model, resolution: res, source, mediaId: media.id };

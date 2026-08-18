@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readdir, writeFile } from 'node:fs/promises';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
+import { estimateCredits } from './credits.js';
 import { appendGeneration } from './element.js';
 import { sheetInstanceDir, shotDraftDir } from './paths.js';
 import { splitPanels as defaultSplitPanels, SHEET_PANEL_LABELS } from './split-panels.js';
@@ -43,6 +44,10 @@ export async function generateElementSheet(root, spec, {
   const opts = { prompt: v.promptText };
   if (images.length) opts.imageReferences = images;
 
+  const { credits, source: creditsSource } = await estimateCredits({
+    runner, model, prompt: v.promptText, images,
+  });
+
   const [result] = await runBatch(runner, [{ ref: `${name}/${sheet}/${id}`, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
     throw new Error(`generation for ${name}/${sheet}/${id} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
@@ -69,7 +74,7 @@ export async function generateElementSheet(root, spec, {
     sheetType: sheet, sheetId: id, version: vtag, model, jobId: result.id,
     prompt: v.promptText, promptFile: path.join(dir, `${vtag}.prompt.md`),
     imageReferences: images, output: outputPath, panelsDir, panels: panels || [],
-    status: 'generated',
+    status: 'generated', credits, creditsSource, kind: 'element',
   });
   return { outputPath, jobId: result.id, version: vtag, sheetId: id, panelsDir, panels };
 }
@@ -112,6 +117,13 @@ export async function generateShotDraft(root, spec, {
   if (generateAudio != null) opts.generateAudio = generateAudio;
   if (mode != null) opts.mode = mode;
 
+  const { credits, source: creditsSource } = await estimateCredits({
+    runner, model, prompt: v.promptText, images,
+    videoReferences: videoReferences.length ? videoReferences : undefined,
+    audioReferences: audios.length ? audios : undefined,
+    resolution, duration, aspectRatio, generateAudio, mode,
+  });
+
   const [result] = await runBatch(runner, [{ ref: `${shotId}/v${version}`, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
     throw new Error(`shot draft ${shotId} v${version} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
@@ -126,6 +138,8 @@ export async function generateShotDraft(root, spec, {
     imageReferences: images, videoReferences, audioReferences: audios,
     resolution, duration, aspectRatio, generateAudio, mode,
     speechAudio: speechAudio || null, output: outputPath,
+    credits, creditsSource, kind: 'shot',
+    ts: new Date().toISOString(),
   }, null, 2) + '\n');
 
   return { outputPath, jobId: result.id };
