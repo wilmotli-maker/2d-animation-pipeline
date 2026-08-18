@@ -216,9 +216,9 @@ async function main() {
     });
     if (!printChecklist(result)) process.exit(1);
   } else if (cmd === 'credits' && sub === 'report') {
-    const argv = rest.filter((t) => t !== '--saved-only' && t !== '--json');
-    const savedOnly = argv.length !== rest.length || rest.includes('--saved-only');
+    const savedOnly = rest.includes('--saved-only');
     const asJson = rest.includes('--json');
+    const argv = rest.filter((t) => t !== '--saved-only' && t !== '--json');
     const f = parseFlags(argv);
     const report = await reportFromLogs(projectRoot(f.root), {
       type: f.type, name: f.name, sheet: f.sheet,
