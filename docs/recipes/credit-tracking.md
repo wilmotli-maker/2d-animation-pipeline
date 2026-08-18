@@ -5,16 +5,43 @@ failed generations that were billed but never saved.
 
 ## Quick start
 
-Tag a batch of work once, then run generations as usual:
+Tag a batch of work once, then run generations as usual. Either set a persistent
+project task (survives across commands, no shell env needed):
 
 ```bash
-export PIPELINE_TASK="ep2-emotion-sheets"
+pipeline task set ep2-emotion-sheets           # writes .pipeline/task under the project
 
 pipeline element sheet --type characters --name cecilia \
   --sheet turnaround --id winter --model nano_banana_pro ...
+# saved v001: …  [task: ep2-emotion-sheets]   ← tag echoed on each gen
 
 pipeline credits report --task ep2-emotion-sheets --by sheet
+pipeline task clear                            # done iterating
 ```
+
+…or use the `PIPELINE_TASK` env var for a one-shell session (`export
+PIPELINE_TASK="ep2-emotion-sheets"`), or pass `--task <label>` per command.
+
+Task tagging is **optional** — every generation is logged regardless. Reports can
+also filter purely by `--type`/`--name`/`--sheet`/`--since`/`--until`/`--by`, and
+`pipeline credits tag` can label existing entries after the fact.
+
+### `pipeline task`
+
+The active credit task is a **persistent fallback** for `--task` / `PIPELINE_TASK`,
+stored per project root at `.pipeline/task` (gitignored). A child process can't
+mutate the parent shell's env, so this file is how "set it for my session" works.
+
+```bash
+pipeline task set <label>   # set the active task for this project
+pipeline task show          # print the active task (bare `pipeline task` also works)
+pipeline task clear         # stop tagging
+```
+
+Resolution precedence for each generation: `--task` flag → `PIPELINE_TASK` env →
+`.pipeline/task` → untagged. The resolved tag is echoed on every gen so a stale
+active task is visible. It persists until cleared — it does **not** auto-expire
+when the terminal closes.
 
 ## Commands
 

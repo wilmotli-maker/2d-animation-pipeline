@@ -13,6 +13,10 @@ import {
   reconcile,
   tagCredits,
   resolveTask,
+  resolveActiveTask,
+  setTaskState,
+  clearTaskState,
+  readTaskState,
   backfillCredits,
 } from '../src/credits.js';
 
@@ -332,6 +336,43 @@ test('resolveTask prefers spec.task over PIPELINE_TASK env', () => {
     if (prev == null) delete process.env.PIPELINE_TASK;
     else process.env.PIPELINE_TASK = prev;
   }
+});
+
+test('task state: set / read / clear round-trips per project root', async () => {
+  await withTemp(async (root) => {
+    assert.equal(await readTaskState(root), null);
+    await setTaskState(root, '  ep2-emotion-sheets  ');
+    assert.equal(await readTaskState(root), 'ep2-emotion-sheets'); // trimmed
+    assert.equal(await clearTaskState(root), true);
+    assert.equal(await readTaskState(root), null);
+    assert.equal(await clearTaskState(root), false); // nothing to clear
+  });
+});
+
+test('setTaskState rejects an empty label', async () => {
+  await withTemp(async (root) => {
+    await assert.rejects(() => setTaskState(root, '   '));
+  });
+});
+
+test('resolveActiveTask: --task > PIPELINE_TASK env > project state file', async () => {
+  await withTemp(async (root) => {
+    const prev = process.env.PIPELINE_TASK;
+    try {
+      await setTaskState(root, 'from-file');
+      // state file is the fallback when nothing else is set
+      delete process.env.PIPELINE_TASK;
+      assert.equal(await resolveActiveTask(root, {}), 'from-file');
+      // env overrides the file
+      process.env.PIPELINE_TASK = 'from-env';
+      assert.equal(await resolveActiveTask(root, {}), 'from-env');
+      // explicit --task wins over both
+      assert.equal(await resolveActiveTask(root, { task: 'from-spec' }), 'from-spec');
+    } finally {
+      if (prev == null) delete process.env.PIPELINE_TASK;
+      else process.env.PIPELINE_TASK = prev;
+    }
+  });
 });
 
 test('tagCredits rewrites matching jsonl lines and is idempotent', async () => {
