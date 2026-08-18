@@ -3,7 +3,7 @@ import { access, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
-import { estimateCredits } from './credits.js';
+import { estimateCredits, recordCreditAttempt } from './credits.js';
 import { resolveSourceClip } from './matte.js';
 import { shotUpscalePath } from './paths.js';
 
@@ -80,24 +80,51 @@ export async function upscaleShot(root, spec, {
   });
 
   const ref = `${shotId}/${version == null ? 'final' : `v${version}`}`;
+  const location = { kind: 'upscale', shotId };
+  const creditFields = { credits, creditsSource, kind: 'upscale' };
+
   const [result] = await runBatch(runner, [{ ref, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {
+    await recordCreditAttempt(root, location, {
+      model, resolution: res, jobId: result.id ?? null,
+      status: 'failed', failurePhase: 'generation',
+      billedLikely: !!result.id,
+      error: result.error || String(result.status),
+      source, sourceMediaId: media.id,
+      ...creditFields,
+    });
     throw new Error(`upscale for ${ref} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
   }
 
-  const outputPath = shotUpscalePath(root, shotId, version, res);
-  await downloadTo(result.outputUrl, outputPath);
+  try {
+    const outputPath = shotUpscalePath(root, shotId, version, res);
+    await downloadTo(result.outputUrl, outputPath);
 
-  // Sidecar so a finished clip records how it was made — the job record does
-  // not echo the input media back, so without this the provenance is lost.
-  const sidecar = outputPath.replace(/\.mp4$/, '.json');
-  await writeFile(sidecar, JSON.stringify({
-    model, resolution: res, jobId: result.id,
-    source, sourceMediaId: media.id,
-    params: { ...opts, videoReferences: [media.id] },
-    upscaledAt: new Date().toISOString(),
-    credits, creditsSource, kind: 'upscale',
-  }, null, 2) + '\n');
+    const sidecar = outputPath.replace(/\.mp4$/, '.json');
+    await writeFile(sidecar, JSON.stringify({
+      model, resolution: res, jobId: result.id,
+      source, sourceMediaId: media.id,
+      params: { ...opts, videoReferences: [media.id] },
+      upscaledAt: new Date().toISOString(),
+      status: 'generated', ...creditFields,
+    }, null, 2) + '\n');
 
-  return { outputPath, sidecar, jobId: result.id, model, resolution: res, source, mediaId: media.id };
+    await recordCreditAttempt(root, location, {
+      model, resolution: res, jobId: result.id,
+      source, sourceMediaId: media.id, output: outputPath,
+      status: 'generated', ...creditFields,
+    });
+
+    return { outputPath, sidecar, jobId: result.id, model, resolution: res, source, mediaId: media.id };
+  } catch (err) {
+    await recordCreditAttempt(root, location, {
+      model, resolution: res, jobId: result.id,
+      status: 'failed', failurePhase: 'post_complete',
+      billedLikely: true,
+      error: String(err?.message || err),
+      source, sourceMediaId: media.id,
+      ...creditFields,
+    });
+    throw err;
+  }
 }

@@ -1,8 +1,9 @@
-import { readdir, readFile, access } from 'node:fs/promises';
+import { readdir, readFile, access, appendFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES } from './config.js';
-import { generationsLogPath, shotDir, shotDraftsDir } from './paths.js';
+import { generationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath } from './paths.js';
+import { appendGeneration } from './element.js';
 
 const ESTIMATE_TIMEOUT_MS = 5000;
 
@@ -64,6 +65,24 @@ export async function estimateCredits({ runner, model, prompt, images, ...opts }
   }
 
   return { credits: null, source: 'unknown' };
+}
+
+export async function appendShotGeneration(root, shotId, entry) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
+  await appendFile(shotGenerationsLogPath(root, shotId), line);
+}
+
+/** Write a credit log entry to the correct store for element, shot, or upscale. */
+export async function recordCreditAttempt(root, location, entry) {
+  if (location.kind === 'element') {
+    await appendGeneration(root, location.type, location.name, entry);
+    return;
+  }
+  if (location.kind === 'shot' || location.kind === 'upscale') {
+    await appendShotGeneration(root, location.shotId, entry);
+    return;
+  }
+  throw new Error(`unknown credit log location kind: ${location.kind}`);
 }
 
 function normalizeEntry(raw, meta = {}) {

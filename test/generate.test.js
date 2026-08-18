@@ -180,6 +180,72 @@ test('generateElementSheet throws on a hard failure (missing element)', async ()
   });
 });
 
+test('generateElementSheet logs failed generation attempts to generations.jsonl', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    const d = {
+      ...deps(),
+      runBatch: async () => [{ id: 'job_x', status: 'error', error: '503 unavailable' }],
+    };
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d),
+      /did not complete/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'generation');
+    assert.equal(log.jobId, 'job_x');
+    assert.equal(log.billedLikely, true);
+    assert.equal(log.credits, 1);
+  });
+});
+
+test('generateElementSheet logs post_complete failure when download throws', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    const d = {
+      ...deps(),
+      downloadTo: async () => { throw new Error('fetch failed'); },
+    };
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d),
+      /fetch failed/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'post_complete');
+    assert.equal(log.billedLikely, true);
+    assert.equal(log.jobId, 'job_1');
+  });
+});
+
+test('generateShotDraft logs failed attempts to shot generations.jsonl', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'shot prompt');
+    const d = {
+      ...deps(),
+      runBatch: async () => [{ id: 'job_y', status: 'error', error: 'timeout' }],
+    };
+    await assert.rejects(
+      () => generateShotDraft(root, { shotId: 's1', version: 1, model: 'seedance_2_0_mini' }, d),
+      /did not complete/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'shots', 's1', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'generation');
+    assert.equal(log.kind, 'shot');
+  });
+});
+
 test('generateShotDraft reads the draft prompt.md and saves output', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
@@ -257,7 +323,7 @@ test('generateShotDraft throws when the draft does not exist', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
     await assert.rejects(
-      () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, { runner: {}, ...deps() }),
+      () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, deps()),
       /cannot generate.*draft exists/i,
     );
   });
