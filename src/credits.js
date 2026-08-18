@@ -529,3 +529,83 @@ export async function tagCredits(root, {
 
   return { tagged, task };
 }
+
+async function backfillJsonlFile(filePath, { type, name, sheet, since, until, meta = {} }) {
+  if (!await exists(filePath)) return { updated: 0, skipped: 0 };
+  const rawText = await readFile(filePath, 'utf8');
+  let updated = 0;
+  let skipped = 0;
+  const out = [];
+  for (const line of rawText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let entry;
+    try {
+      entry = JSON.parse(trimmed);
+    } catch {
+      out.push(line);
+      continue;
+    }
+    const normalized = normalizeEntry(entry, meta);
+    if (!entryMatchesTagFilters(normalized, { since, until, sheet, type, name })) {
+      out.push(JSON.stringify(entry));
+      continue;
+    }
+    if (entry.credits != null) {
+      skipped++;
+      out.push(JSON.stringify(entry));
+      continue;
+    }
+    const tableHit = MODEL_CREDITS[entry.model];
+    if (tableHit == null) {
+      skipped++;
+      out.push(JSON.stringify(entry));
+      continue;
+    }
+    entry.credits = tableHit;
+    entry.creditsSource = 'table';
+    updated++;
+    out.push(JSON.stringify(entry));
+  }
+  if (updated > 0) {
+    await writeFile(filePath, out.join('\n') + (out.length ? '\n' : ''));
+  }
+  return { updated, skipped };
+}
+
+/** Fill missing flat-rate credits on existing jsonl entries from MODEL_CREDITS. */
+export async function backfillCredits(root, {
+  type, name, sheet, since, until,
+} = {}) {
+  let updated = 0;
+  let skipped = 0;
+
+  for (const elType of ELEMENT_TYPES) {
+    const typeDir = path.join(root, 'elements', elType);
+    if (!await exists(typeDir)) continue;
+    for (const elName of await readdir(typeDir)) {
+      if (type && elType !== type) continue;
+      if (name && elName !== name) continue;
+      const res = await backfillJsonlFile(generationsLogPath(root, elType, elName), {
+        type: elType, name: elName, sheet, since, until,
+        meta: { kind: 'element', elementType: elType, elementName: elName },
+      });
+      updated += res.updated;
+      skipped += res.skipped;
+    }
+  }
+
+  const shotsRoot = path.join(root, 'shots');
+  if (await exists(shotsRoot)) {
+    for (const shotId of await readdir(shotsRoot)) {
+      const res = await backfillJsonlFile(shotGenerationsLogPath(root, shotId), {
+        type, name, sheet, since, until,
+        meta: { shotId, kind: 'shot' },
+      });
+      updated += res.updated;
+      skipped += res.skipped;
+    }
+  }
+
+  return { updated, skipped };
+}

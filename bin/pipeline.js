@@ -11,7 +11,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
-import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits } from '../src/credits.js';
+import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -255,6 +255,13 @@ async function main() {
       sheet: f.sheet, type: f.type, name: f.name,
     });
     console.log(`tagged ${result.tagged} entries with task "${result.task}"`);
+  } else if (cmd === 'credits' && sub === 'backfill') {
+    const f = parseFlags(rest);
+    const result = await backfillCredits(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet,
+      since: f.since, until: f.until,
+    });
+    console.log(`backfilled ${result.updated} entries (${result.skipped} skipped — already set or variable model)`);
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -287,6 +294,7 @@ async function main() {
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--task <label>]',
       '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
+      '  pipeline credits backfill [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify shot --id <shotId> --version <n> [--model <m>] [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',

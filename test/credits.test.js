@@ -13,6 +13,7 @@ import {
   reconcile,
   tagCredits,
   resolveTask,
+  backfillCredits,
 } from '../src/credits.js';
 
 const SAMPLE = [
@@ -302,5 +303,34 @@ test('tagCredits rewrites matching jsonl lines and is idempotent', async () => {
 
     const report = await reportFromLogs(root, { task: 'ep2-emotion-sheets' });
     assert.equal(report.entryCount, 1);
+  });
+});
+
+test('backfillCredits fills missing flat-rate credits and is idempotent', async () => {
+  await withTemp(async (root) => {
+    const elDir = path.join(root, 'elements', 'characters', 'cecilia');
+    await mkdir(elDir, { recursive: true });
+    const log = path.join(elDir, 'generations.jsonl');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T10:00:00.000Z', jobId: 'j1', model: 'nano_banana_pro',
+      status: 'generated',
+    }) + '\n');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T11:00:00.000Z', jobId: 'j2', model: 'seedance_2_0',
+      status: 'generated',
+    }) + '\n');
+
+    const first = await backfillCredits(root);
+    assert.equal(first.updated, 1);
+    assert.equal(first.skipped, 1);
+
+    const lines = (await readFile(log, 'utf8')).trim().split('\n');
+    assert.equal(JSON.parse(lines[0]).credits, 2);
+    assert.equal(JSON.parse(lines[0]).creditsSource, 'table');
+    assert.equal(JSON.parse(lines[1]).credits, undefined);
+
+    const second = await backfillCredits(root);
+    assert.equal(second.updated, 0);
+    assert.equal(second.skipped, 2);
   });
 });
