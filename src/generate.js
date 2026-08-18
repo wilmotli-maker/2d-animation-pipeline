@@ -2,7 +2,7 @@ import path from 'node:path';
 import { readdir, writeFile } from 'node:fs/promises';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
-import { estimateCredits, recordCreditAttempt } from './credits.js';
+import { estimateCredits, recordCreditAttempt, resolveTask } from './credits.js';
 import { appendGeneration } from './element.js';
 import { sheetInstanceDir, shotDraftDir } from './paths.js';
 import { splitPanels as defaultSplitPanels, SHEET_PANEL_LABELS } from './split-panels.js';
@@ -37,6 +37,7 @@ export async function generateElementSheet(root, spec, {
   splitPanels = defaultSplitPanels,
 } = {}) {
   const { type, name, sheet, id, model, prompt, promptFile, images = [] } = spec;
+  const task = resolveTask(spec);
 
   const v = await validateElementSheet(root, { type, name, sheet, id, prompt, promptFile, images });
   enforce(v, `${type}/${name} ${sheet}/${id}`);
@@ -50,7 +51,7 @@ export async function generateElementSheet(root, spec, {
 
   const [result] = await runBatch(runner, [{ ref: `${name}/${sheet}/${id}`, model, opts }]);
   const location = { kind: 'element', type, name };
-  const creditFields = { credits, creditsSource, kind: 'element' };
+  const creditFields = { credits, creditsSource, kind: 'element', task };
 
   if (result.status !== 'completed' || !result.outputUrl) {
     await recordCreditAttempt(root, location, {
@@ -109,6 +110,7 @@ export async function generateShotDraft(root, spec, {
     speechAudio, videos = [], audios = [],
     resolution, duration, aspectRatio, generateAudio, mode,
   } = spec;
+  const task = resolveTask(spec);
 
   const v = await validateShotGenerate(root, {
     shotId, version, model, prompt, promptFile, images,
@@ -147,7 +149,7 @@ export async function generateShotDraft(root, spec, {
 
   const [result] = await runBatch(runner, [{ ref: `${shotId}/v${version}`, model, opts }]);
   const location = { kind: 'shot', shotId };
-  const creditFields = { credits, creditsSource, kind: 'shot' };
+  const creditFields = { credits, creditsSource, kind: 'shot', task };
 
   if (result.status !== 'completed' || !result.outputUrl) {
     await recordCreditAttempt(root, location, {

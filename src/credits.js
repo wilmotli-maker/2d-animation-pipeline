@@ -1,4 +1,4 @@
-import { readdir, readFile, access, appendFile } from 'node:fs/promises';
+import { readdir, readFile, access, appendFile, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES, MODEL_DISPLAY_NAME } from './config.js';
@@ -161,6 +161,10 @@ function withTimeout(promise, ms) {
     promise,
     new Promise((resolve) => setTimeout(() => resolve(null), ms)),
   ]);
+}
+
+export function resolveTask(spec = {}) {
+  return spec.task ?? process.env.PIPELINE_TASK ?? null;
 }
 
 /** Estimate credits for a generation attempt. Never throws — returns null on failure. */
@@ -455,4 +459,73 @@ export function formatReportTable(report) {
   lines.push(`TOTAL (saved)${' '.repeat(30)}${report.totalSaved}`);
   lines.push(`TOTAL (incl. failed)${' '.repeat(23)}${report.totalAll}${report.unknownCount ? ` (+${report.unknownCount} unknown)` : ''}`);
   return lines.join('\n');
+}
+
+function entryMatchesTagFilters(entry, { since, until, sheet, type, name }) {
+  if (!entryInWindow(entry, since, until)) return false;
+  if (type && entry.elementType !== type) return false;
+  if (name && entry.elementName !== name) return false;
+  if (sheet && entry.sheetType !== sheet && entry.sheetId !== sheet) return false;
+  return true;
+}
+
+async function tagJsonlFile(filePath, { task, since, until, sheet, type, name, meta = {} }) {
+  if (!await exists(filePath)) return 0;
+  const rawText = await readFile(filePath, 'utf8');
+  let tagged = 0;
+  const out = [];
+  for (const line of rawText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let entry;
+    try {
+      entry = JSON.parse(trimmed);
+    } catch {
+      out.push(line);
+      continue;
+    }
+    const normalized = normalizeEntry(entry, meta);
+    if (!entry.task && entryMatchesTagFilters(normalized, { since, until, sheet, type, name })) {
+      entry.task = task;
+      tagged++;
+    }
+    out.push(JSON.stringify(entry));
+  }
+  if (tagged > 0) {
+    await writeFile(filePath, out.join('\n') + (out.length ? '\n' : ''));
+  }
+  return tagged;
+}
+
+/** Retro-label existing jsonl entries that match filters and lack a task. */
+export async function tagCredits(root, {
+  task, since, until, sheet, type, name,
+} = {}) {
+  if (!task) throw new Error('tag requires --task <label>');
+  let tagged = 0;
+
+  for (const elType of ELEMENT_TYPES) {
+    const typeDir = path.join(root, 'elements', elType);
+    if (!await exists(typeDir)) continue;
+    for (const elName of await readdir(typeDir)) {
+      if (type && elType !== type) continue;
+      if (name && elName !== name) continue;
+      tagged += await tagJsonlFile(generationsLogPath(root, elType, elName), {
+        task, since, until, sheet, type: elType, name: elName,
+        meta: { kind: 'element', elementType: elType, elementName: elName },
+      });
+    }
+  }
+
+  const shotsRoot = path.join(root, 'shots');
+  if (await exists(shotsRoot)) {
+    for (const shotId of await readdir(shotsRoot)) {
+      tagged += await tagJsonlFile(shotGenerationsLogPath(root, shotId), {
+        task, since, until, sheet, type, name,
+        meta: { shotId, kind: 'shot' },
+      });
+    }
+  }
+
+  return { tagged, task };
 }

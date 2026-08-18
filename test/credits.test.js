@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir, appendFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, appendFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -11,6 +11,8 @@ import {
   reportFromLogs,
   formatReportTable,
   reconcile,
+  tagCredits,
+  resolveTask,
 } from '../src/credits.js';
 
 const SAMPLE = [
@@ -251,5 +253,54 @@ test('reconcile exclude-unbilled omits pre-submit failures from logged sum', asy
     assert.equal(row.loggedAll, 2);
     assert.equal(row.billed, 2);
     assert.equal(row.gap, 0);
+  });
+});
+
+test('resolveTask prefers spec.task over PIPELINE_TASK env', () => {
+  const prev = process.env.PIPELINE_TASK;
+  process.env.PIPELINE_TASK = 'from-env';
+  try {
+    assert.equal(resolveTask({ task: 'from-spec' }), 'from-spec');
+    assert.equal(resolveTask({}), 'from-env');
+    assert.equal(resolveTask(), 'from-env');
+  } finally {
+    if (prev == null) delete process.env.PIPELINE_TASK;
+    else process.env.PIPELINE_TASK = prev;
+  }
+});
+
+test('tagCredits rewrites matching jsonl lines and is idempotent', async () => {
+  await withTemp(async (root) => {
+    const elDir = path.join(root, 'elements', 'characters', 'cecilia');
+    await mkdir(elDir, { recursive: true });
+    const log = path.join(elDir, 'generations.jsonl');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T10:00:00.000Z', jobId: 'j1', model: 'nano_banana_pro',
+      credits: 2, status: 'generated', sheetType: 'turnaround', sheetId: 'winter',
+    }) + '\n');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T11:00:00.000Z', jobId: 'j2', model: 'nano_banana_pro',
+      credits: 2, status: 'generated', task: 'existing',
+    }) + '\n');
+
+    const first = await tagCredits(root, {
+      task: 'ep2-emotion-sheets',
+      since: '2026-08-17T00:00:00.000Z',
+      until: '2026-08-17T23:59:59.999Z',
+    });
+    assert.equal(first.tagged, 1);
+
+    const lines = (await readFile(log, 'utf8')).trim().split('\n');
+    assert.equal(JSON.parse(lines[0]).task, 'ep2-emotion-sheets');
+    assert.equal(JSON.parse(lines[1]).task, 'existing');
+
+    const second = await tagCredits(root, {
+      task: 'ep2-emotion-sheets',
+      since: '2026-08-17T00:00:00.000Z',
+    });
+    assert.equal(second.tagged, 0);
+
+    const report = await reportFromLogs(root, { task: 'ep2-emotion-sheets' });
+    assert.equal(report.entryCount, 1);
   });
 });

@@ -246,6 +246,26 @@ test('generateShotDraft logs failed attempts to shot generations.jsonl', async (
   });
 });
 
+test('generateElementSheet stores PIPELINE_TASK on success logs', async () => {
+  await withTemp(async (root) => {
+    const prev = process.env.PIPELINE_TASK;
+    process.env.PIPELINE_TASK = 'ep2-emotion-sheets';
+    try {
+      await seedElement(root, 'cecilia', 'turnaround', 'winter');
+      const d = deps();
+      await generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d);
+      const log = JSON.parse(
+        (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+      assert.equal(log.task, 'ep2-emotion-sheets');
+    } finally {
+      if (prev == null) delete process.env.PIPELINE_TASK;
+      else process.env.PIPELINE_TASK = prev;
+    }
+  });
+});
+
 test('generateShotDraft reads the draft prompt.md and saves output', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
