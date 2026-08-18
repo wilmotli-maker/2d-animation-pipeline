@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   parseTransactions,
+  parseTransactionsJson,
   estimateCredits,
   collectLogEntries,
   reportFromLogs,
   formatReportTable,
+  reconcile,
 } from '../src/credits.js';
 
 const SAMPLE = [
@@ -167,5 +169,87 @@ test('reportFromLogs filters by since/until', async () => {
     });
     assert.equal(report.entryCount, 1);
     assert.equal(report.totalAll, 2);
+  });
+});
+
+const TX_JSON = [
+  { action: 'spend', created_at: '2026-08-17T12:00:00.000Z', credits: -2, display_name: 'Nano Banana Pro' },
+  { action: 'spend', created_at: '2026-08-17T13:00:00.000Z', credits: -2, display_name: 'Nano Banana Pro' },
+  { action: 'spend', created_at: '2026-08-16T12:00:00.000Z', credits: -2, display_name: 'Nano Banana Pro' },
+];
+
+test('parseTransactionsJson extracts created_at, display_name, credits', () => {
+  const rows = parseTransactionsJson(TX_JSON);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].model, 'Nano Banana Pro');
+  assert.equal(rows[0].credits, -2);
+});
+
+test('reconcile compares logged estimates to billed transactions', async () => {
+  await withTemp(async (root) => {
+    const elDir = path.join(root, 'elements', 'characters', 'cecilia');
+    await mkdir(elDir, { recursive: true });
+    const log = path.join(elDir, 'generations.jsonl');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T10:00:00.000Z', jobId: 'j1', model: 'nano_banana_pro',
+      credits: 2, status: 'generated',
+    }) + '\n');
+    await appendFile(log, JSON.stringify({
+      ts: '2026-08-17T11:00:00.000Z', jobId: 'j2', model: 'nano_banana_pro',
+      credits: 2, status: 'failed', failurePhase: 'generation', billedLikely: true,
+    }) + '\n');
+
+    const runner = {
+      async fetchTransactions() {
+        return { transactions: TX_JSON, next_cursor: null };
+      },
+    };
+
+    const report = await reconcile(root, {
+      since: '2026-08-17T00:00:00.000Z',
+      until: '2026-08-17T23:59:59.999Z',
+      runner,
+    });
+
+    const row = report.rows.find((r) => r.model === 'nano_banana_pro');
+    assert.ok(row);
+    assert.equal(row.loggedAll, 4);
+    assert.equal(row.loggedSaved, 2);
+    assert.equal(row.billed, 4);
+    assert.equal(row.gap, 0);
+    assert.equal(row.gapSaved, 2);
+  });
+});
+
+test('reconcile exclude-unbilled omits pre-submit failures from logged sum', async () => {
+  await withTemp(async (root) => {
+    const elDir = path.join(root, 'elements', 'characters', 'cecilia');
+    await mkdir(elDir, { recursive: true });
+    await appendFile(path.join(elDir, 'generations.jsonl'), JSON.stringify({
+      ts: '2026-08-17T10:00:00.000Z', jobId: null, model: 'nano_banana_pro',
+      credits: 2, status: 'failed', billedLikely: false,
+    }) + '\n');
+    await appendFile(path.join(elDir, 'generations.jsonl'), JSON.stringify({
+      ts: '2026-08-17T11:00:00.000Z', jobId: 'j1', model: 'nano_banana_pro',
+      credits: 2, status: 'generated',
+    }) + '\n');
+
+    const runner = {
+      async fetchTransactions() {
+        return { transactions: [TX_JSON[0]], next_cursor: null };
+      },
+    };
+
+    const report = await reconcile(root, {
+      since: '2026-08-17T00:00:00.000Z',
+      until: '2026-08-17T23:59:59.999Z',
+      excludeUnbilled: true,
+      runner,
+    });
+
+    const row = report.rows.find((r) => r.model === 'nano_banana_pro');
+    assert.equal(row.loggedAll, 2);
+    assert.equal(row.billed, 2);
+    assert.equal(row.gap, 0);
   });
 });

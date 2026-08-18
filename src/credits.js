@@ -1,7 +1,7 @@
 import { readdir, readFile, access, appendFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
-import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES } from './config.js';
+import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES, MODEL_DISPLAY_NAME } from './config.js';
 import { generationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath } from './paths.js';
 import { appendGeneration } from './element.js';
 
@@ -21,6 +21,130 @@ export function parseTransactions(stdout) {
     rows.push({ date: m[1], model: m[2].trim(), credits: Number(m[3]), action: m[4] });
   }
   return rows;
+}
+
+/** Parse `account transactions --json` rows. */
+export function parseTransactionsJson(data) {
+  const list = Array.isArray(data) ? data : (data?.transactions ?? data?.rows ?? []);
+  return list.map((row) => ({
+    createdAt: row.created_at ?? row.createdAt ?? row.date,
+    model: row.display_name ?? row.model ?? '',
+    credits: Number(row.credits ?? 0),
+    action: row.action ?? 'spend',
+  })).filter((row) => row.createdAt && row.model);
+}
+
+async function fetchAllTransactions(runner, { since } = {}) {
+  const rows = [];
+  let cursor = null;
+  const sinceMs = since ? Date.parse(since) : null;
+
+  for (;;) {
+    const page = await runner.fetchTransactions({ size: 100, cursor });
+    const batch = parseTransactionsJson(page);
+    if (!batch.length) break;
+    rows.push(...batch);
+
+    const oldest = batch.reduce((min, r) => {
+      const t = Date.parse(r.createdAt);
+      return t < min ? t : min;
+    }, Infinity);
+
+    cursor = page?.next_cursor ?? page?.cursor ?? null;
+    if (!cursor) break;
+    if (sinceMs != null && oldest <= sinceMs) break;
+  }
+
+  return rows;
+}
+
+function modelDisplayToSlug(displayName, displayMap = MODEL_DISPLAY_NAME) {
+  for (const [slug, name] of Object.entries(displayMap)) {
+    if (name === displayName) return slug;
+  }
+  return displayName;
+}
+
+/** Compare logged estimates to billed account transactions for a time window. */
+export async function reconcile(root, {
+  since, until, excludeUnbilled = false, runner,
+} = {}) {
+  if (!runner?.fetchTransactions) {
+    throw new Error('reconcile requires a runner with fetchTransactions()');
+  }
+
+  const sinceMs = since ? Date.parse(since) : null;
+  const untilMs = until ? Date.parse(until) : null;
+
+  let entries = await collectLogEntries(root);
+  entries = entries.filter((e) => entryInWindow(e, since, until));
+  if (excludeUnbilled) {
+    entries = entries.filter((e) => e.billedLikely !== false);
+  }
+
+  const txRows = await fetchAllTransactions(runner, { since });
+  const billedRows = txRows.filter((row) => {
+    const t = Date.parse(row.createdAt);
+    if (Number.isNaN(t)) return false;
+    if (sinceMs != null && t < sinceMs) return false;
+    if (untilMs != null && t > untilMs) return false;
+    return row.action === 'spend' || row.credits < 0;
+  });
+
+  const loggedByModel = new Map();
+  const loggedSavedByModel = new Map();
+
+  for (const e of entries) {
+    const key = e.model || '—';
+    if (!loggedByModel.has(key)) loggedByModel.set(key, 0);
+    loggedByModel.set(key, loggedByModel.get(key) + (e.credits ?? 0));
+
+    if (e.status !== 'failed') {
+      if (!loggedSavedByModel.has(key)) loggedSavedByModel.set(key, 0);
+      loggedSavedByModel.set(key, loggedSavedByModel.get(key) + (e.credits ?? 0));
+    }
+  }
+
+  const billedBySlug = new Map();
+  for (const row of billedRows) {
+    const slug = modelDisplayToSlug(row.model);
+    const amount = Math.abs(row.credits);
+    billedBySlug.set(slug, (billedBySlug.get(slug) ?? 0) + amount);
+  }
+
+  const models = new Set([
+    ...loggedByModel.keys(),
+    ...loggedSavedByModel.keys(),
+    ...billedBySlug.keys(),
+  ]);
+
+  const rows = [];
+  for (const model of [...models].sort()) {
+    const loggedAll = loggedByModel.get(model) ?? 0;
+    const loggedSaved = loggedSavedByModel.get(model) ?? 0;
+    const billed = billedBySlug.get(model) ?? 0;
+    rows.push({
+      model,
+      loggedSaved,
+      loggedAll,
+      billed,
+      gap: billed - loggedAll,
+      gapSaved: billed - loggedSaved,
+    });
+  }
+
+  return { rows, since, until, excludeUnbilled };
+}
+
+export function formatReconcileTable(report) {
+  const lines = [];
+  lines.push(`${'MODEL'.padEnd(20)} LOGGED_SAVED  LOGGED_ALL  BILLED  GAP`);
+  for (const row of report.rows) {
+    lines.push(
+      `${row.model.padEnd(20)} ${String(row.loggedSaved).padEnd(13)} ${String(row.loggedAll).padEnd(11)} ${String(row.billed).padEnd(7)} ${row.gap}`,
+    );
+  }
+  return lines.join('\n');
 }
 
 async function exists(p) {

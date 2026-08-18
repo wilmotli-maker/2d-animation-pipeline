@@ -202,5 +202,16 @@ export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {})
       }
       return Math.abs(n);
     },
+    async fetchTransactions({ size = 100, cursor } = {}) {
+      const args = ['account', 'transactions'];
+      if (size != null) args.push('--size', String(size));
+      if (cursor) args.push('--cursor', cursor);
+      const out = await run(args);
+      try {
+        return JSON.parse(out);
+      } catch {
+        throw new HiggsfieldError(`account transactions: response was not JSON: ${out.slice(0, 200)}`);
+      }
+    },
   };
 }

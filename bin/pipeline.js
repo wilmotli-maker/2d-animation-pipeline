@@ -11,7 +11,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
-import { reportFromLogs, formatReportTable } from '../src/credits.js';
+import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -229,6 +229,21 @@ async function main() {
     } else {
       console.log(formatReportTable(report));
     }
+  } else if (cmd === 'credits' && sub === 'reconcile') {
+    const argv = rest.filter((t) => t !== '--exclude-unbilled' && t !== '--json');
+    const excludeUnbilled = rest.includes('--exclude-unbilled');
+    const asJson = rest.includes('--json');
+    const f = parseFlags(argv);
+    if (!f.since) fail('usage: pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]');
+    const report = await reconcile(projectRoot(f.root), {
+      since: f.since, until: f.until, excludeUnbilled,
+      runner: createRunner(),
+    });
+    if (asJson) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatReconcileTable(report));
+    }
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -264,6 +279,7 @@ async function main() {
       '  pipeline verify shot --id <shotId> --version <n> [--model <m>] [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
       '  pipeline credits report [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>] [--task <label>] [--by element|sheet|shot|day|model|task|kind] [--saved-only] [--json]',
+      '  pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',
