@@ -188,6 +188,13 @@ test('parseTransactionsJson extracts created_at, display_name, credits', () => {
   assert.equal(rows[0].credits, -2);
 });
 
+test('parseTransactionsJson reads the live `items` payload shape', () => {
+  // The real `account transactions --json` wraps rows under `items`.
+  const rows = parseTransactionsJson({ cursor: '5', items: TX_JSON });
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].model, 'Nano Banana Pro');
+});
+
 test('reconcile compares logged estimates to billed transactions', async () => {
   await withTemp(async (root) => {
     const elDir = path.join(root, 'elements', 'characters', 'cecilia');
@@ -204,7 +211,8 @@ test('reconcile compares logged estimates to billed transactions', async () => {
 
     const runner = {
       async fetchTransactions() {
-        return { transactions: TX_JSON, next_cursor: null };
+        // Live API shape: rows under `items`, next cursor under `cursor`.
+        return { items: TX_JSON, cursor: null };
       },
     };
 
@@ -239,7 +247,7 @@ test('reconcile exclude-unbilled omits pre-submit failures from logged sum', asy
 
     const runner = {
       async fetchTransactions() {
-        return { transactions: [TX_JSON[0]], next_cursor: null };
+        return { items: [TX_JSON[0]], cursor: null };
       },
     };
 
@@ -254,6 +262,62 @@ test('reconcile exclude-unbilled omits pre-submit failures from logged sum', asy
     assert.equal(row.loggedAll, 2);
     assert.equal(row.billed, 2);
     assert.equal(row.gap, 0);
+  });
+});
+
+test('reconcile counts entries with no estimate so gap is not misread', async () => {
+  await withTemp(async (root) => {
+    const shotDir = path.join(root, 'shots', 's1');
+    await mkdir(shotDir, { recursive: true });
+    // A video gen that billed but whose estimate was null (API miss/timeout):
+    // logged stays 0, billed shows the spend — reconcile must flag the gap as
+    // "no estimate", not silently imply untracked overhead.
+    await appendFile(path.join(shotDir, 'generations.jsonl'), JSON.stringify({
+      ts: '2026-08-17T10:00:00.000Z', jobId: 'v1', model: 'seedance_2_5',
+      credits: null, status: 'generated', kind: 'shot',
+    }) + '\n');
+
+    const runner = {
+      async fetchTransactions() {
+        return {
+          items: [{ action: 'spend', created_at: '2026-08-17T10:00:05.000Z', credits: -5, display_name: 'seedance_2_5' }],
+          cursor: null,
+        };
+      },
+    };
+
+    const report = await reconcile(root, {
+      since: '2026-08-17T00:00:00.000Z',
+      until: '2026-08-17T23:59:59.999Z',
+      runner,
+    });
+
+    const row = report.rows.find((r) => r.model === 'seedance_2_5');
+    assert.ok(row);
+    assert.equal(row.loggedAll, 0);
+    assert.equal(row.billed, 5);
+    assert.equal(row.gap, 5);
+    assert.equal(row.unknownEstimates, 1);
+  });
+});
+
+test('reconcile ignores entries with no timestamp (cannot be windowed)', async () => {
+  await withTemp(async (root) => {
+    const shotDir = path.join(root, 'shots', 's1', 'drafts', 'v001');
+    await mkdir(shotDir, { recursive: true });
+    // Legacy output.json with no ts and a credit value must not leak into an
+    // unrelated reconcile window.
+    await writeFile(path.join(shotDir, 'output.json'), JSON.stringify({
+      jobId: 'legacy', model: 'nano_banana_pro', credits: 2, output: 'x.mp4',
+    }) + '\n');
+
+    const runner = { async fetchTransactions() { return { items: [], cursor: null }; } };
+    const report = await reconcile(root, {
+      since: '2026-08-17T00:00:00.000Z',
+      until: '2026-08-17T23:59:59.999Z',
+      runner,
+    });
+    assert.equal(report.rows.length, 0);
   });
 });
 
