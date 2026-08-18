@@ -34,7 +34,7 @@ mutate the parent shell's env, so this file is how "set it for my session" works
 
 ```bash
 pipeline task set <label>   # set the active task for this project
-pipeline task               # show the active task (and any PIPELINE_TASK env)
+pipeline task show          # print the active task (bare `pipeline task` also works)
 pipeline task clear         # stop tagging
 ```
 

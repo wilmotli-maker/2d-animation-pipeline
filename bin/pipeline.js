@@ -269,15 +269,15 @@ async function main() {
       const f = parseFlags(rest);
       const had = await clearTaskState(projectRoot(f.root));
       console.log(had ? 'active task cleared' : 'no active task was set');
-    } else if (sub == null || sub.startsWith('--')) {
-      // `pipeline task` or `pipeline task --root <dir>` — show current.
-      const f = parseFlags(sub == null ? rest : [sub, ...rest]);
+    } else if (sub == null || sub === 'show' || sub === 'get' || sub.startsWith('--')) {
+      // `pipeline task`, `pipeline task show`, or `pipeline task --root <dir>`.
+      const f = parseFlags(sub == null || !sub.startsWith('--') ? rest : [sub, ...rest]);
       const active = await readTaskState(projectRoot(f.root));
       const env = process.env.PIPELINE_TASK;
       if (env) console.log(`PIPELINE_TASK env: ${env}  (overrides the project task)`);
       console.log(active ? `active task: ${active}` : 'no active task set');
     } else {
-      fail('usage: pipeline task [set <label> | clear] [--root <dir>]');
+      fail('usage: pipeline task [set <label> | show | clear] [--root <dir>]');
     }
   } else if (cmd === 'credits' && sub === 'backfill') {
     const f = parseFlags(rest);
@@ -324,7 +324,7 @@ async function main() {
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
       '  pipeline credits report [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>] [--task <label>] [--by element|sheet|shot|day|model|task|kind] [--saved-only] [--json]',
       '  pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]',
-      '  pipeline task [set <label> | clear] [--root <dir>]  # set/show/clear the active credit task for a project (a persistent --task fallback)',
+      '  pipeline task [set <label> | show | clear] [--root <dir>]  # set/show/clear the active credit task for a project (a persistent --task fallback)',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',
