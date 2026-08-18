@@ -11,6 +11,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
+import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -86,6 +87,7 @@ async function main() {
     const res = await generateElementSheet(projectRoot(f.root), {
       type: f.type, name: f.name, sheet: f.sheet, id: f.id, model: f.model,
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
+      task: f.task,
     }, { runner: createRunner() });
     console.log(`saved ${res.version}: ${res.outputPath}`);
   } else if (cmd === 'element' && sub === 'split-panels') {
@@ -131,7 +133,7 @@ async function main() {
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
       speechAudio: f['speech-audio'], videos: collectFlag(rest, 'video'), audios: collectFlag(rest, 'audio'),
       resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
-      generateAudio: f['generate-audio'], mode: f.mode,
+      generateAudio: f['generate-audio'], mode: f.mode, task: f.task,
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}`);
   } else if (cmd === 'shot' && sub === 'matte') {
@@ -185,7 +187,7 @@ async function main() {
     const res = await upscaleShot(projectRoot(f.root), {
       shotId: f.id, version, input: f.input, model,
       resolution: f.resolution, aspectRatio: f['aspect-ratio'],
-      modelVersion: f['model-version'], preset: f.preset, fps: f.fps,
+      modelVersion: f['model-version'], preset: f.preset, fps: f.fps, task: f.task,
       // The upscaler create call hangs if stderr is a captured pipe; inherit it.
     }, { runner: createRunner({ exec: inheritStderrExec }) });
     console.log(`upscaled ${res.source}`);
@@ -213,6 +215,53 @@ async function main() {
       generateAudio: f['generate-audio'],
     });
     if (!printChecklist(result)) process.exit(1);
+  } else if (cmd === 'credits' && sub === 'report') {
+    const savedOnly = rest.includes('--saved-only');
+    const asJson = rest.includes('--json');
+    const argv = rest.filter((t) => t !== '--saved-only' && t !== '--json');
+    const f = parseFlags(argv);
+    const report = await reportFromLogs(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet,
+      since: f.since, until: f.until, task: f.task,
+      by: f.by || 'sheet', savedOnly,
+    });
+    if (asJson) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatReportTable(report));
+    }
+  } else if (cmd === 'credits' && sub === 'reconcile') {
+    const argv = rest.filter((t) => t !== '--exclude-unbilled' && t !== '--json');
+    const excludeUnbilled = rest.includes('--exclude-unbilled');
+    const asJson = rest.includes('--json');
+    const f = parseFlags(argv);
+    if (!f.since) fail('usage: pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]');
+    const report = await reconcile(projectRoot(f.root), {
+      since: f.since, until: f.until, excludeUnbilled,
+      runner: createRunner(),
+    });
+    if (asJson) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(formatReconcileTable(report));
+    }
+  } else if (cmd === 'credits' && sub === 'tag') {
+    const f = parseFlags(rest);
+    if (!f.task || !f.since) {
+      fail('usage: pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]');
+    }
+    const result = await tagCredits(projectRoot(f.root), {
+      task: f.task, since: f.since, until: f.until,
+      sheet: f.sheet, type: f.type, name: f.name,
+    });
+    console.log(`tagged ${result.tagged} entries with task "${result.task}"`);
+  } else if (cmd === 'credits' && sub === 'backfill') {
+    const f = parseFlags(rest);
+    const result = await backfillCredits(projectRoot(f.root), {
+      type: f.type, name: f.name, sheet: f.sheet,
+      since: f.since, until: f.until,
+    });
+    console.log(`backfilled ${result.updated} entries (${result.skipped} skipped — already set or variable model)`);
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -241,12 +290,16 @@ async function main() {
       '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
       '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
-      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
+      '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>]',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--task <label>]',
+      '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
+      '  pipeline credits backfill [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',
       '  pipeline verify shot --id <shotId> --version <n> [--model <m>] [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...]',
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
+      '  pipeline credits report [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>] [--task <label>] [--by element|sheet|shot|day|model|task|kind] [--saved-only] [--json]',
+      '  pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',

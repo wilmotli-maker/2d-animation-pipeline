@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRunner, HiggsfieldError, buildGenerateArgs, inheritStderrExec } from '../src/cli.js';
+import { createRunner, HiggsfieldError, buildGenerateArgs, buildCostArgs, inheritStderrExec } from '../src/cli.js';
 
 // A fake executor records the args it was called with and returns a scripted result.
 function fakeExec(result) {
@@ -91,6 +91,28 @@ test('buildGenerateArgs stringifies generateAudio:false rather than dropping it'
     '--prompt', 'x',
     '--generate-audio', 'false',
   ]);
+});
+
+test('buildCostArgs mirrors buildGenerateArgs but targets generate cost', () => {
+  const args = buildCostArgs('nano_banana_pro', {
+    prompt: 'a character', imageReferences: ['/a.png'], resolution: '720p',
+  });
+  assert.deepEqual(args, [
+    'generate', 'cost', 'nano_banana_pro',
+    '--prompt', 'a character',
+    '--image-references', '/a.png',
+    '--resolution', '720p',
+  ]);
+});
+
+test('estimateCost parses JSON credits and returns absolute value', async () => {
+  const { exec, calls } = fakeExec({ code: 0, stdout: '{"credits":-2}', stderr: '' });
+  const runner = createRunner({ exec, bin: 'higgsfield' });
+  const credits = await runner.estimateCost('nano_banana_pro', { prompt: 'x' });
+  assert.equal(credits, 2);
+  assert.equal(calls[0].args.at(-1), '--json');
+  assert.equal(calls[0].args[0], 'generate');
+  assert.equal(calls[0].args[1], 'cost');
 });
 
 test('generate returns parsed job id on success and requests JSON output', async () => {

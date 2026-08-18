@@ -107,6 +107,29 @@ export function buildGenerateArgs(model, opts = {}) {
   return args;
 }
 
+// Same shape as buildGenerateArgs but targets `generate cost` (estimate only).
+export function buildCostArgs(model, opts = {}) {
+  const args = ['generate', 'cost', model];
+  if (opts.prompt != null) args.push('--prompt', String(opts.prompt));
+  for (const [key, flag] of Object.entries(MEDIA_FLAGS)) {
+    if (opts[key] != null) args.push(flag, String(opts[key]));
+  }
+  if (Array.isArray(opts.imageReferences)) {
+    for (const ref of opts.imageReferences) args.push('--image-references', String(ref));
+  }
+  if (Array.isArray(opts.videoReferences)) {
+    for (const ref of opts.videoReferences) args.push('--video-references', String(ref));
+  }
+  if (Array.isArray(opts.audioReferences)) {
+    for (const ref of opts.audioReferences) args.push('--audio-references', String(ref));
+  }
+  for (const [key, flag] of Object.entries(SCALAR_PARAMS)) {
+    if (opts[key] != null) args.push(flag, String(opts[key]));
+  }
+  if (Array.isArray(opts.extraArgs)) args.push(...opts.extraArgs);
+  return args;
+}
+
 export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {}) {
   async function run(args) {
     // Global --json flag (verified): every subcommand prints structured JSON
@@ -162,6 +185,33 @@ export function createRunner({ exec = defaultExec, bin = higgsfieldBin() } = {})
         throw new HiggsfieldError(`upload create ${filePath}: no media id in response: ${out.slice(0, 200)}`);
       }
       return { id, type: rec?.type ?? null, url: rec?.url ?? null };
+    },
+    async estimateCost(model, opts = {}) {
+      const out = await run(buildCostArgs(model, opts));
+      let parsed;
+      try {
+        parsed = JSON.parse(out);
+      } catch {
+        throw new HiggsfieldError(`generate cost ${model}: response was not JSON: ${out.slice(0, 200)}`);
+      }
+      const rec = Array.isArray(parsed) ? parsed[0] : parsed;
+      const raw = rec?.credits ?? rec?.cost ?? rec;
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isFinite(n)) {
+        throw new HiggsfieldError(`generate cost ${model}: no numeric credits in response: ${out.slice(0, 200)}`);
+      }
+      return Math.abs(n);
+    },
+    async fetchTransactions({ size = 100, cursor } = {}) {
+      const args = ['account', 'transactions'];
+      if (size != null) args.push('--size', String(size));
+      if (cursor) args.push('--cursor', cursor);
+      const out = await run(args);
+      try {
+        return JSON.parse(out);
+      } catch {
+        throw new HiggsfieldError(`account transactions: response was not JSON: ${out.slice(0, 200)}`);
+      }
     },
   };
 }

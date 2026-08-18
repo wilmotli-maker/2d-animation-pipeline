@@ -31,8 +31,6 @@ function deps() {
       await wf(dest, 'BYTES');
       return dest;
     },
-    // Stand in for the real sharp-backed splitter: record the call and write
-    // one file per requested label so the test can assert on folder + names.
     splitPanels: async (imagePath, outDir, labels) => {
       splits.push({ imagePath, outDir, labels });
       const { mkdir, writeFile: wf } = await import('node:fs/promises');
@@ -40,6 +38,9 @@ function deps() {
       const out = [];
       for (const l of labels) { const p = path.join(outDir, `${l}.png`); await wf(p, 'PANEL'); out.push(p); }
       return out;
+    },
+    runner: {
+      estimateCost: async () => { throw new Error('should use table'); },
     },
   };
 }
@@ -59,7 +60,7 @@ test('generateElementSheet saves output under sheets/<type>/<slug>/vNNN and logs
     const d = deps();
     const res = await generateElementSheet(root, {
       type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
-    }, { runner: {}, ...d });
+    }, d);
 
     assert.match(res.outputPath, /sheets\/turnaround\/winter\/v001\.png$/);
     assert.equal(res.sheetId, 'winter');
@@ -74,6 +75,8 @@ test('generateElementSheet saves output under sheets/<type>/<slug>/vNNN and logs
     assert.equal(log.sheetId, 'winter');
     assert.equal(log.version, 'v001');
     assert.equal(log.jobId, 'job_1');
+    assert.equal(log.credits, 1);
+    assert.equal(log.creditsSource, 'table');
   });
 });
 
@@ -83,7 +86,7 @@ test('generateElementSheet auto-splits a turnaround into a version-named panel f
     const d = deps();
     const res = await generateElementSheet(root, {
       type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
-    }, { runner: {}, ...d });
+    }, d);
 
     // Folder name matches the sheet name (v001.png -> v001/), sitting beside it.
     assert.equal(d.splits.length, 1);
@@ -112,7 +115,7 @@ test('generateElementSheet auto-splits a pose sheet with generic panel names', a
     const d = deps();
     const res = await generateElementSheet(root, {
       type: 'characters', name: 'cecilia', sheet: 'pose', id: 'combat', model: 'nano_banana',
-    }, { runner: {}, ...d });
+    }, d);
 
     assert.equal(d.splits.length, 1);
     assert.match(res.panelsDir, /sheets\/pose\/combat\/v001$/);
@@ -130,7 +133,7 @@ test('generateElementSheet leaves cycles sheets whole (no split)', async () => {
     const d = deps();
     const res = await generateElementSheet(root, {
       type: 'characters', name: 'cecilia', sheet: 'cycles', id: 'walk', model: 'nano_banana',
-    }, { runner: {}, ...d });
+    }, d);
 
     assert.equal(d.splits.length, 0);
     assert.equal(res.panelsDir, null);
@@ -143,8 +146,8 @@ test('generateElementSheet versions within an instance (reused slug -> v002)', a
     await seedElement(root, 'cecilia', 'turnaround', 'winter');
     const d = deps();
     const spec = { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana' };
-    const a = await generateElementSheet(root, spec, { runner: {}, ...d });
-    const b = await generateElementSheet(root, spec, { runner: {}, ...d });
+    const a = await generateElementSheet(root, spec, d);
+    const b = await generateElementSheet(root, spec, d);
     assert.match(a.outputPath, /winter\/v001\.png$/);
     assert.match(b.outputPath, /winter\/v002\.png$/);
   });
@@ -159,7 +162,7 @@ test('generateElementSheet resolves the canonical prompt and passes images', asy
     await generateElementSheet(root, {
       type: 'characters', name: 'cecilia', sheet: 'pose', id: 'combat', model: 'nano_banana',
       images: [ref],
-    }, { runner: {}, ...d });
+    }, d);
     assert.equal(deps._lastRequest.opts.prompt, 'pose prompt');
     assert.deepEqual(deps._lastRequest.opts.imageReferences, [ref]);
   });
@@ -171,9 +174,95 @@ test('generateElementSheet throws on a hard failure (missing element)', async ()
       () => generateElementSheet(root, {
         type: 'characters', name: 'ghost', sheet: 'turnaround', id: 'x', model: 'nano_banana',
         prompt: 'p',
-      }, { runner: {}, ...deps() }),
+      }, deps()),
       /cannot generate.*element exists/i,
     );
+  });
+});
+
+test('generateElementSheet logs failed generation attempts to generations.jsonl', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    const d = {
+      ...deps(),
+      runBatch: async () => [{ id: 'job_x', status: 'error', error: '503 unavailable' }],
+    };
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d),
+      /did not complete/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'generation');
+    assert.equal(log.jobId, 'job_x');
+    assert.equal(log.billedLikely, true);
+    assert.equal(log.credits, 1);
+  });
+});
+
+test('generateElementSheet logs post_complete failure when download throws', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    const d = {
+      ...deps(),
+      downloadTo: async () => { throw new Error('fetch failed'); },
+    };
+    await assert.rejects(
+      () => generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d),
+      /fetch failed/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'post_complete');
+    assert.equal(log.billedLikely, true);
+    assert.equal(log.jobId, 'job_1');
+  });
+});
+
+test('generateShotDraft logs failed attempts to shot generations.jsonl', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'shot prompt');
+    const d = {
+      ...deps(),
+      runBatch: async () => [{ id: 'job_y', status: 'error', error: 'timeout' }],
+    };
+    await assert.rejects(
+      () => generateShotDraft(root, { shotId: 's1', version: 1, model: 'seedance_2_0_mini' }, d),
+      /did not complete/,
+    );
+    const log = JSON.parse(
+      (await readFile(path.join(root, 'shots', 's1', 'generations.jsonl'), 'utf8')).trim());
+    assert.equal(log.status, 'failed');
+    assert.equal(log.failurePhase, 'generation');
+    assert.equal(log.kind, 'shot');
+  });
+});
+
+test('generateElementSheet stores PIPELINE_TASK on success logs', async () => {
+  await withTemp(async (root) => {
+    const prev = process.env.PIPELINE_TASK;
+    process.env.PIPELINE_TASK = 'ep2-emotion-sheets';
+    try {
+      await seedElement(root, 'cecilia', 'turnaround', 'winter');
+      const d = deps();
+      await generateElementSheet(root, {
+        type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana',
+      }, d);
+      const log = JSON.parse(
+        (await readFile(path.join(root, 'elements', 'characters', 'cecilia', 'generations.jsonl'), 'utf8')).trim());
+      assert.equal(log.task, 'ep2-emotion-sheets');
+    } finally {
+      if (prev == null) delete process.env.PIPELINE_TASK;
+      else process.env.PIPELINE_TASK = prev;
+    }
   });
 });
 
@@ -185,7 +274,7 @@ test('generateShotDraft reads the draft prompt.md and saves output', async () =>
     const d = deps();
     const res = await generateShotDraft(root, {
       shotId: 's1', version: 1, model: 'seedance_2_0_mini',
-    }, { runner: {}, ...d });
+    }, d);
     assert.equal(path.dirname(res.outputPath), dir);
     assert.match(res.outputPath, /drafts\/v001\/output\./);
     assert.equal(deps._lastRequest.opts.prompt, 'shot prompt');
@@ -213,7 +302,7 @@ test('generateShotDraft wraps --speech-audio into a video ref and carries model 
       shotId: 's1', version: 1, model: 'seedance_2_0',
       images: [pose], speechAudio: wav,
       resolution: '720p', duration: '5', aspectRatio: '3:4', generateAudio: 'true',
-    }, { runner: {}, ...d, makeBlankSpeechVideo });
+    }, { ...d, makeBlankSpeechVideo });
 
     // Blank speech video built from the wav, persisted beside the draft.
     const speechRef = path.join(dir, 'speech-ref.mp4');
@@ -244,7 +333,7 @@ test('generateShotDraft throws when the draft prompt is empty', async () => {
     await newDraft(root, 's1');
     await writeFile(path.join(root, 'shots', 's1', 'drafts', 'v001', 'prompt.md'), '   ');
     await assert.rejects(
-      () => generateShotDraft(root, { shotId: 's1', version: 1, model: 'm' }, { runner: {}, ...deps() }),
+      () => generateShotDraft(root, { shotId: 's1', version: 1, model: 'm' }, deps()),
       /cannot generate.*empty/i,
     );
   });
@@ -254,7 +343,7 @@ test('generateShotDraft throws when the draft does not exist', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });
     await assert.rejects(
-      () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, { runner: {}, ...deps() }),
+      () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, deps()),
       /cannot generate.*draft exists/i,
     );
   });

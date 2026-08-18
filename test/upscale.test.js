@@ -23,6 +23,7 @@ function fakes({ status = 'completed', outputUrl = 'https://x/up.mp4' } = {}) {
   const calls = { uploads: [], batches: [], downloads: [] };
   const runner = {
     async upload(file) { calls.uploads.push(file); return { id: 'media-1', type: 'video', url: 'https://x/in.mp4' }; },
+    async estimateCost() { return 3; },
   };
   const runBatch = async (_runner, jobs) => {
     calls.batches.push(jobs);
@@ -137,6 +138,19 @@ test('a failed job throws instead of writing a partial result', async () => {
   const f = fakes({ status: 'failed' });
   await assert.rejects(() => upscaleShot(root, { shotId: 's010' }, f), /did not complete/);
   assert.equal(f.calls.downloads.length, 0);
+});
+
+test('a failed upscale logs to shot generations.jsonl', async () => {
+  const root = await project();
+  await withFinal(root, 's010');
+  const f = fakes({ status: 'error' });
+  await assert.rejects(() => upscaleShot(root, { shotId: 's010' }, f), /did not complete/);
+  const log = JSON.parse(
+    (await readFile(path.join(root, 'shots', 's010', 'generations.jsonl'), 'utf8')).trim());
+  assert.equal(log.status, 'failed');
+  assert.equal(log.failurePhase, 'generation');
+  assert.equal(log.kind, 'upscale');
+  assert.equal(log.billedLikely, true);
 });
 
 test('a missing shot version reports the path rather than uploading', async () => {

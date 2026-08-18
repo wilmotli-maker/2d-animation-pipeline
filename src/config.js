@@ -26,6 +26,29 @@ export function higgsfieldBin(root = REPO_ROOT) {
   return path.join(root, 'node_modules', '.bin', 'higgsfield');
 }
 
+// Flat-rate image model costs (credits per job). Verified via `generate cost`.
+// Variable video/upscale models are omitted — priced via the API at attempt time.
+export const MODEL_CREDITS = {
+  nano_banana: 1,
+  nano_banana_2: 2,
+  nano_banana_pro: 2,
+};
+
+// Map log `model` slug → `account transactions` display_name for reconcile alignment.
+export const MODEL_DISPLAY_NAME = {
+  nano_banana: 'Nano Banana',
+  nano_banana_2: 'Nano Banana 2',
+  nano_banana_pro: 'Nano Banana Pro',
+};
+
+// How to estimate credits before a generation. `auto` uses the static table for
+// flat-rate models and the `generate cost` API for variable/unknown models.
+export function creditsEstimateMode() {
+  const mode = process.env.PIPELINE_CREDITS_ESTIMATE_MODE || 'auto';
+  if (mode === 'table' || mode === 'api' || mode === 'auto') return mode;
+  return 'auto';
+}
+
 // whisper.cpp binary for local speech-to-text. Not bundled — resolved from
 // WHISPER_CPP_BIN, else `whisper-cli` on PATH (install via `brew install
 // whisper-cpp`). A missing binary is reported with an install hint at call time.

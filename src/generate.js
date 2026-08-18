@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readdir, writeFile } from 'node:fs/promises';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
+import { estimateCredits, recordCreditAttempt, resolveTask } from './credits.js';
 import { appendGeneration } from './element.js';
 import { sheetInstanceDir, shotDraftDir } from './paths.js';
 import { splitPanels as defaultSplitPanels, SHEET_PANEL_LABELS } from './split-panels.js';
@@ -36,6 +37,7 @@ export async function generateElementSheet(root, spec, {
   splitPanels = defaultSplitPanels,
 } = {}) {
   const { type, name, sheet, id, model, prompt, promptFile, images = [] } = spec;
+  const task = resolveTask(spec);
 
   const v = await validateElementSheet(root, { type, name, sheet, id, prompt, promptFile, images });
   enforce(v, `${type}/${name} ${sheet}/${id}`);
@@ -43,35 +45,60 @@ export async function generateElementSheet(root, spec, {
   const opts = { prompt: v.promptText };
   if (images.length) opts.imageReferences = images;
 
+  const { credits, source: creditsSource } = await estimateCredits({
+    runner, model, prompt: v.promptText, images,
+  });
+
   const [result] = await runBatch(runner, [{ ref: `${name}/${sheet}/${id}`, model, opts }]);
+  const location = { kind: 'element', type, name };
+  const creditFields = { credits, creditsSource, kind: 'element', task };
+
   if (result.status !== 'completed' || !result.outputUrl) {
+    await recordCreditAttempt(root, location, {
+      sheetType: sheet, sheetId: id, model, jobId: result.id ?? null,
+      status: 'failed', failurePhase: 'generation',
+      billedLikely: !!result.id,
+      error: result.error || String(result.status),
+      ...creditFields,
+    });
     throw new Error(`generation for ${name}/${sheet}/${id} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
   }
 
   const dir = sheetInstanceDir(root, type, name, sheet, id);
-  const vtag = formatVersion(await nextVersion(dir));
-  const outputPath = path.join(dir, `${vtag}${extFromUrl(result.outputUrl, '.png')}`);
-  await downloadTo(result.outputUrl, outputPath);
-  await writeFile(path.join(dir, `${vtag}.prompt.md`), v.promptText);
+  try {
+    const vtag = formatVersion(await nextVersion(dir));
+    const outputPath = path.join(dir, `${vtag}${extFromUrl(result.outputUrl, '.png')}`);
+    await downloadTo(result.outputUrl, outputPath);
+    await writeFile(path.join(dir, `${vtag}.prompt.md`), v.promptText);
 
-  // Turnaround and pose sheets are a single 3×2 grid; split them into per-panel
-  // files so later prompt-generation can reference one panel by name. The folder
-  // matches the sheet's name (e.g. v001.png -> v001/) and sits beside it.
-  let panelsDir = null;
-  let panels = null;
-  const panelLabels = SHEET_PANEL_LABELS[sheet];
-  if (panelLabels) {
-    panelsDir = path.join(dir, vtag);
-    panels = await splitPanels(outputPath, panelsDir, panelLabels);
+    // Turnaround and pose sheets are a single 3×2 grid; split them into per-panel
+    // files so later prompt-generation can reference one panel by name. The folder
+    // matches the sheet's name (e.g. v001.png -> v001/) and sits beside it.
+    let panelsDir = null;
+    let panels = null;
+    const panelLabels = SHEET_PANEL_LABELS[sheet];
+    if (panelLabels) {
+      panelsDir = path.join(dir, vtag);
+      panels = await splitPanels(outputPath, panelsDir, panelLabels);
+    }
+
+    await appendGeneration(root, type, name, {
+      sheetType: sheet, sheetId: id, version: vtag, model, jobId: result.id,
+      prompt: v.promptText, promptFile: path.join(dir, `${vtag}.prompt.md`),
+      imageReferences: images, output: outputPath, panelsDir, panels: panels || [],
+      status: 'generated', ...creditFields,
+    });
+    return { outputPath, jobId: result.id, version: vtag, sheetId: id, panelsDir, panels };
+  } catch (err) {
+    await recordCreditAttempt(root, location, {
+      sheetType: sheet, sheetId: id, model, jobId: result.id,
+      status: 'failed', failurePhase: 'post_complete',
+      billedLikely: true,
+      error: String(err?.message || err),
+      ...creditFields,
+    });
+    throw err;
   }
-
-  await appendGeneration(root, type, name, {
-    sheetType: sheet, sheetId: id, version: vtag, model, jobId: result.id,
-    prompt: v.promptText, promptFile: path.join(dir, `${vtag}.prompt.md`),
-    imageReferences: images, output: outputPath, panelsDir, panels: panels || [],
-    status: 'generated',
-  });
-  return { outputPath, jobId: result.id, version: vtag, sheetId: id, panelsDir, panels };
 }
 
 export async function generateShotDraft(root, spec, {
@@ -83,6 +110,7 @@ export async function generateShotDraft(root, spec, {
     speechAudio, videos = [], audios = [],
     resolution, duration, aspectRatio, generateAudio, mode,
   } = spec;
+  const task = resolveTask(spec);
 
   const v = await validateShotGenerate(root, {
     shotId, version, model, prompt, promptFile, images,
@@ -112,21 +140,56 @@ export async function generateShotDraft(root, spec, {
   if (generateAudio != null) opts.generateAudio = generateAudio;
   if (mode != null) opts.mode = mode;
 
+  const { credits, source: creditsSource } = await estimateCredits({
+    runner, model, prompt: v.promptText, images,
+    videoReferences: videoReferences.length ? videoReferences : undefined,
+    audioReferences: audios.length ? audios : undefined,
+    resolution, duration, aspectRatio, generateAudio, mode,
+  });
+
   const [result] = await runBatch(runner, [{ ref: `${shotId}/v${version}`, model, opts }]);
+  const location = { kind: 'shot', shotId };
+  const creditFields = { credits, creditsSource, kind: 'shot', task };
+
   if (result.status !== 'completed' || !result.outputUrl) {
+    await recordCreditAttempt(root, location, {
+      model, jobId: result.id ?? null, version: formatVersion(version),
+      status: 'failed', failurePhase: 'generation',
+      billedLikely: !!result.id,
+      error: result.error || String(result.status),
+      ...creditFields,
+    });
     throw new Error(`shot draft ${shotId} v${version} did not complete: ${result.status}${result.error ? ' — ' + result.error : ''}`);
   }
 
-  const outputPath = path.join(dir, `output${extFromUrl(result.outputUrl, '.mp4')}`);
-  await downloadTo(result.outputUrl, outputPath);
+  try {
+    const outputPath = path.join(dir, `output${extFromUrl(result.outputUrl, '.mp4')}`);
+    await downloadTo(result.outputUrl, outputPath);
 
-  // Record what produced this take, for parity with element-sheet bookkeeping.
-  await writeFile(path.join(dir, 'output.json'), JSON.stringify({
-    model, jobId: result.id, prompt: v.promptText,
-    imageReferences: images, videoReferences, audioReferences: audios,
-    resolution, duration, aspectRatio, generateAudio, mode,
-    speechAudio: speechAudio || null, output: outputPath,
-  }, null, 2) + '\n');
+    const successEntry = {
+      model, jobId: result.id, prompt: v.promptText,
+      imageReferences: images, videoReferences, audioReferences: audios,
+      resolution, duration, aspectRatio, generateAudio, mode,
+      speechAudio: speechAudio || null, output: outputPath,
+      version: formatVersion(version),
+      status: 'generated', ...creditFields,
+    };
 
-  return { outputPath, jobId: result.id };
+    await writeFile(path.join(dir, 'output.json'), JSON.stringify({
+      ...successEntry, ts: new Date().toISOString(),
+    }, null, 2) + '\n');
+
+    await recordCreditAttempt(root, location, successEntry);
+
+    return { outputPath, jobId: result.id };
+  } catch (err) {
+    await recordCreditAttempt(root, location, {
+      model, jobId: result.id, version: formatVersion(version),
+      status: 'failed', failurePhase: 'post_complete',
+      billedLikely: true,
+      error: String(err?.message || err),
+      ...creditFields,
+    });
+    throw err;
+  }
 }
