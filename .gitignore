@@ -6,6 +6,9 @@ node_modules/
 elements/
 shots/
 
+# Per-project pipeline state (e.g. the active credit task from `pipeline task set`).
+.pipeline/
+
 scripts/sanity-checks/state/
 scripts/sanity-checks/fixtures/*
 !scripts/sanity-checks/fixtures/README.md

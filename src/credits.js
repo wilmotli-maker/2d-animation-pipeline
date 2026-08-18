@@ -1,8 +1,8 @@
-import { readdir, readFile, access, appendFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, access, appendFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES, MODEL_DISPLAY_NAME } from './config.js';
-import { generationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath } from './paths.js';
+import { generationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath, taskStatePath } from './paths.js';
 import { appendGeneration } from './element.js';
 
 const ESTIMATE_TIMEOUT_MS = 5000;
@@ -196,6 +196,45 @@ function withTimeout(promise, ms) {
 
 export function resolveTask(spec = {}) {
   return spec.task ?? process.env.PIPELINE_TASK ?? null;
+}
+
+/** Read the project's active task label (set by `pipeline task set`), or null. */
+export async function readTaskState(root) {
+  try {
+    const label = (await readFile(taskStatePath(root), 'utf8')).trim();
+    return label || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the project's active task label. */
+export async function setTaskState(root, label) {
+  const trimmed = String(label ?? '').trim();
+  if (!trimmed) throw new Error('task label is required');
+  const p = taskStatePath(root);
+  await mkdir(path.dirname(p), { recursive: true });
+  await writeFile(p, trimmed + '\n');
+  return trimmed;
+}
+
+/** Clear the project's active task. Returns true if one was set. */
+export async function clearTaskState(root) {
+  try {
+    await rm(taskStatePath(root));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the task for a generation: explicit --task, then PIPELINE_TASK env,
+ * then the project's persisted active task. Env still overrides the state file
+ * so a one-off `PIPELINE_TASK=… pipeline …` wins for that command.
+ */
+export async function resolveActiveTask(root, spec = {}) {
+  return resolveTask(spec) ?? await readTaskState(root);
 }
 
 /** Estimate credits for a generation attempt. Never throws — returns null on failure. */

@@ -3,7 +3,7 @@ import { access, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
-import { estimateCredits, recordCreditAttempt, resolveTask } from './credits.js';
+import { estimateCredits, recordCreditAttempt, resolveActiveTask } from './credits.js';
 import { resolveSourceClip } from './matte.js';
 import { shotUpscalePath } from './paths.js';
 
@@ -52,7 +52,7 @@ export async function upscaleShot(root, spec, {
     model = UPSCALE_DEFAULT_MODEL, resolution, aspectRatio, fps,
     modelVersion, preset,
   } = spec;
-  const task = resolveTask(spec);
+  const task = await resolveActiveTask(root, spec);
 
   const cfg = UPSCALE_MODELS[model];
   if (!cfg) {
@@ -116,7 +116,7 @@ export async function upscaleShot(root, spec, {
       status: 'generated', ...creditFields,
     });
 
-    return { outputPath, sidecar, jobId: result.id, model, resolution: res, source, mediaId: media.id };
+    return { outputPath, sidecar, jobId: result.id, model, resolution: res, source, mediaId: media.id, task };
   } catch (err) {
     await recordCreditAttempt(root, location, {
       model, resolution: res, jobId: result.id,

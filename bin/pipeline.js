@@ -11,7 +11,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
-import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits } from '../src/credits.js';
+import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -89,7 +89,7 @@ async function main() {
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
       task: f.task,
     }, { runner: createRunner() });
-    console.log(`saved ${res.version}: ${res.outputPath}`);
+    console.log(`saved ${res.version}: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
   } else if (cmd === 'element' && sub === 'split-panels') {
     const f = parseFlags(rest);
     const results = await backfillPanels(projectRoot(f.root), {
@@ -135,7 +135,7 @@ async function main() {
       resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
       generateAudio: f['generate-audio'], mode: f.mode, task: f.task,
     }, { runner: createRunner() });
-    console.log(`saved shot draft output: ${res.outputPath}`);
+    console.log(`saved shot draft output: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
@@ -190,7 +190,7 @@ async function main() {
       modelVersion: f['model-version'], preset: f.preset, fps: f.fps, task: f.task,
       // The upscaler create call hangs if stderr is a captured pipe; inherit it.
     }, { runner: createRunner({ exec: inheritStderrExec }) });
-    console.log(`upscaled ${res.source}`);
+    console.log(`upscaled ${res.source}${res.task ? `  [task: ${res.task}]` : ''}`);
     console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, job ${res.jobId})`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
@@ -255,6 +255,30 @@ async function main() {
       sheet: f.sheet, type: f.type, name: f.name,
     });
     console.log(`tagged ${result.tagged} entries with task "${result.task}"`);
+  } else if (cmd === 'task') {
+    // Active credit task for a project root — a persistent fallback for --task /
+    // PIPELINE_TASK so a session of iteration is tagged without re-passing it.
+    if (sub === 'set') {
+      const label = rest.find((t) => !t.startsWith('--'));
+      const f = parseFlags(rest.filter((t) => t !== label));
+      if (!label) fail('usage: pipeline task set <label> [--root <dir>]');
+      const root = projectRoot(f.root);
+      await setTaskState(root, label);
+      console.log(`active task set: ${label}\n(applies to gens under this project until \`pipeline task clear\`)`);
+    } else if (sub === 'clear') {
+      const f = parseFlags(rest);
+      const had = await clearTaskState(projectRoot(f.root));
+      console.log(had ? 'active task cleared' : 'no active task was set');
+    } else if (sub == null || sub.startsWith('--')) {
+      // `pipeline task` or `pipeline task --root <dir>` — show current.
+      const f = parseFlags(sub == null ? rest : [sub, ...rest]);
+      const active = await readTaskState(projectRoot(f.root));
+      const env = process.env.PIPELINE_TASK;
+      if (env) console.log(`PIPELINE_TASK env: ${env}  (overrides the project task)`);
+      console.log(active ? `active task: ${active}` : 'no active task set');
+    } else {
+      fail('usage: pipeline task [set <label> | clear] [--root <dir>]');
+    }
   } else if (cmd === 'credits' && sub === 'backfill') {
     const f = parseFlags(rest);
     const result = await backfillCredits(projectRoot(f.root), {
@@ -300,6 +324,7 @@ async function main() {
       '  pipeline voice transcribe --audio <file> [--audio <file> ...] [--out <file>] | --dir <folder> [--engine whisper] [--model-file <path>] [--force]  # exact transcript sidecars for lip-sync prompts',
       '  pipeline credits report [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>] [--task <label>] [--by element|sheet|shot|day|model|task|kind] [--saved-only] [--json]',
       '  pipeline credits reconcile --since <ISO> [--until <ISO>] [--exclude-unbilled] [--json] [--root <dir>]',
+      '  pipeline task [set <label> | clear] [--root <dir>]  # set/show/clear the active credit task for a project (a persistent --task fallback)',
       '',
       '--image / --video / --audio are repeatable: pass each multiple times to',
       'send several references. For talking-character (Seedance) shots, pass the',

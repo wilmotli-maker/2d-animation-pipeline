@@ -69,6 +69,13 @@ export function shotUpscalePath(root, shotId, version = null, resolution = '1080
   return path.join(shotVersionDir(root, shotId, version), `upscaled-${resolution}.mp4`);
 }
 
+// Active credit task for a project root. `pipeline task set` writes it; a
+// generation with no --task/PIPELINE_TASK falls back to this label. Under
+// .pipeline/ so it sits apart from the user's elements/ and shots/ artifacts.
+export function taskStatePath(root) {
+  return path.join(root, '.pipeline', 'task');
+}
+
 export function shotGenerationsLogPath(root, shotId) {
   return path.join(shotDir(root, shotId), 'generations.jsonl');
 }
