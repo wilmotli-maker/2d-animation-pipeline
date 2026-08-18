@@ -25,7 +25,12 @@ export function parseTransactions(stdout) {
 
 /** Parse `account transactions --json` rows. */
 export function parseTransactionsJson(data) {
-  const list = Array.isArray(data) ? data : (data?.transactions ?? data?.rows ?? []);
+  // Live API wraps rows under `items` (next cursor under `cursor`); older mocks
+  // used `transactions`/`rows`. Accept all so reconcile works against the real
+  // CLI, not just fixtures.
+  const list = Array.isArray(data)
+    ? data
+    : (data?.items ?? data?.transactions ?? data?.rows ?? []);
   return list.map((row) => ({
     createdAt: row.created_at ?? row.createdAt ?? row.date,
     model: row.display_name ?? row.model ?? '',
@@ -34,14 +39,17 @@ export function parseTransactionsJson(data) {
   })).filter((row) => row.createdAt && row.model);
 }
 
+const TX_PAGE_SIZE = 100;
+const TX_MAX_PAGES = 500; // safety cap: never walk forever on a stable cursor
+
 async function fetchAllTransactions(runner, { since } = {}) {
   const rows = [];
   let cursor = null;
   const sinceMs = since ? Date.parse(since) : null;
 
-  for (;;) {
-    const page = await runner.fetchTransactions({ size: 100, cursor });
-    const batch = parseTransactionsJson(page);
+  for (let page = 0; page < TX_MAX_PAGES; page++) {
+    const resp = await runner.fetchTransactions({ size: TX_PAGE_SIZE, cursor });
+    const batch = parseTransactionsJson(resp);
     if (!batch.length) break;
     rows.push(...batch);
 
@@ -50,9 +58,13 @@ async function fetchAllTransactions(runner, { since } = {}) {
       return t < min ? t : min;
     }, Infinity);
 
-    cursor = page?.next_cursor ?? page?.cursor ?? null;
-    if (!cursor) break;
+    const nextCursor = resp?.next_cursor ?? resp?.cursor ?? null;
+    // Stop on: no cursor, a cursor that didn't advance (would loop), a short
+    // final page, or once we've paged past the requested window.
+    if (!nextCursor || nextCursor === cursor) break;
+    if (batch.length < TX_PAGE_SIZE) break;
     if (sinceMs != null && oldest <= sinceMs) break;
+    cursor = nextCursor;
   }
 
   return rows;
@@ -77,7 +89,17 @@ export async function reconcile(root, {
   const untilMs = until ? Date.parse(until) : null;
 
   let entries = await collectLogEntries(root);
-  entries = entries.filter((e) => entryInWindow(e, since, until));
+  // Reconcile is strictly windowed — an entry with no parseable timestamp can't
+  // be placed against billed rows, so drop it rather than counting it in every
+  // window (report keeps them; reconcile must not).
+  entries = entries.filter((e) => {
+    if (!e.ts) return false;
+    const t = Date.parse(e.ts);
+    if (Number.isNaN(t)) return false;
+    if (sinceMs != null && t < sinceMs) return false;
+    if (untilMs != null && t > untilMs) return false;
+    return true;
+  });
   if (excludeUnbilled) {
     entries = entries.filter((e) => e.billedLikely !== false);
   }
@@ -93,11 +115,16 @@ export async function reconcile(root, {
 
   const loggedByModel = new Map();
   const loggedSavedByModel = new Map();
+  const unknownByModel = new Map(); // entries with no credit estimate (credits == null)
 
   for (const e of entries) {
     const key = e.model || '—';
     if (!loggedByModel.has(key)) loggedByModel.set(key, 0);
     loggedByModel.set(key, loggedByModel.get(key) + (e.credits ?? 0));
+
+    if (e.credits == null) {
+      unknownByModel.set(key, (unknownByModel.get(key) ?? 0) + 1);
+    }
 
     if (e.status !== 'failed') {
       if (!loggedSavedByModel.has(key)) loggedSavedByModel.set(key, 0);
@@ -130,6 +157,7 @@ export async function reconcile(root, {
       billed,
       gap: billed - loggedAll,
       gapSaved: billed - loggedSaved,
+      unknownEstimates: unknownByModel.get(model) ?? 0,
     });
   }
 
@@ -140,8 +168,11 @@ export function formatReconcileTable(report) {
   const lines = [];
   lines.push(`${'MODEL'.padEnd(20)} LOGGED_SAVED  LOGGED_ALL  BILLED  GAP`);
   for (const row of report.rows) {
+    // A gap next to un-estimated entries is likely missing estimates, not
+    // untracked spend — flag it so the two aren't conflated.
+    const note = row.unknownEstimates ? `  (${row.unknownEstimates} w/o estimate)` : '';
     lines.push(
-      `${row.model.padEnd(20)} ${String(row.loggedSaved).padEnd(13)} ${String(row.loggedAll).padEnd(11)} ${String(row.billed).padEnd(7)} ${row.gap}`,
+      `${row.model.padEnd(20)} ${String(row.loggedSaved).padEnd(13)} ${String(row.loggedAll).padEnd(11)} ${String(row.billed).padEnd(7)} ${row.gap}${note}`,
     );
   }
   return lines.join('\n');
@@ -303,21 +334,11 @@ async function walkLegacyOutputs(root) {
         // skip
       }
     }
+    // Upscale sidecars live beside the clip they enlarged — final/ or
+    // drafts/vN/ (never directly under shots/<id>/), so only those dirs are
+    // scanned. New upscales also write generations.jsonl; collectLogEntries
+    // dedupes the two by jobId.
     const shotRoot = shotDir(root, shotId);
-    for (const file of await readdir(shotRoot)) {
-      if (!file.endsWith('.json') || !file.startsWith('upscaled-')) continue;
-      const sidecarPath = path.join(shotRoot, file);
-      try {
-        const raw = JSON.parse(await readFile(sidecarPath, 'utf8'));
-        entries.push(normalizeEntry({
-          ...raw,
-          status: 'generated',
-          ts: raw.upscaledAt || null,
-        }, { shotId, kind: 'upscale' }));
-      } catch {
-        // skip
-      }
-    }
     for (const sub of ['final', ...await readdir(draftsDir).catch(() => [])]) {
       const subDir = path.join(shotRoot, sub === 'final' ? 'final' : path.join('drafts', sub));
       if (!await exists(subDir)) continue;

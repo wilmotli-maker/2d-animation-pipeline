@@ -65,9 +65,6 @@ export function shotMatteQcDir(root, shotId, version = null) {
 // The output of `pipeline shot upscale`, written beside the clip it enlarged.
 // The resolution is in the name so 1080p and 2160p passes of the same clip can
 // coexist rather than overwrite each other.
-// The output of `pipeline shot upscale`, written beside the clip it enlarged.
-// The resolution is in the name so 1080p and 2160p passes of the same clip can
-// coexist rather than overwrite each other.
 export function shotUpscalePath(root, shotId, version = null, resolution = '1080p') {
   return path.join(shotVersionDir(root, shotId, version), `upscaled-${resolution}.mp4`);
 }

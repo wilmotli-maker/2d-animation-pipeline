@@ -52,6 +52,12 @@ Columns:
 | `BILLED` | Sum from `account transactions` (authoritative) |
 | `GAP` | `BILLED - LOGGED_ALL` (untracked spend **or** estimate error) |
 
+A `(N w/o estimate)` note after the gap means N entries for that model had no
+credit estimate (e.g. a video model whose `generate cost` call missed). Those
+contribute 0 to the logged sums, so a gap sitting next to them is likely missing
+estimates rather than untracked spend — run `backfill` or re-check the estimate
+path before reading it as overhead.
+
 Use `--task` + narrow windows to reduce noise from other sessions on the same account.
 
 ### `pipeline credits tag`
