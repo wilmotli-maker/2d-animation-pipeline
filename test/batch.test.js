@@ -72,6 +72,36 @@ test('runBatch surfaces a submit that returned no id as an error result', async 
   assert.match(results[0].error, /no job id/i);
 });
 
+test('runBatch tolerates transient get() throws and still completes the job', async () => {
+  // The higgsfield CLI intermittently errors on `generate get`; a single thrown
+  // get must NOT permanently fail an otherwise-healthy job.
+  let calls = 0;
+  const runner = {
+    async generate() { return { id: 'job_1', status: 'unknown', outputUrl: null }; },
+    async get(id) {
+      calls += 1;
+      if (calls <= 2) throw new Error('empty response from CLI'); // two transient blips
+      return { id, status: 'completed', outputUrl: `https://cdn/${id}.png` };
+    },
+  };
+  const results = await runBatch(runner, [{ ref: 'a', model: 'm', opts: {} }],
+    { pollIntervalMs: 0 });
+  assert.equal(results[0].status, 'completed');
+  assert.equal(results[0].outputUrl, 'https://cdn/job_1.png');
+  assert.equal(results[0].error, undefined, 'recovered job carries no stale error');
+});
+
+test('runBatch gives up after maxGetErrors consecutive get() throws', async () => {
+  const runner = {
+    async generate() { return { id: 'job_1', status: 'unknown', outputUrl: null }; },
+    async get() { throw new Error('persistent CLI failure'); },
+  };
+  const results = await runBatch(runner, [{ ref: 'a', model: 'm', opts: {} }],
+    { pollIntervalMs: 0, maxGetErrors: 3 });
+  assert.equal(results[0].status, 'error');
+  assert.match(results[0].error, /3x consecutively/);
+});
+
 test('runBatch does not orphan a job when two submits return the same id', async () => {
   let gen = 0;
   const runner = {

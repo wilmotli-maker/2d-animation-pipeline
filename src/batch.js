@@ -18,7 +18,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // requests: [{ ref, model, opts }]  (opts are createRunner.generate options)
 // Returns one result per request, order preserved:
 //   { ref, id, status, outputUrl, error? }
-export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPolls = 900 } = {}) {
+// The higgsfield CLI is flaky under rapid polling: a `generate get` can come
+// back with empty/garbage stdout (parses to status 'unknown' — handled below by
+// simply polling again) OR exit non-zero so `runner.get` THROWS. A thrown get is
+// almost always transient (the very next poll succeeds), so we must NOT treat one
+// as a permanent job failure — that was silently killing healthy jobs mid-run.
+// Tolerate up to maxGetErrors CONSECUTIVE thrown gets per job (reset on any
+// success) before declaring the job errored; a genuinely broken id exhausts the
+// budget and still fails.
+export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPolls = 900, maxGetErrors = 5 } = {}) {
   // Submission is sequential; each create call has spawn latency but is short
   // relative to generation time. Parallelize with a concurrency cap later if
   // large batches make submission time material.
@@ -44,13 +52,21 @@ export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPol
       if (!isPending(job)) continue;
       try {
         const r = await runner.get(job.id);
+        job.getErrors = 0; // a clean read clears any transient-failure streak
+        job.error = undefined; // and clears a stale transient message
         if (isTerminalStatus(r.status)) {
           job.status = r.status;
           job.outputUrl = r.outputUrl || null;
         }
       } catch (err) {
-        job.status = 'error';
+        // Transient CLI blip: keep the job pending and retry next poll. Only give
+        // up after maxGetErrors CONSECUTIVE thrown gets.
+        job.getErrors = (job.getErrors || 0) + 1;
         job.error = err.message;
+        if (job.getErrors >= maxGetErrors) {
+          job.status = 'error';
+          job.error = `get failed ${job.getErrors}x consecutively: ${err.message}`;
+        }
       }
     }
     polls += 1;
