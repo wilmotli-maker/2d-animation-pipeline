@@ -1,7 +1,10 @@
 // Async batch engine. Verified backend behavior (sanity checks 6 & 7):
 // `create` without --wait returns immediately with a job id, and the backend
-// runs jobs in PARALLEL. So we submit the whole batch first, then poll all
-// outstanding jobs together — real throughput, not serialized waits.
+// runs jobs in PARALLEL. We drive up to `concurrency` jobs at once through a
+// worker pool: each worker submits its job async then polls it to a terminal
+// status before pulling the next — real throughput, capped so a large batch
+// doesn't flood the backend or the flaky CLI. A single job's failure (or
+// timeout) stays isolated to that job and never blocks the others.
 
 // Moderation verdicts (nsfw / moderated / content_moderation / rejected) are
 // TERMINAL failures — the backend emits them once and never advances. Omitting
@@ -26,57 +29,73 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Tolerate up to maxGetErrors CONSECUTIVE thrown gets per job (reset on any
 // success) before declaring the job errored; a genuinely broken id exhausts the
 // budget and still fails.
-export async function runBatch(runner, requests, { pollIntervalMs = 4000, maxPolls = 900, maxGetErrors = 5 } = {}) {
-  // Submission is sequential; each create call has spawn latency but is short
-  // relative to generation time. Parallelize with a concurrency cap later if
-  // large batches make submission time material.
-  // 1) Submit everything async (wait:false) — do not block between submits.
-  const jobs = [];
-  for (const req of requests) {
+export async function runBatch(runner, requests, {
+  pollIntervalMs = 4000, maxPolls = 900, maxGetErrors = 5, concurrency = 8,
+} = {}) {
+  // One slot per request, indexed by position so results stay in request order
+  // regardless of which job finishes first. Iterating job objects (not an
+  // id-keyed map) also means duplicate ids can't orphan a job.
+  const jobs = requests.map((req) => ({
+    ref: req.ref, id: null, status: 'pending', outputUrl: null, error: undefined,
+  }));
+
+  // Submit one job async (wait:false), then poll it alone until it reaches a
+  // terminal status, times out, or exhausts its transient-error budget.
+  async function runOne(req, job) {
     try {
       const res = await runner.generate(req.model, { ...req.opts, wait: false });
-      jobs.push({ ref: req.ref, id: res.id, status: res.id ? 'submitted' : 'error',
-        outputUrl: null, error: res.id ? undefined : 'submit returned no job id' });
+      if (!res.id) { job.status = 'error'; job.error = 'submit returned no job id'; return; }
+      job.id = res.id;
+      job.status = 'submitted';
     } catch (err) {
-      jobs.push({ ref: req.ref, id: null, status: 'error', outputUrl: null, error: err.message });
+      job.status = 'error';
+      job.error = err.message;
+      return;
     }
-  }
 
-  // 2) Poll all outstanding jobs together until each is terminal. Iterate the
-  // job objects directly (not an id-keyed map) so duplicate ids can't orphan a
-  // job and the timeout sweep covers every still-pending job.
-  const isPending = (j) => j.status === 'submitted';
-  let polls = 0;
-  while (jobs.some(isPending) && polls < maxPolls) {
-    for (const job of jobs) {
-      if (!isPending(job)) continue;
+    let polls = 0;
+    let getErrors = 0;
+    while (job.status === 'submitted' && polls < maxPolls) {
       try {
         const r = await runner.get(job.id);
-        job.getErrors = 0; // a clean read clears any transient-failure streak
+        getErrors = 0;        // a clean read clears any transient-failure streak
         job.error = undefined; // and clears a stale transient message
         if (isTerminalStatus(r.status)) {
           job.status = r.status;
           job.outputUrl = r.outputUrl || null;
+          break;
         }
       } catch (err) {
         // Transient CLI blip: keep the job pending and retry next poll. Only give
         // up after maxGetErrors CONSECUTIVE thrown gets.
-        job.getErrors = (job.getErrors || 0) + 1;
+        getErrors += 1;
         job.error = err.message;
-        if (job.getErrors >= maxGetErrors) {
+        if (getErrors >= maxGetErrors) {
           job.status = 'error';
-          job.error = `get failed ${job.getErrors}x consecutively: ${err.message}`;
+          job.error = `get failed ${getErrors}x consecutively: ${err.message}`;
+          break;
         }
       }
+      polls += 1;
+      if (job.status === 'submitted') await sleep(pollIntervalMs);
     }
-    polls += 1;
-    if (jobs.some(isPending)) await sleep(pollIntervalMs);
-  }
-  for (const job of jobs) {
-    if (isPending(job)) {
+    if (job.status === 'submitted') {
       job.status = 'error';
       job.error = 'timed out waiting for completion';
     }
   }
+
+  // Worker pool: at most `concurrency` jobs in flight at once. Each worker pulls
+  // the next unclaimed request, runs it to terminal, then pulls the next.
+  let next = 0;
+  async function worker() {
+    while (next < requests.length) {
+      const i = next++;
+      await runOne(requests[i], jobs[i]);
+    }
+  }
+  const width = Math.max(1, Math.min(concurrency, requests.length));
+  await Promise.all(Array.from({ length: width }, () => worker()));
+
   return jobs;
 }

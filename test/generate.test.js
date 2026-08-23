@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createElement, writeStyleLock } from '../src/element.js';
 import { createShot, newDraft } from '../src/shot.js';
 import { sheetPromptPath } from '../src/paths.js';
-import { generateElementSheet, generateShotDraft } from '../src/generate.js';
+import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 
 async function withTemp(fn) {
   const dir = await mkdtemp(path.join(tmpdir(), 'gen-'));
@@ -346,5 +346,109 @@ test('generateShotDraft throws when the draft does not exist', async () => {
       () => generateShotDraft(root, { shotId: 's1', version: 5, model: 'm' }, deps()),
       /cannot generate.*draft exists/i,
     );
+  });
+});
+
+// A runBatch mock that assigns status per-request by ref substring, so a batch
+// test can force one job to fail while others complete. Order preserved.
+function batchDeps(statusFor = () => 'completed') {
+  const d = deps();
+  d.runBatch = async (_runner, requests, opts) => {
+    d._lastOpts = opts;
+    d._lastRefs = requests.map((r) => r.ref);
+    return requests.map((r) => {
+      const status = statusFor(r.ref);
+      return {
+        ref: r.ref, id: `job_${r.ref}`, status,
+        outputUrl: status === 'completed' ? `https://cdn/${r.ref}.png` : null,
+        error: status === 'completed' ? undefined : 'moderated',
+      };
+    });
+  };
+  return d;
+}
+
+async function seedSheet(root, name, sheet, id, promptText = 'a detailed prompt') {
+  const { mkdir } = await import('node:fs/promises');
+  const pf = sheetPromptPath(root, 'characters', name, sheet, id);
+  await mkdir(path.dirname(pf), { recursive: true });
+  await writeFile(pf, promptText);
+}
+
+test('generateElementSheetsBatch generates many sheets in one capped run', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    await seedSheet(root, 'cecilia', 'turnaround', 'summer');
+    const d = batchDeps();
+    const results = await generateElementSheetsBatch(root, [
+      { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana' },
+      { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'summer', model: 'nano_banana' },
+    ], { ...d, concurrency: 8 });
+
+    assert.equal(results.length, 2);
+    assert.ok(results.every((r) => r.ok));
+    assert.deepEqual(results.map((r) => r.sheetId), ['winter', 'summer']);
+    // Submitted through a single runBatch call with the concurrency cap.
+    assert.equal(d._lastOpts.concurrency, 8);
+    assert.deepEqual(d._lastRefs, ['cecilia/turnaround/winter', 'cecilia/turnaround/summer']);
+  });
+});
+
+test('generateElementSheetsBatch isolates a single job failure', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    await seedSheet(root, 'cecilia', 'turnaround', 'summer');
+    const d = batchDeps((ref) => (ref.endsWith('summer') ? 'moderated' : 'completed'));
+    const results = await generateElementSheetsBatch(root, [
+      { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana' },
+      { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'summer', model: 'nano_banana' },
+    ], d);
+
+    assert.equal(results[0].ok, true);
+    assert.equal(results[1].ok, false);
+    assert.match(results[1].error, /did not complete/);
+  });
+});
+
+test('generateElementSheetsBatch turns a preparation failure into an isolated result', async () => {
+  await withTemp(async (root) => {
+    await seedElement(root, 'cecilia', 'turnaround', 'winter');
+    // Second element does not exist -> validation fails in prepare, no submit.
+    const d = batchDeps();
+    const results = await generateElementSheetsBatch(root, [
+      { type: 'characters', name: 'cecilia', sheet: 'turnaround', id: 'winter', model: 'nano_banana' },
+      { type: 'characters', name: 'ghost', sheet: 'turnaround', id: 'x', model: 'nano_banana' },
+    ], d);
+
+    assert.equal(results[0].ok, true);
+    assert.equal(results[1].ok, false);
+    // Only the valid one was ever submitted.
+    assert.deepEqual(d._lastRefs, ['cecilia/turnaround/winter']);
+  });
+});
+
+test('generateShotDraftsBatch generates many shot drafts in one run', async () => {
+  await withTemp(async (root) => {
+    for (const id of ['s1', 's2', 's3']) {
+      await createShot(root, { shotId: id, elements: [] });
+      await newDraft(root, id);
+      await writeFile(path.join(root, 'shots', id, 'drafts', 'v001', 'prompt.md'), 'a detailed prompt');
+    }
+    const d = batchDeps();
+    d.runBatch = async (_runner, requests, opts) => {
+      d._lastOpts = opts;
+      d._lastRefs = requests.map((r) => r.ref);
+      return requests.map((r) => ({ ref: r.ref, id: `job_${r.ref}`, status: 'completed',
+        outputUrl: `https://cdn/${r.ref}.mp4` }));
+    };
+    const results = await generateShotDraftsBatch(root, [
+      { shotId: 's1', version: 1, model: 'seedance_2_5' },
+      { shotId: 's2', version: 1, model: 'seedance_2_5' },
+      { shotId: 's3', version: 1, model: 'seedance_2_5' },
+    ], { ...d, concurrency: 4 });
+
+    assert.equal(results.length, 3);
+    assert.ok(results.every((r) => r.ok), JSON.stringify(results));
+    assert.equal(d._lastOpts.concurrency, 4);
   });
 });

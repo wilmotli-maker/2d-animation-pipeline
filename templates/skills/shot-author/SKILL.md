@@ -96,6 +96,8 @@ never hand-write the Seedance prompt from scratch:
 8. **Generate** (reads the canonical prompt from step 6):
    `pipeline shot generate --id <id> --version <n> --model seedance_2_5 --mode omni_reference [--root episodes/<N>] [--image <ref> …] [--speech-audio <wav>] --resolution 480p [--duration <s>] [--aspect-ratio <a>] [--generate-audio <b>]`
    Submissions can take >2 min (upload latency) — run submit+poll in the background.
+   Generating **several** shots at once? Use `shot generate-batch` instead (see
+   *Batch generation*) — parallel, up to 8 at a time, one failure won't block the rest.
    Draft at `--resolution 480p`; the crisp final comes from the upscale in step 11.
 9. **Review with the user.** Watch `drafts/vNNN/output.mp4`. Log the
    accept/regenerate decision in `drafts/vNNN/notes.md`. To refine, go back to
@@ -118,6 +120,35 @@ never hand-write the Seedance prompt from scratch:
     the default and best preserves flat-2D line art; add `--resolution 2160p` for 4K,
     or `--model bytedance_video_upscale` for a cheaper (softer) pass. Needs `ffmpeg`.
     The upscaled file is the deliverable; the promoted 480p clip stays as the master.
+
+## Batch generation (multiple shots at once)
+
+When you have several shots to generate in one go (e.g. a whole scene), do **not**
+run `pipeline shot generate` once per shot and wait for each — that is sequential,
+and one failed job blocks the rest. Instead, compose + verify every shot first
+(steps 1–7 for each), then submit them all through one batch command that runs up
+to 8 jobs in parallel and isolates failures:
+
+```
+pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--root episodes/<N>]
+```
+
+The manifest is a JSON array (or `{ "concurrency": N, "items": [...] }`), one entry
+per shot, each with the same fields as `shot generate`:
+
+```json
+[
+  { "id": "art-talk-01", "version": 1, "model": "seedance_2_5", "mode": "omni_reference",
+    "resolution": "480p", "images": ["elements/characters/cecilia/sheets/turnaround/winter/v001/01-front.png"] },
+  { "id": "art-talk-02", "version": 1, "model": "seedance_2_5", "resolution": "480p" }
+]
+```
+
+Each item reads its canonical `shots/<id>/drafts/vNNN/prompt.md` (write + verify it
+first, exactly as in steps 6–7). The command prints a ✓/✗ line per shot and exits
+non-zero if any failed; each success logs and downloads to its own draft folder just
+like a single generate. Still review/promote each shot individually afterward.
+**Verify every shot before batching** — the batch spends real credits on all of them.
 
 ## Lip-sync shots (talking characters) — the load-bearing recipe
 

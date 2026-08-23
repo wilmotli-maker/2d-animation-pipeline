@@ -47,6 +47,13 @@ shot in every episode. Run these commands from the project's top directory with 
    Offer to chain a finished turnaround (`sheets/turnaround/<slug>/vNNN.png`) as an
    extra `--image` reference for later pose/cycle sheets, for consistency.
 
+   **Building several independent sheets at once?** After composing + verifying each
+   (element-author steps 1–6), generate them together in parallel instead of one at a
+   time — see element-author's *Batch generation* (`pipeline element sheet-batch
+   --manifest <file.json>`, up to 8 concurrent, failures isolated). Keep the
+   turnaround-first ordering: sheets that reference the turnaround's panels must be
+   generated after it, so build the turnaround first, then batch the rest.
+
 6. **Wrap up.** Summarize the sheets produced (type / slug / version) and where they
    live. Offer to build more sheets, add another instance, or refine any sheet.
 
