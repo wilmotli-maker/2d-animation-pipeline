@@ -66,6 +66,37 @@ pipeline accepts it.
    regenerate (a new version under the same slug) or accept. For a **turnaround**
    or **pose**, also point out the auto-generated panel folder (see *Sheet panels*).
 
+## Batch generation (multiple sheets at once)
+
+Generating several sheets in one go (e.g. a full sheet plan from `build-element`)?
+Don't call `pipeline element sheet` once per sheet and wait for each — that is
+sequential and one failure blocks the rest. Compose + verify each sheet first
+(steps 1–6), then submit them all through one parallel batch (up to 8 at a time,
+failures isolated):
+
+```
+pipeline element sheet-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]
+```
+
+The manifest is a JSON array (or `{ "concurrency": N, "items": [...] }`), one entry
+per sheet, each with the same fields as `element sheet`:
+
+```json
+[
+  { "type": "characters", "name": "cecilia", "sheet": "turnaround", "id": "winter", "model": "nano_banana",
+    "images": ["elements/characters/cecilia/reference/ref.png"] },
+  { "type": "characters", "name": "cecilia", "sheet": "pose", "id": "combat", "model": "nano_banana" }
+]
+```
+
+Each item reads its canonical `.../sheets/<sheetType>/<slug>/prompt.md` (write +
+verify it first). The command prints a ✓/✗ line per sheet and exits non-zero if any
+failed; each success downloads, versions, logs, and auto-splits panels exactly like a
+single generate. **Verify every sheet before batching** — it spends real credits on
+all of them. Note: sheets that reference a *previous* sheet's panel (e.g. a pose that
+uses the turnaround's front panel) can't be in the same batch as the sheet they depend
+on — generate the referenced sheet first, then batch the rest.
+
 ## Sheet panels
 
 `turnaround` and `pose` sheets are a single 16:9 image in a 3×2 grid. The pipeline

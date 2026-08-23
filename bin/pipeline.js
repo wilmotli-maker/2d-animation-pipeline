@@ -3,7 +3,8 @@ import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFA
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
-import { generateElementSheet, generateShotDraft } from '../src/generate.js';
+import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
+import { readFile } from 'node:fs/promises';
 import { backfillPanels } from '../src/split-panels.js';
 import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { syncSkills } from '../src/sync-skills.js';
@@ -50,6 +51,37 @@ function collectFlag(args, key) {
   return vals;
 }
 
+// Load a batch manifest: a JSON array of per-item specs, or an object
+// { concurrency?, items: [...] }. Returns { items, concurrency }.
+async function loadManifest(file) {
+  let raw;
+  try { raw = await readFile(file, 'utf8'); } catch (e) { fail(`cannot read manifest ${file}: ${e.message}`); }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { fail(`manifest ${file} is not valid JSON: ${e.message}`); }
+  const items = Array.isArray(parsed) ? parsed : parsed.items;
+  if (!Array.isArray(items) || !items.length) {
+    fail(`manifest ${file} must be a non-empty JSON array of specs (or { items: [...] })`);
+  }
+  const concurrency = Array.isArray(parsed) ? undefined : parsed.concurrency;
+  return { items, concurrency };
+}
+
+// Print per-job results and exit non-zero if any failed.
+function reportBatch(label, results) {
+  let failed = 0;
+  for (const r of results) {
+    if (r.ok) {
+      console.log(`  ✓ ${r.ref} -> ${r.outputPath}${r.task ? `  [task: ${r.task}]` : ''}`);
+    } else {
+      failed += 1;
+      console.log(`  ✗ ${r.ref || '(unprepared)'} — ${r.error}`);
+    }
+  }
+  const ok = results.length - failed;
+  console.log(`${label}: ${ok} succeeded, ${failed} failed (of ${results.length}).`);
+  if (failed) process.exit(1);
+}
+
 async function main() {
   if (cmd === 'element' && sub === 'create') {
     const f = parseFlags(rest);
@@ -90,6 +122,25 @@ async function main() {
       task: f.task,
     }, { runner: createRunner() });
     console.log(`saved ${res.version}: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
+  } else if (cmd === 'element' && sub === 'sheet-batch') {
+    const f = parseFlags(rest);
+    if (!f.manifest) {
+      fail('usage: pipeline element sheet-batch --manifest <file.json> [--concurrency <n>] [--root <dir>]\n' +
+        '  manifest: JSON array of { type, name, sheet, id, model, prompt|prompt-file|promptFile, images?, task? }');
+    }
+    const { items, concurrency: manifestConc } = await loadManifest(f.manifest);
+    const concurrency = f.concurrency != null ? Number(f.concurrency) : (manifestConc ?? 8);
+    if (!Number.isInteger(concurrency) || concurrency < 1) fail('--concurrency must be a positive integer');
+    const specs = items.map((it) => ({
+      ref: `${it.name}/${it.sheet}/${it.id}`,
+      type: it.type, name: it.name, sheet: it.sheet, id: it.id, model: it.model,
+      prompt: it.prompt, promptFile: it['prompt-file'] ?? it.promptFile, images: it.images || [],
+      task: it.task,
+    }));
+    const results = await generateElementSheetsBatch(projectRoot(f.root), specs, {
+      runner: createRunner(), concurrency,
+    });
+    reportBatch('element sheet-batch', results);
   } else if (cmd === 'element' && sub === 'split-panels') {
     const f = parseFlags(rest);
     const results = await backfillPanels(projectRoot(f.root), {
@@ -136,6 +187,34 @@ async function main() {
       generateAudio: f['generate-audio'], mode: f.mode, task: f.task,
     }, { runner: createRunner() });
     console.log(`saved shot draft output: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
+  } else if (cmd === 'shot' && sub === 'generate-batch') {
+    const f = parseFlags(rest);
+    if (!f.manifest) {
+      fail('usage: pipeline shot generate-batch --manifest <file.json> [--concurrency <n>] [--root <dir>]\n' +
+        '  manifest: JSON array of { id, version, model, prompt|prompt-file|promptFile, images?, speechAudio?, videos?, audios?, resolution?, duration?, aspectRatio?, generateAudio?, mode?, task? }');
+    }
+    const { items, concurrency: manifestConc } = await loadManifest(f.manifest);
+    const concurrency = f.concurrency != null ? Number(f.concurrency) : (manifestConc ?? 8);
+    if (!Number.isInteger(concurrency) || concurrency < 1) fail('--concurrency must be a positive integer');
+    const specs = items.map((it, i) => {
+      const version = Number(it.version);
+      if (!Number.isInteger(version) || version < 1) {
+        fail(`shot generate-batch: item ${i} (${it.id ?? '?'}) needs an integer version >= 1`);
+      }
+      return {
+        ref: `${it.id}/v${version}`,
+        shotId: it.id, version, model: it.model,
+        prompt: it.prompt, promptFile: it['prompt-file'] ?? it.promptFile, images: it.images || [],
+        speechAudio: it.speechAudio ?? it['speech-audio'], videos: it.videos || [], audios: it.audios || [],
+        resolution: it.resolution, duration: it.duration,
+        aspectRatio: it.aspectRatio ?? it['aspect-ratio'],
+        generateAudio: it.generateAudio ?? it['generate-audio'], mode: it.mode, task: it.task,
+      };
+    });
+    const results = await generateShotDraftsBatch(projectRoot(f.root), specs, {
+      runner: createRunner(), concurrency,
+    });
+    reportBatch('shot generate-batch', results);
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
@@ -317,6 +396,8 @@ async function main() {
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
       '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--task <label>]',
+      '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
+      '  pipeline element sheet-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many element sheets in parallel from one JSON manifest',
       '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
       '  pipeline credits backfill [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>]',
       '  pipeline verify element --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--prompt <p> | --prompt-file <file>] [--image <file> ...]',

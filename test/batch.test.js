@@ -102,6 +102,51 @@ test('runBatch gives up after maxGetErrors consecutive get() throws', async () =
   assert.match(results[0].error, /3x consecutively/);
 });
 
+test('runBatch caps in-flight jobs at the concurrency limit', async () => {
+  // Track how many jobs are submitted-but-not-yet-terminal at once; it must
+  // never exceed the cap even with more requests than slots.
+  let inFlight = 0;
+  let peak = 0;
+  const runner = {
+    async generate() {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      return { id: `job_${Math.random()}`, status: 'unknown', outputUrl: null };
+    },
+    async get(id) {
+      inFlight -= 1; // this job is about to go terminal
+      return { id, status: 'completed', outputUrl: `https://cdn/${id}.png` };
+    },
+  };
+  const requests = Array.from({ length: 20 }, (_, i) => ({ ref: `r${i}`, model: 'm', opts: {} }));
+  const results = await runBatch(runner, requests, { pollIntervalMs: 0, concurrency: 8 });
+  assert.equal(results.length, 20);
+  assert.ok(results.every((r) => r.status === 'completed'));
+  assert.ok(peak <= 8, `expected at most 8 concurrent, saw ${peak}`);
+});
+
+test('runBatch preserves request order and isolates a single failure', async () => {
+  // The 2nd job fails permanently; the rest must still complete, in order.
+  const runner = {
+    async generate(model, opts) {
+      return { id: opts.prompt, status: 'unknown', outputUrl: null };
+    },
+    async get(id) {
+      if (id === 'b') return { id, status: 'failed', outputUrl: null };
+      return { id, status: 'completed', outputUrl: `https://cdn/${id}.png` };
+    },
+  };
+  const results = await runBatch(runner, [
+    { ref: 'a', model: 'm', opts: { prompt: 'a' } },
+    { ref: 'b', model: 'm', opts: { prompt: 'b' } },
+    { ref: 'c', model: 'm', opts: { prompt: 'c' } },
+  ], { pollIntervalMs: 0, concurrency: 8 });
+  assert.deepEqual(results.map((r) => r.ref), ['a', 'b', 'c']);
+  assert.equal(results[0].status, 'completed');
+  assert.equal(results[1].status, 'failed');
+  assert.equal(results[2].status, 'completed');
+});
+
 test('runBatch does not orphan a job when two submits return the same id', async () => {
   let gen = 0;
   const runner = {
