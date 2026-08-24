@@ -60,7 +60,7 @@ layout), omit `--root` everywhere and paths are the top-level `shots/<id>/…`.
 - **Resolution: draft AND finish at 480p, then upscale.** 2.5's 720p carries
   little more real detail than its 480p but costs twice as much (2.0 vs 4.0 cr/s).
   Generate at `--resolution 480p`, then enlarge the promoted final to 1080p with
-  `pipeline shot upscale` (step 11). Cheaper than generating at 720p, and higher
+  `pipeline shot upscale` (step 12). Cheaper than generating at 720p, and higher
   resolution.
 
 ## Choosing the director
@@ -98,12 +98,24 @@ never hand-write the Seedance prompt from scratch:
    Submissions can take >2 min (upload latency) — run submit+poll in the background.
    Generating **several** shots at once? Use `shot generate-batch` instead (see
    *Batch generation*) — parallel, up to 8 at a time, one failure won't block the rest.
-   Draft at `--resolution 480p`; the crisp final comes from the upscale in step 11.
+   Draft at `--resolution 480p`; the crisp final comes from the upscale in step 12.
 9. **Review with the user.** Watch `drafts/vNNN/output.mp4`. Log the
    accept/regenerate decision in `drafts/vNNN/notes.md`. To refine, go back to
    step 2 (new version); correct the prompt **surgically** — change only the clause
    that was wrong.
-10. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
+10. **Flag candidates** (optional shortlist, before you commit to one keeper). When a
+    take is worth keeping in the running — a promising draft you don't want to lose
+    track of across review rounds — copy it into a `shots/<id>/candidates/` folder (a
+    sibling of `drafts/` and `final/`), named `<id>-vNNN.<ext>` so the version is
+    legible at a glance and you can browse the contenders by filename alone:
+    `mkdir -p episodes/<N>/shots/<id>/candidates`
+    `cp episodes/<N>/shots/<id>/drafts/vNNN/output.mp4 episodes/<N>/shots/<id>/candidates/<id>-vNNN.mp4`
+    The draft stays in place; the candidate is a version-tagged copy. Keep as many as
+    you like — this is the shortlist you pick the promoted keeper from in the next
+    step. Drop a contender by deleting its file in `candidates/`. Unlike `final/`
+    (exactly one promoted take), `candidates/` may hold several versions side by side.
+    (Flat layout: omit the `episodes/<N>/` prefix.)
+11. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
     (copied verbatim — pass the full cwd-relative path to the draft's mp4, not a bare
     name; in an episodic project that path includes the `episodes/<N>/` prefix):
     `pipeline shot promote --id <id> --version <n> [--root episodes/<N>] --output episodes/<N>/shots/<id>/drafts/vNNN/output.mp4`
@@ -113,7 +125,7 @@ never hand-write the Seedance prompt from scratch:
     `shots/<id>/final/source-draft.txt` with that version as a machine-readable
     pointer. After promoting, log the promotion in that draft's `notes.md` so the
     chosen take is traceable from both ends.
-11. **Upscale the final** (when drafting at 480p — the recommended path):
+12. **Upscale the final** (when drafting at 480p — the recommended path):
     `pipeline shot upscale --id <id> [--root episodes/<N>]`
     Enlarges the promoted final to 1080p and writes `shots/<id>/final/upscaled-1080p.mp4`
     beside it, with a `.json` sidecar recording model/job/source. `topaz_video` is
