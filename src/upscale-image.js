@@ -7,7 +7,7 @@ import { estimateCredits, recordCreditAttempt, resolveActiveTask } from './credi
 import { elementUpscalePath, sheetInstanceDir } from './paths.js';
 import {
   splitPanels as defaultSplitPanels, stitchPanels as defaultStitchPanels,
-  SHEET_PANEL_LABELS, COLS, ROWS,
+  SHEET_PANEL_LABELS,
 } from './split-panels.js';
 import { appendGeneration } from './element.js';
 
@@ -197,6 +197,7 @@ async function upscaleElementSheet(root, spec, ctx) {
   const cells = [];
   const jobs = [];
   const uploads = [];
+  const estimates = [];
   for (let i = 0; i < panelPaths.length; i++) {
     const media = await runner.upload(panelPaths[i]);
     uploads.push(media);
@@ -212,6 +213,8 @@ async function upscaleElementSheet(root, spec, ctx) {
       const { width, height } = await readDims(sharpImpl, panelPaths[i]);
       cell = { w: Math.round(width * scale), h: Math.round(height * scale) };
     }
+    const { credits, source: creditsSource } = await estimateCredits({ runner, model, images: [media.id], ...opts });
+    estimates.push({ credits, creditsSource });
     cells.push(cell);
     jobs.push({ ref: `${panelLabels[i]}`, model, opts });
   }
@@ -220,7 +223,8 @@ async function upscaleElementSheet(root, spec, ctx) {
   const upscaledPanelsDir = path.join(dir, outTag);
   await mkdir(upscaledPanelsDir, { recursive: true });
 
-  const creditFields = { credits: null, creditsSource: null, kind: 'upscale', task, model, scale };
+  // Composite sidecar records a free local stitch — credits stay null there.
+  const compositeCreditFields = { credits: null, creditsSource: null, kind: 'upscale', task, model, scale };
   const results = await runBatch(runner, jobs);
 
   // Log each panel job; a single failure fails the whole sheet.
@@ -228,7 +232,8 @@ async function upscaleElementSheet(root, spec, ctx) {
   let failed = null;
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
-    const entryBase = { ...creditFields, sheetType: sheet, sheetId: id, panel: panelLabels[i], jobId: r.id ?? null, source: panelPaths[i], sourceMediaId: uploads[i].id };
+    const { credits, creditsSource } = estimates[i];
+    const entryBase = { credits, creditsSource, kind: 'upscale', task, model, scale, sheetType: sheet, sheetId: id, panel: panelLabels[i], jobId: r.id ?? null, source: panelPaths[i], sourceMediaId: uploads[i].id };
     if (r.status !== 'completed' || !r.outputUrl) {
       await appendGeneration(root, type, name, { ...entryBase, status: 'failed', failurePhase: 'generation', billedLikely: !!r.id, error: r.error || String(r.status) });
       failed = failed || panelLabels[i];
@@ -243,14 +248,22 @@ async function upscaleElementSheet(root, spec, ctx) {
     throw new Error(`element upscale for ${type}/${name} ${sheet}/${id} did not complete: panel ${failed} failed`);
   }
 
-  const compositePath = elementUpscalePath(root, type, name, sheet, id, tag);
-  await stitchPanels(outPanelPaths, cells, compositePath, { sharpImpl });
-  await writeFile(compositePath.replace(/\.png$/, '.json'), JSON.stringify({
-    ...creditFields, sheetType: sheet, sheetId: id, source: src, panels: outPanelPaths,
-    output: compositePath, upscaledAt: new Date().toISOString(), status: 'generated',
-  }, null, 2) + '\n');
+  try {
+    const compositePath = elementUpscalePath(root, type, name, sheet, id, tag);
+    await stitchPanels(outPanelPaths, cells, compositePath, { sharpImpl });
+    await writeFile(compositePath.replace(/\.png$/, '.json'), JSON.stringify({
+      ...compositeCreditFields, sheetType: sheet, sheetId: id, source: src, panels: outPanelPaths,
+      output: compositePath, upscaledAt: new Date().toISOString(), status: 'generated',
+    }, null, 2) + '\n');
 
-  return { outputPath: compositePath, panelsDir: upscaledPanelsDir, panels: outPanelPaths, jobIds: results.map((r) => r.id), model, scale, source: src, task };
+    return { outputPath: compositePath, panelsDir: upscaledPanelsDir, panels: outPanelPaths, jobIds: results.map((r) => r.id), model, scale, source: src, task };
+  } catch (err) {
+    await appendGeneration(root, type, name, {
+      ...compositeCreditFields, sheetType: sheet, sheetId: id, status: 'failed', failurePhase: 'post_complete',
+      billedLikely: true, error: String(err?.message || err), source: src,
+    });
+    throw err;
+  }
 }
 
 // Flat flow that writes into a sheet dir (cycles / --input).
@@ -277,13 +290,21 @@ async function flatIntoSheet(root, p, deps) {
     });
     throw new Error(`element upscale for ${location.type}/${location.name} ${sheet}/${id} did not complete: ${result.status}`);
   }
-  await downloadTo(result.outputUrl, outputPath);
-  await writeFile(outputPath.replace(/\.png$/, '.json'), JSON.stringify({
-    ...creditFields, jobId: result.id, source: src, sourceMediaId: media.id, params: opts,
-    output: outputPath, upscaledAt: new Date().toISOString(), status: 'generated',
-  }, null, 2) + '\n');
-  await appendGeneration(root, location.type, location.name, {
-    ...creditFields, jobId: result.id, status: 'generated', source: src, sourceMediaId: media.id, output: outputPath,
-  });
-  return { outputPath, jobId: result.id, model, scale, source: src, task };
+  try {
+    await downloadTo(result.outputUrl, outputPath);
+    await writeFile(outputPath.replace(/\.png$/, '.json'), JSON.stringify({
+      ...creditFields, jobId: result.id, source: src, sourceMediaId: media.id, params: opts,
+      output: outputPath, upscaledAt: new Date().toISOString(), status: 'generated',
+    }, null, 2) + '\n');
+    await appendGeneration(root, location.type, location.name, {
+      ...creditFields, jobId: result.id, status: 'generated', source: src, sourceMediaId: media.id, output: outputPath,
+    });
+    return { outputPath, jobId: result.id, model, scale, source: src, task };
+  } catch (err) {
+    await appendGeneration(root, location.type, location.name, {
+      ...creditFields, jobId: result.id, status: 'failed', failurePhase: 'post_complete',
+      billedLikely: true, error: String(err?.message || err), source: src, sourceMediaId: media.id,
+    });
+    throw err;
+  }
 }

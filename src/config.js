@@ -39,6 +39,8 @@ export const MODEL_DISPLAY_NAME = {
   nano_banana: 'Nano Banana',
   nano_banana_2: 'Nano Banana 2',
   nano_banana_pro: 'Nano Banana Pro',
+  topaz_image: 'Topaz',
+  bytedance_image_upscale: 'Bytedance Image Upscale',
 };
 
 // How to estimate credits before a generation. `auto` uses the static table for

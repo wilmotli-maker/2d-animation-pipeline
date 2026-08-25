@@ -148,6 +148,17 @@ test('turnaround upscales all 6 panels then stitches a composite', async () => {
   assert.equal(f.stitched[0].outPath, res.outputPath);
   // per-panel files under upscaled-<tag>/
   assert.match(f.calls.downloads[0].dest, /upscaled-2x-topaz_image\/.*\.png$/);
+
+  // each panel estimates its own credits (fakes estimateCost => 3), logged per panel
+  const logPath = path.join(root, 'elements', s.type, s.name, 'generations.jsonl');
+  const entries = (await readFile(logPath, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const panelEntries = entries.filter((e) => e.panel && e.status === 'generated');
+  assert.equal(panelEntries.length, 6);
+  for (const e of panelEntries) {
+    assert.equal(e.credits, 3);
+    assert.equal(e.creditsSource, 'api');
+    assert.equal(e.kind, 'upscale');
+  }
 });
 
 test('cycles (no panels) takes the flat flow into the sheet dir', async () => {
