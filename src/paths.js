@@ -26,6 +26,14 @@ export function sheetPromptPath(root, type, name, sheetType, slug) {
   return path.join(sheetInstanceDir(root, type, name, sheetType, slug), 'prompt.md');
 }
 
+// Composite output of `pipeline element upscale`, beside the sheet version it
+// enlarged. `tag` carries scale+model (e.g. "2x-topaz_image") so different
+// passes coexist rather than overwrite. Per-panel upscales land in the sibling
+// `upscaled-<tag>/` directory.
+export function elementUpscalePath(root, type, name, sheet, id, tag) {
+  return path.join(sheetInstanceDir(root, type, name, sheet, id), `upscaled-${tag}.png`);
+}
+
 export function shotDir(root, shotId) {
   return path.join(root, 'shots', shotId);
 }
@@ -78,4 +86,10 @@ export function taskStatePath(root) {
 
 export function shotGenerationsLogPath(root, shotId) {
   return path.join(shotDir(root, shotId), 'generations.jsonl');
+}
+
+// Credit log for standalone `pipeline image upscale` runs — images with no
+// element/shot home. Project-root so `reconcile`/`report` can find it.
+export function imageGenerationsLogPath(root) {
+  return path.join(root, 'images', 'generations.jsonl');
 }
