@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
 import { estimateCredits, recordCreditAttempt, resolveActiveTask } from './credits.js';
-import { elementUpscalePath, sheetInstanceDir } from './paths.js';
+import { elementUpscalePath, elementUpscaleTag, sheetInstanceDir } from './paths.js';
 import {
   splitPanels as defaultSplitPanels, stitchPanels as defaultStitchPanels,
   SHEET_PANEL_LABELS,
@@ -180,7 +180,8 @@ async function upscaleElementSheet(root, spec, ctx) {
   // Flat flow: cycles, or --input override.
   if (input || !panelLabels) {
     const src = input || path.join(dir, `${version}.png`);
-    return flatIntoSheet(root, { src, dir, tag, model, scale, cfg, sheet, id, task, location }, { runner, runBatch, downloadTo, sharpImpl });
+    const stem = path.basename(src).replace(/\.[^.]+$/, '');
+    return flatIntoSheet(root, { src, stem, dir, tag, model, scale, cfg, sheet, id, task, location }, { runner, runBatch, downloadTo, sharpImpl });
   }
 
   // Panel flow: split (or reuse) panels, upscale each, stitch.
@@ -219,8 +220,10 @@ async function upscaleElementSheet(root, spec, ctx) {
     jobs.push({ ref: `${panelLabels[i]}`, model, opts });
   }
 
-  const outTag = `upscaled-${tag}`;
-  const upscaledPanelsDir = path.join(dir, outTag);
+  // Prefix outputs with the source version (e.g. "v003") so they map obviously
+  // back to the original and sort beside it.
+  const stem = version;
+  const upscaledPanelsDir = path.join(dir, elementUpscaleTag(stem, tag));
   await mkdir(upscaledPanelsDir, { recursive: true });
 
   // Composite sidecar records a free local stitch — credits stay null there.
@@ -249,7 +252,7 @@ async function upscaleElementSheet(root, spec, ctx) {
   }
 
   try {
-    const compositePath = elementUpscalePath(root, type, name, sheet, id, tag);
+    const compositePath = elementUpscalePath(root, type, name, sheet, id, stem, tag);
     await stitchPanels(outPanelPaths, cells, compositePath, { sharpImpl });
     await writeFile(compositePath.replace(/\.png$/, '.json'), JSON.stringify({
       ...compositeCreditFields, sheetType: sheet, sheetId: id, source: src, panels: outPanelPaths,
@@ -268,7 +271,7 @@ async function upscaleElementSheet(root, spec, ctx) {
 
 // Flat flow that writes into a sheet dir (cycles / --input).
 async function flatIntoSheet(root, p, deps) {
-  const { src, dir, tag, model, scale, cfg, sheet, id, task, location } = p;
+  const { src, stem, dir, tag, model, scale, cfg, sheet, id, task, location } = p;
   const { runner, runBatch, downloadTo, sharpImpl } = deps;
   const media = await runner.upload(src);
   let opts;
@@ -280,7 +283,7 @@ async function flatIntoSheet(root, p, deps) {
   }
   const { credits, source: creditsSource } = await estimateCredits({ runner, model, images: [media.id], ...opts });
   const creditFields = { credits, creditsSource, kind: 'upscale', task, model, scale, sheetType: sheet, sheetId: id };
-  const outputPath = path.join(dir, `upscaled-${tag}.png`);
+  const outputPath = path.join(dir, `${elementUpscaleTag(stem, tag)}.png`);
 
   const [result] = await runBatch(runner, [{ ref: id, model, opts }]);
   if (result.status !== 'completed' || !result.outputUrl) {

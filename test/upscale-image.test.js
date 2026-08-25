@@ -143,11 +143,13 @@ test('turnaround upscales all 6 panels then stitches a composite', async () => {
   assert.equal(f.calls.uploads.length, 6);
   assert.equal(f.calls.batches[0].length, 6);
   // composite lands at the tagged sheet path
-  assert.equal(res.outputPath, elementUpscalePath(root, s.type, s.name, s.sheet, s.id, '2x-topaz_image'));
+  assert.equal(res.outputPath, elementUpscalePath(root, s.type, s.name, s.sheet, s.id, s.v, '2x-topaz_image'));
+  // composite is prefixed by the source version stem
+  assert.match(res.outputPath, /v001\.upscaled-2x-topaz_image\.png$/);
   assert.equal(f.stitched.length, 1);
   assert.equal(f.stitched[0].outPath, res.outputPath);
-  // per-panel files under upscaled-<tag>/
-  assert.match(f.calls.downloads[0].dest, /upscaled-2x-topaz_image\/.*\.png$/);
+  // per-panel files under <stem>.upscaled-<tag>/
+  assert.match(f.calls.downloads[0].dest, /v001\.upscaled-2x-topaz_image\/.*\.png$/);
 
   // each panel estimates its own credits (fakes estimateCost => 3), logged per panel
   const logPath = path.join(root, 'elements', s.type, s.name, 'generations.jsonl');
@@ -169,7 +171,7 @@ test('cycles (no panels) takes the flat flow into the sheet dir', async () => {
   const res = await upscaleImage(root, { mode: 'element', type: s.type, name: s.name, sheet: 'cycles', id: 'walk', scale: 2 }, f);
   assert.equal(f.calls.uploads.length, 1);
   assert.equal(f.stitched.length, 0);
-  assert.match(res.outputPath, /sheets\/cycles\/walk\/upscaled-2x-topaz_image\.png$/);
+  assert.match(res.outputPath, /sheets\/cycles\/walk\/v001\.upscaled-2x-topaz_image\.png$/);
 });
 
 test('one failed panel throws, writes no composite', async () => {

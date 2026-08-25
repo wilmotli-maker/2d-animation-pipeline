@@ -27,11 +27,16 @@ export function sheetPromptPath(root, type, name, sheetType, slug) {
 }
 
 // Composite output of `pipeline element upscale`, beside the sheet version it
-// enlarged. `tag` carries scale+model (e.g. "2x-topaz_image") so different
-// passes coexist rather than overwrite. Per-panel upscales land in the sibling
-// `upscaled-<tag>/` directory.
-export function elementUpscalePath(root, type, name, sheet, id, tag) {
-  return path.join(sheetInstanceDir(root, type, name, sheet, id), `upscaled-${tag}.png`);
+// enlarged. Named `<stem>.upscaled-<tag>` where `stem` is the source's own name
+// (e.g. "v003") so upscaled files sort next to — and map obviously back to —
+// their original; `tag` carries scale+model (e.g. "2x-topaz_image") so different
+// passes coexist. Per-panel upscales land in the sibling `<stem>.upscaled-<tag>/`
+// directory (see elementUpscaleTag).
+export function elementUpscaleTag(stem, tag) {
+  return `${stem}.upscaled-${tag}`;
+}
+export function elementUpscalePath(root, type, name, sheet, id, stem, tag) {
+  return path.join(sheetInstanceDir(root, type, name, sheet, id), `${elementUpscaleTag(stem, tag)}.png`);
 }
 
 export function shotDir(root, shotId) {

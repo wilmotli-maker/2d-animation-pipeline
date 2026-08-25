@@ -43,10 +43,9 @@ test('shot paths follow shots/<shotId>/...', () => {
     '/tmp/root/shots/s010_kitchen/final');
 });
 
-test('elementUpscalePath sits beside the sheet instance, tagged', () => {
-  const p = elementUpscalePath('/r', 'characters', 'ndiva', 'turnaround', 'front', '2x-topaz_image');
-  assert.equal(p, '/r/elements/characters/niva/sheets/turnaround/front/upscaled-2x-topaz_image.png'
-    .replace('niva', 'ndiva'));
+test('elementUpscalePath sits beside the sheet instance, prefixed by source stem', () => {
+  const p = elementUpscalePath('/r', 'characters', 'ndiva', 'turnaround', 'front', 'v003', '2x-topaz_image');
+  assert.equal(p, '/r/elements/characters/ndiva/sheets/turnaround/front/v003.upscaled-2x-topaz_image.png');
 });
 
 test('imageGenerationsLogPath is project-root images/generations.jsonl', () => {
