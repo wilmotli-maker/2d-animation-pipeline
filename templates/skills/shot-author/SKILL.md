@@ -105,16 +105,20 @@ never hand-write the Seedance prompt from scratch:
    that was wrong.
 10. **Flag candidates** (optional shortlist, before you commit to one keeper). When a
     take is worth keeping in the running — a promising draft you don't want to lose
-    track of across review rounds — copy it into a `shots/<id>/candidates/` folder (a
-    sibling of `drafts/` and `final/`), named `<id>-vNNN.<ext>` so the version is
-    legible at a glance and you can browse the contenders by filename alone:
-    `mkdir -p episodes/<N>/shots/<id>/candidates`
-    `cp episodes/<N>/shots/<id>/drafts/vNNN/output.mp4 episodes/<N>/shots/<id>/candidates/<id>-vNNN.mp4`
-    The draft stays in place; the candidate is a version-tagged copy. Keep as many as
-    you like — this is the shortlist you pick the promoted keeper from in the next
-    step. Drop a contender by deleting its file in `candidates/`. Unlike `final/`
-    (exactly one promoted take), `candidates/` may hold several versions side by side.
-    (Flat layout: omit the `episodes/<N>/` prefix.)
+    track of across review rounds — copy it into the ONE global `shots/candidates/`
+    folder (a single collection that sits alongside the per-shot folders, NOT a
+    per-shot subfolder), named `<id>-vNNN.<ext>` so the shot and version are legible at
+    a glance and every shot's contenders browse together in one place:
+    `mkdir -p episodes/<N>/shots/candidates`
+    `cp episodes/<N>/shots/<id>/drafts/vNNN/output.mp4 episodes/<N>/shots/candidates/<id>-vNNN.mp4`
+    The draft stays in place; the candidate is a version-tagged copy. The `<id>-` prefix
+    keeps filenames unique so many shots share the folder without collision. Keep as
+    many as you like per shot — this is the shortlist you pick each shot's promoted
+    keeper from in the next step. Drop a contender by deleting its file. Unlike a shot's
+    `final/` (exactly one promoted take per shot), `shots/candidates/` may hold several
+    versions of several shots side by side. Only add a take here when the user names the
+    version to elevate — don't auto-promote to candidate. (Flat layout: omit the
+    `episodes/<N>/` prefix → `shots/candidates/`.)
 11. **Promote the keeper** to `shots/<id>/final/`. `--output` is the **source** file
     (copied verbatim — pass the full cwd-relative path to the draft's mp4, not a bare
     name; in an episodic project that path includes the `episodes/<N>/` prefix):
