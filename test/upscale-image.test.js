@@ -4,6 +4,8 @@ import path from 'node:path';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
+import { elementUpscalePath } from '../src/paths.js';
+import { SHEET_PANEL_LABELS } from '../src/split-panels.js';
 
 async function project() {
   return mkdtemp(path.join(tmpdir(), 'upimg-'));
@@ -109,4 +111,77 @@ test('a failed job throws and writes no output', async () => {
   const f = fakes({ status: 'failed' });
   await assert.rejects(() => upscaleImage(root, { mode: 'image', input: src }, f), /did not complete/);
   assert.equal(f.calls.downloads.length, 0);
+});
+
+// Lay down a sheet version and its panel folder.
+async function withSheet(root, { type = 'characters', name = 'ndiva', sheet = 'turnaround', id = 'front', v = 'v001' } = {}) {
+  const dir = path.join(root, 'elements', type, name, 'sheets', sheet, id);
+  await mkdir(path.join(dir, v), { recursive: true });
+  await writeFile(path.join(dir, `${v}.png`), 'sheet');
+  for (const label of SHEET_PANEL_LABELS[sheet] || []) {
+    await writeFile(path.join(dir, v, `${label}.png`), 'panel');
+  }
+  return { dir, type, name, sheet, id, v };
+}
+
+function panelFakes(opts = {}) {
+  const f = fakes(opts);
+  const splitPanels = async (image, outDir, labels) => labels.map((l) => path.join(outDir, `${l}.png`));
+  const stitched = [];
+  const stitchPanels = async (panelPaths, cells, outPath) => { stitched.push({ panelPaths, cells, outPath }); await writeFile(outPath, 'composite'); return { output: outPath }; };
+  return { ...f, splitPanels, stitchPanels, stitched };
+}
+
+test('turnaround upscales all 6 panels then stitches a composite', async () => {
+  const root = await project();
+  const s = await withSheet(root);
+  const f = panelFakes();
+
+  const res = await upscaleImage(root, { mode: 'element', type: s.type, name: s.name, sheet: s.sheet, id: s.id, scale: 2 }, f);
+
+  // 6 uploads, 6 jobs in one batch.
+  assert.equal(f.calls.uploads.length, 6);
+  assert.equal(f.calls.batches[0].length, 6);
+  // composite lands at the tagged sheet path
+  assert.equal(res.outputPath, elementUpscalePath(root, s.type, s.name, s.sheet, s.id, '2x-topaz_image'));
+  assert.equal(f.stitched.length, 1);
+  assert.equal(f.stitched[0].outPath, res.outputPath);
+  // per-panel files under upscaled-<tag>/
+  assert.match(f.calls.downloads[0].dest, /upscaled-2x-topaz_image\/.*\.png$/);
+});
+
+test('cycles (no panels) takes the flat flow into the sheet dir', async () => {
+  const root = await project();
+  const s = await withSheet(root, { sheet: 'cycles', id: 'walk' });
+  // cycles has no panel folder; ensure the version file exists
+  const f = panelFakes();
+  const res = await upscaleImage(root, { mode: 'element', type: s.type, name: s.name, sheet: 'cycles', id: 'walk', scale: 2 }, f);
+  assert.equal(f.calls.uploads.length, 1);
+  assert.equal(f.stitched.length, 0);
+  assert.match(res.outputPath, /sheets\/cycles\/walk\/upscaled-2x-topaz_image\.png$/);
+});
+
+test('one failed panel throws, writes no composite', async () => {
+  const root = await project();
+  const s = await withSheet(root);
+  const f = panelFakes();
+  // make the 3rd panel job fail
+  const realRunBatch = f.runBatch;
+  f.runBatch = async (r, jobs) => {
+    const out = await realRunBatch(r, jobs);
+    out[2] = { ...out[2], status: 'failed', outputUrl: null };
+    return out;
+  };
+  await assert.rejects(() => upscaleImage(root, { mode: 'element', type: s.type, name: s.name, sheet: s.sheet, id: s.id, scale: 2 }, f), /did not complete/);
+  assert.equal(f.stitched.length, 0);
+});
+
+test('missing sheet version reports the path without uploading', async () => {
+  const root = await project();
+  const f = panelFakes();
+  await assert.rejects(
+    () => upscaleImage(root, { mode: 'element', type: 'characters', name: 'ghost', sheet: 'turnaround', id: 'front' }, f),
+    /no such sheet version/,
+  );
+  assert.equal(f.calls.uploads.length, 0);
 });

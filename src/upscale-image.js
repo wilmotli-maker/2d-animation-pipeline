@@ -1,10 +1,15 @@
 import path from 'node:path';
-import { access, writeFile } from 'node:fs/promises';
+import { access, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
 import { estimateCredits, recordCreditAttempt, resolveActiveTask } from './credits.js';
-import { elementUpscalePath } from './paths.js';
+import { elementUpscalePath, sheetInstanceDir } from './paths.js';
+import {
+  splitPanels as defaultSplitPanels, stitchPanels as defaultStitchPanels,
+  SHEET_PANEL_LABELS, COLS, ROWS,
+} from './split-panels.js';
+import { appendGeneration } from './element.js';
 
 // Image upscalers enlarge a finished still. topaz_image is non-generative and
 // preserves line weight and paper texture on flat cartoon art (the same reason
@@ -134,7 +139,151 @@ async function upscaleStandalone(root, spec, ctx) {
   }
 }
 
-// Stub — implemented in Task 5.
-async function upscaleElementSheet() {
-  throw new Error('element sheet upscale not yet implemented');
+// Highest vNNN.png in a sheet instance dir, or null.
+async function latestVersion(dir) {
+  let files;
+  try { files = await readdir(dir); } catch { return null; }
+  const versions = files
+    .map((f) => /^(v\d+)\.png$/.exec(f))
+    .filter(Boolean)
+    .map((m) => m[1])
+    .sort();
+  return versions.length ? versions[versions.length - 1] : null;
+}
+
+async function upscaleElementSheet(root, spec, ctx) {
+  const { cfg, task, runner, runBatch, downloadTo, splitPanels = defaultSplitPanels, stitchPanels = defaultStitchPanels, sharpImpl } = ctx;
+  const { type, name, sheet, id, input } = spec;
+  const model = spec.model || UPSCALE_IMAGE_DEFAULT_MODEL;
+  const scale = Number(spec.scale ?? 2);
+  const dir = sheetInstanceDir(root, type, name, sheet, id);
+
+  // Resolve the source version.
+  let version = spec.version;
+  if (input) {
+    if (!await exists(input)) throw new Error(`no such image: ${input}`);
+  } else {
+    if (version == null || version === 'latest') {
+      version = await latestVersion(dir);
+    } else if (/^\d+$/.test(String(version))) {
+      version = `v${String(version).padStart(3, '0')}`;
+    }
+    if (!version || !await exists(path.join(dir, `${version}.png`))) {
+      throw new Error(`no such sheet version: ${path.join(dir, `${version || 'v???'}.png`)}`);
+    }
+  }
+
+  const tag = `${scale}x-${model}`;
+  const location = { kind: 'element', type, name };
+  const panelLabels = SHEET_PANEL_LABELS[sheet];
+
+  // Flat flow: cycles, or --input override.
+  if (input || !panelLabels) {
+    const src = input || path.join(dir, `${version}.png`);
+    return flatIntoSheet(root, { src, dir, tag, model, scale, cfg, sheet, id, task, location }, { runner, runBatch, downloadTo, sharpImpl });
+  }
+
+  // Panel flow: split (or reuse) panels, upscale each, stitch.
+  const src = path.join(dir, `${version}.png`);
+  const panelsDir = path.join(dir, version);
+  let panelPaths;
+  if (await exists(panelsDir)) {
+    panelPaths = panelLabels.map((l) => path.join(panelsDir, `${l}.png`));
+  } else {
+    panelPaths = await splitPanels(src, panelsDir, panelLabels);
+  }
+
+  // Per-panel source dims (topaz) → target cells for stitch.
+  const cells = [];
+  const jobs = [];
+  const uploads = [];
+  for (let i = 0; i < panelPaths.length; i++) {
+    const media = await runner.upload(panelPaths[i]);
+    uploads.push(media);
+    let opts, cell;
+    if (cfg.kind === 'dimensions') {
+      const { width, height } = await readDims(sharpImpl, panelPaths[i]);
+      opts = buildOpts(cfg, media.id, scale, width, height);
+      cell = { w: opts.outputWidth, h: opts.outputHeight };
+    } else {
+      opts = buildOpts(cfg, media.id, scale);
+      // enum models: derive a target cell from the panel's own scaled dims so
+      // the grid stays consistent regardless of what the model returns.
+      const { width, height } = await readDims(sharpImpl, panelPaths[i]);
+      cell = { w: Math.round(width * scale), h: Math.round(height * scale) };
+    }
+    cells.push(cell);
+    jobs.push({ ref: `${panelLabels[i]}`, model, opts });
+  }
+
+  const outTag = `upscaled-${tag}`;
+  const upscaledPanelsDir = path.join(dir, outTag);
+  await mkdir(upscaledPanelsDir, { recursive: true });
+
+  const creditFields = { credits: null, creditsSource: null, kind: 'upscale', task, model, scale };
+  const results = await runBatch(runner, jobs);
+
+  // Log each panel job; a single failure fails the whole sheet.
+  const outPanelPaths = [];
+  let failed = null;
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const entryBase = { ...creditFields, sheetType: sheet, sheetId: id, panel: panelLabels[i], jobId: r.id ?? null, source: panelPaths[i], sourceMediaId: uploads[i].id };
+    if (r.status !== 'completed' || !r.outputUrl) {
+      await appendGeneration(root, type, name, { ...entryBase, status: 'failed', failurePhase: 'generation', billedLikely: !!r.id, error: r.error || String(r.status) });
+      failed = failed || panelLabels[i];
+      continue;
+    }
+    const dest = path.join(upscaledPanelsDir, `${panelLabels[i]}.png`);
+    await downloadTo(r.outputUrl, dest);
+    outPanelPaths.push(dest);
+    await appendGeneration(root, type, name, { ...entryBase, status: 'generated', output: dest });
+  }
+  if (failed) {
+    throw new Error(`element upscale for ${type}/${name} ${sheet}/${id} did not complete: panel ${failed} failed`);
+  }
+
+  const compositePath = elementUpscalePath(root, type, name, sheet, id, tag);
+  await stitchPanels(outPanelPaths, cells, compositePath, { sharpImpl });
+  await writeFile(compositePath.replace(/\.png$/, '.json'), JSON.stringify({
+    ...creditFields, sheetType: sheet, sheetId: id, source: src, panels: outPanelPaths,
+    output: compositePath, upscaledAt: new Date().toISOString(), status: 'generated',
+  }, null, 2) + '\n');
+
+  return { outputPath: compositePath, panelsDir: upscaledPanelsDir, panels: outPanelPaths, jobIds: results.map((r) => r.id), model, scale, source: src, task };
+}
+
+// Flat flow that writes into a sheet dir (cycles / --input).
+async function flatIntoSheet(root, p, deps) {
+  const { src, dir, tag, model, scale, cfg, sheet, id, task, location } = p;
+  const { runner, runBatch, downloadTo, sharpImpl } = deps;
+  const media = await runner.upload(src);
+  let opts;
+  if (cfg.kind === 'dimensions') {
+    const { width, height } = await readDims(sharpImpl, src);
+    opts = buildOpts(cfg, media.id, scale, width, height);
+  } else {
+    opts = buildOpts(cfg, media.id, scale);
+  }
+  const { credits, source: creditsSource } = await estimateCredits({ runner, model, images: [media.id], ...opts });
+  const creditFields = { credits, creditsSource, kind: 'upscale', task, model, scale, sheetType: sheet, sheetId: id };
+  const outputPath = path.join(dir, `upscaled-${tag}.png`);
+
+  const [result] = await runBatch(runner, [{ ref: id, model, opts }]);
+  if (result.status !== 'completed' || !result.outputUrl) {
+    await appendGeneration(root, location.type, location.name, {
+      ...creditFields, jobId: result.id ?? null, status: 'failed', failurePhase: 'generation',
+      billedLikely: !!result.id, error: result.error || String(result.status), source: src, sourceMediaId: media.id,
+    });
+    throw new Error(`element upscale for ${location.type}/${location.name} ${sheet}/${id} did not complete: ${result.status}`);
+  }
+  await downloadTo(result.outputUrl, outputPath);
+  await writeFile(outputPath.replace(/\.png$/, '.json'), JSON.stringify({
+    ...creditFields, jobId: result.id, source: src, sourceMediaId: media.id, params: opts,
+    output: outputPath, upscaledAt: new Date().toISOString(), status: 'generated',
+  }, null, 2) + '\n');
+  await appendGeneration(root, location.type, location.name, {
+    ...creditFields, jobId: result.id, status: 'generated', source: src, sourceMediaId: media.id, output: outputPath,
+  });
+  return { outputPath, jobId: result.id, model, scale, source: src, task };
 }
