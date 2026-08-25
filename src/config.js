@@ -39,7 +39,10 @@ export const MODEL_DISPLAY_NAME = {
   nano_banana: 'Nano Banana',
   nano_banana_2: 'Nano Banana 2',
   nano_banana_pro: 'Nano Banana Pro',
-  topaz_image: 'Topaz',
+  // Ledger display_name, verified against `account transactions` on a live
+  // upscale (2026-08-25) — it reads "Topaz Image", NOT the `model list` name
+  // "Topaz". These two sources disagree; reconcile matches the transaction side.
+  topaz_image: 'Topaz Image',
   bytedance_image_upscale: 'Bytedance Image Upscale',
 };
 
