@@ -29,8 +29,8 @@ export const SHEET_PANEL_LABELS = {
   pose: POSE_PANELS,
 };
 
-const COLS = 3;
-const ROWS = 2;
+export const COLS = 3;
+export const ROWS = 2;
 
 // Split a 3×2 six-panel sheet into one image file per panel under outDir, named
 // by `labels` (in grid reading order). Returns the written paths in that order.
@@ -129,4 +129,44 @@ export async function backfillPanels(root, filter = {}, { splitPanels: split = s
     }
   }
   return results;
+}
+
+// Inverse of splitPanels: composite 6 panel images (grid reading order) into one
+// 3×2 image. `cells` gives each panel's TARGET dimensions { w, h } in the same
+// order; every panel is resized to its cell before compositing, so the output is
+// independent of what size a given upscaler returned. `sharpImpl` is injectable;
+// defaults to the sharp package, loaded lazily.
+export async function stitchPanels(panelPaths, cells, outPath, { sharpImpl } = {}) {
+  if (panelPaths.length !== COLS * ROWS || cells.length !== COLS * ROWS) {
+    throw new Error(`stitchPanels: expected ${COLS * ROWS} panels, got ${panelPaths.length}`);
+  }
+  const sharp = sharpImpl || (await import('sharp')).default;
+
+  const colW = [0, 0, 0];
+  const rowH = [0, 0];
+  for (let i = 0; i < cells.length; i++) {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    colW[col] = Math.max(colW[col], cells[i].w);
+    rowH[row] = Math.max(rowH[row], cells[i].h);
+  }
+  const canvasW = colW.reduce((a, b) => a + b, 0);
+  const canvasH = rowH.reduce((a, b) => a + b, 0);
+  const colX = [0, colW[0], colW[0] + colW[1]];
+  const rowY = [0, rowH[0]];
+
+  const composites = [];
+  for (let i = 0; i < panelPaths.length; i++) {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    const buf = await sharp(panelPaths[i])
+      .resize(cells[i].w, cells[i].h, { fit: 'fill' })
+      .toBuffer();
+    composites.push({ input: buf, left: colX[col], top: rowY[row] });
+  }
+
+  await sharp({
+    create: { width: canvasW, height: canvasH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  }).composite(composites).png().toFile(outPath);
+  return { output: outPath, width: canvasW, height: canvasH };
 }
