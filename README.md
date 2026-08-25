@@ -62,6 +62,8 @@ pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <
 pipeline verify shot    --id <shotId> --version <n> [--model <m>]
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
+pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
+pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
 ```
 
 Run any command via `node bin/pipeline.js <...>` or `npm run pipeline -- <...>`.
