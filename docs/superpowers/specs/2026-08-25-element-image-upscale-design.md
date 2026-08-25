@@ -14,13 +14,30 @@ image upscaler — without re-running (and re-paying for) generation.
 Mirrors `src/upscale.js` / `pipeline shot upscale` in shape, credit accounting,
 and sidecar/logging conventions.
 
-## Command
+## Commands
+
+Two entry points over one engine (`upscaleImage`):
+
+**Element sheet upscale** (panel-aware or flat by sheet type):
 
 ```
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> \
   [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] \
   [--scale 2|4] [--input <file>] [--root <dir>]
 ```
+
+**Standalone image upscale** (any image, not tied to an element — always flat):
+
+```
+pipeline image upscale --input <file> \
+  [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>] [--root <dir>]
+```
+
+- `--input` — required; any image path.
+- `--out` — directory for the result; defaults to the input's own directory.
+- Output name: `<input-stem>.upscaled-<tag>.png` (tag as below), so it sits
+  beside the original without clobbering it.
+- Runs the flat single-job flow; never splits/stitches.
 
 - `--type/--name/--sheet/--id` — address a sheet instance dir
   `elements/<type>/<name>/sheets/<sheet>/<id>/`.
@@ -153,6 +170,22 @@ upscale entry plus sheet coords:
   sidecar (`status: 'generated'`, no `credits`), **not** as a billed attempt.
 - Flat flow: a single entry, exactly like the panel flow with one job.
 
+### Standalone `image upscale` credit logging
+
+A loose image has no element/shot store, so add a new location kind `image`:
+
+- `recordCreditAttempt` gains an `image` branch that appends to a project-root
+  `images/generations.jsonl` (created on first use). Entry carries
+  `{ source, sourceMediaId, output, model, scale, jobId, kind: 'upscale',
+  credits, creditsSource, task, status }` — no sheet/element fields.
+- `collectLogEntries` also walks `images/generations.jsonl` (a
+  `walkImageJsonl(root)` alongside the element/shot walkers), so `reconcile`
+  and `report` see standalone upscales too. Such entries group under `—` for
+  element/sheet/shot `by`-keys and normally under `model`/`kind`/`task`.
+- If `--out` points outside the project root, the sidecar still lands beside the
+  output, and the `images/generations.jsonl` entry still records the absolute
+  `output` path — the log lives under `--root`/CWD, the file may live anywhere.
+
 ## Failure handling
 
 - **Any panel job fails** → do not write a composite (it would carry a low-res
@@ -179,10 +212,19 @@ export function elementUpscalePath(root, type, name, sheet, id, tag) {
 
 ## CLI
 
-Add `else if (cmd === 'element' && sub === 'upscale')` in `bin/pipeline.js`,
-paralleling the `shot upscale` branch: flag parsing/validation, call
-`upscaleImage` with `createRunner({ exec: inheritStderrExec })`, print the
-composite path + per-panel job ids. Add the usage line to `printHelp`.
+- `element upscale`: add `else if (cmd === 'element' && sub === 'upscale')` in
+  `bin/pipeline.js`, paralleling the `shot upscale` branch — flag
+  parsing/validation, call `upscaleImage` with
+  `createRunner({ exec: inheritStderrExec })`, print the composite path +
+  per-panel job ids.
+- `image upscale`: add `else if (cmd === 'image' && sub === 'upscale')` — resolve
+  `--input`/`--out`, call the same `upscaleImage` engine in standalone mode
+  (location kind `image`), print the output path + job id.
+- Add usage lines for both to `printHelp`.
+
+`upscaleImage` distinguishes the two callers by an explicit
+`location`/`mode` in `spec` (element sheet vs standalone), rather than sniffing
+flags — the CLI branch decides which and passes it in.
 
 ## Tests — `test/upscale-image.test.js`
 
@@ -201,9 +243,12 @@ Parallels `test/upscale.test.js`, with fakes for `runner`, `runBatch`,
 - Missing version reports the path without uploading.
 - `stitchPanels` unit test: 6 solid-color panels → one image of the summed
   dimensions with panels in the right cells (using a real/tiny sharp or a fake).
+- **Standalone `image upscale`**: writes `<stem>.upscaled-<tag>.png` beside the
+  input (and honors `--out`); appends to `images/generations.jsonl` with
+  location kind `image`; `collectLogEntries` includes that entry.
 
 ## Out of scope
 
 - `topaz_image_generative` and other image models.
 - Re-generating downstream prompts/panels from the upscaled sheet.
-- Upscaling shot first-frames or arbitrary non-element images beyond `--input`.
+- Panel-aware upscale for standalone images (`image upscale` is always flat).
