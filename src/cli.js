@@ -76,6 +76,10 @@ const SCALAR_PARAMS = {
   modelVersion: '--model-version',
   preset: '--preset',
   fps: '--fps',
+  // Image upscaler params (topaz_image).
+  outputWidth: '--output-width',
+  outputHeight: '--output-height',
+  variant: '--variant',
 };
 
 // Exported for direct unit testing of arg construction.

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as p from '../src/paths.js';
+import { elementUpscalePath, imageGenerationsLogPath } from '../src/paths.js';
 
 const ROOT = '/tmp/root';
 
@@ -40,4 +41,14 @@ test('shot paths follow shots/<shotId>/...', () => {
     '/tmp/root/shots/s010_kitchen/drafts/v002');
   assert.equal(p.shotFinalDir(ROOT, 's010_kitchen'),
     '/tmp/root/shots/s010_kitchen/final');
+});
+
+test('elementUpscalePath sits beside the sheet instance, tagged', () => {
+  const p = elementUpscalePath('/r', 'characters', 'ndiva', 'turnaround', 'front', '2x-topaz_image');
+  assert.equal(p, '/r/elements/characters/niva/sheets/turnaround/front/upscaled-2x-topaz_image.png'
+    .replace('niva', 'ndiva'));
+});
+
+test('imageGenerationsLogPath is project-root images/generations.jsonl', () => {
+  assert.equal(imageGenerationsLogPath('/r'), '/r/images/generations.jsonl');
 });

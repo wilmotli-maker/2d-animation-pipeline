@@ -12,6 +12,7 @@ import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
 import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
+import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
@@ -271,6 +272,38 @@ async function main() {
     }, { runner: createRunner({ exec: inheritStderrExec }) });
     console.log(`upscaled ${res.source}${res.task ? `  [task: ${res.task}]` : ''}`);
     console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, job ${res.jobId})`);
+  } else if (cmd === 'element' && sub === 'upscale') {
+    const f = parseFlags(rest);
+    if (!f.type || !f.name || !f.sheet || !f.id) {
+      fail('usage: pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>] [--root <dir>]');
+    }
+    const model = f.model || UPSCALE_IMAGE_DEFAULT_MODEL;
+    if (!UPSCALE_IMAGE_MODELS[model]) {
+      fail(`element upscale: --model must be one of ${Object.keys(UPSCALE_IMAGE_MODELS).join(', ')}`);
+    }
+    const scale = Number(f.scale ?? 2);
+    const res = await upscaleImage(projectRoot(f.root), {
+      mode: 'element', type: f.type, name: f.name, sheet: f.sheet, id: f.id,
+      version: f.version, input: f.input, model, scale, task: f.task,
+    }, { runner: createRunner({ exec: inheritStderrExec }) });
+    console.log(`upscaled ${res.source}${res.task ? `  [task: ${res.task}]` : ''}`);
+    console.log(`  -> ${res.outputPath} (${res.model}, ${res.scale}x)`);
+    if (res.panels) console.log(`  panels: ${res.panelsDir} (${res.panels.length})`);
+  } else if (cmd === 'image' && sub === 'upscale') {
+    const f = parseFlags(rest);
+    if (!f.input) {
+      fail('usage: pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>] [--root <dir>]');
+    }
+    const model = f.model || UPSCALE_IMAGE_DEFAULT_MODEL;
+    if (!UPSCALE_IMAGE_MODELS[model]) {
+      fail(`image upscale: --model must be one of ${Object.keys(UPSCALE_IMAGE_MODELS).join(', ')}`);
+    }
+    const scale = Number(f.scale ?? 2);
+    const res = await upscaleImage(projectRoot(f.root), {
+      mode: 'image', input: f.input, out: f.out, model, scale, task: f.task,
+    }, { runner: createRunner({ exec: inheritStderrExec }) });
+    console.log(`upscaled ${res.source}${res.task ? `  [task: ${res.task}]` : ''}`);
+    console.log(`  -> ${res.outputPath} (${res.model}, ${res.scale}x, job ${res.jobId})`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -392,6 +425,8 @@ async function main() {
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
       '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
       '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
+      '  pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]  # enlarge a sheet (panel-aware for turnaround/pose)',
+      '  pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]  # enlarge any single image',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',

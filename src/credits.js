@@ -2,7 +2,7 @@ import { readdir, readFile, access, appendFile, writeFile, mkdir, rm } from 'nod
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { MODEL_CREDITS, creditsEstimateMode, ELEMENT_TYPES, MODEL_DISPLAY_NAME } from './config.js';
-import { generationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath, taskStatePath } from './paths.js';
+import { generationsLogPath, imageGenerationsLogPath, shotDir, shotDraftsDir, shotGenerationsLogPath, taskStatePath } from './paths.js';
 import { appendGeneration } from './element.js';
 
 const ESTIMATE_TIMEOUT_MS = 5000;
@@ -270,6 +270,12 @@ export async function appendShotGeneration(root, shotId, entry) {
   await appendFile(shotGenerationsLogPath(root, shotId), line);
 }
 
+export async function appendImageGeneration(root, entry) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
+  await mkdir(path.dirname(imageGenerationsLogPath(root)), { recursive: true });
+  await appendFile(imageGenerationsLogPath(root), line);
+}
+
 /** Write a credit log entry to the correct store for element, shot, or upscale. */
 export async function recordCreditAttempt(root, location, entry) {
   if (location.kind === 'element') {
@@ -278,6 +284,10 @@ export async function recordCreditAttempt(root, location, entry) {
   }
   if (location.kind === 'shot' || location.kind === 'upscale') {
     await appendShotGeneration(root, location.shotId, entry);
+    return;
+  }
+  if (location.kind === 'image') {
+    await appendImageGeneration(root, entry);
     return;
   }
   throw new Error(`unknown credit log location kind: ${location.kind}`);
@@ -352,6 +362,15 @@ async function walkShotJsonl(root) {
   return entries;
 }
 
+async function walkImageJsonl(root) {
+  const file = imageGenerationsLogPath(root);
+  const entries = [];
+  for (const raw of await readJsonl(file)) {
+    entries.push(normalizeEntry(raw, { kind: raw.kind || 'upscale' }));
+  }
+  return entries;
+}
+
 async function walkLegacyOutputs(root) {
   const entries = [];
   const shotsRoot = path.join(root, 'shots');
@@ -402,7 +421,11 @@ async function walkLegacyOutputs(root) {
 
 /** Collect all credit log entries, deduping legacy output.json by jobId when jsonl exists. */
 export async function collectLogEntries(root) {
-  const fromJsonl = [...await walkElementLogs(root), ...await walkShotJsonl(root)];
+  const fromJsonl = [
+    ...await walkElementLogs(root),
+    ...await walkShotJsonl(root),
+    ...await walkImageJsonl(root),
+  ];
   const jsonlJobIds = new Set(fromJsonl.map((e) => e.jobId).filter(Boolean));
   const legacy = (await walkLegacyOutputs(root)).filter(
     (e) => !e.jobId || !jsonlJobIds.has(e.jobId),
