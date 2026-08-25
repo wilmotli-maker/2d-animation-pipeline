@@ -42,8 +42,10 @@ shot in every episode. Run these commands from the project's top directory with 
 
 5. **Build each planned sheet — delegate to element-author.** For each sheet, invoke
    the **element-author** skill with the element, sheet type, slug, model, and
-   reference image(s). element-author handles the sheet-type-specific interaction
-   (e.g. the pose set), the verify step, generation, and per-sheet review/iteration.
+   reference image(s). Default the model to `nano_banana_2_lite` (Nano Banana 2 Lite);
+   step up to `nano_banana_pro` (Nano Banana Pro) for higher fidelity. element-author
+   handles the sheet-type-specific interaction (e.g. the pose set), the verify step,
+   generation, and per-sheet review/iteration.
    Offer to chain a finished turnaround (`sheets/turnaround/<slug>/vNNN.png`) as an
    extra `--image` reference for later pose/cycle sheets, for consistency.
 

@@ -18,7 +18,10 @@ calls this once per sheet when onboarding an element from a reference.)
   `winter-outfit`, `combat-stances`) and confirm it. Must match
   `^[a-z0-9][a-z0-9-]*$`. Reusing an existing slug adds a new version.
 - The rough creative intent, plus any type-specific choices (see *Sheet types*).
-- The model (e.g. `nano_banana` for illustrated images).
+- The model. **Default to `nano_banana_2_lite`** (Nano Banana 2 Lite) for image
+  sheets. Step up to `nano_banana_pro` (Nano Banana Pro) when the sheet needs higher
+  fidelity or the Lite result drifts. Prefer these two over older image models
+  (`nano_banana`, `seedream`, …); propose the default and confirm before generating.
 - Reference images: paths under the element's `inputs/reference-images/`, and/or a
   previously generated sheet to reference for consistency.
 
@@ -83,9 +86,9 @@ per sheet, each with the same fields as `element sheet`:
 
 ```json
 [
-  { "type": "characters", "name": "cecilia", "sheet": "turnaround", "id": "winter", "model": "nano_banana",
+  { "type": "characters", "name": "cecilia", "sheet": "turnaround", "id": "winter", "model": "nano_banana_2_lite",
     "images": ["elements/characters/cecilia/reference/ref.png"] },
-  { "type": "characters", "name": "cecilia", "sheet": "pose", "id": "combat", "model": "nano_banana" }
+  { "type": "characters", "name": "cecilia", "sheet": "pose", "id": "combat", "model": "nano_banana_2_lite" }
 ]
 ```
 
@@ -125,7 +128,7 @@ it as a reference image — e.g. the side profile for a side-on shot:
 
 ```
 pipeline element sheet --type characters --name cecilia --sheet pose --id combat \
-  --model nano_banana \
+  --model nano_banana_2_lite \
   --image elements/characters/cecilia/sheets/turnaround/winter/v001/03-side.png
 ```
 
