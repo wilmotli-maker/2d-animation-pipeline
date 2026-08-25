@@ -228,6 +228,14 @@ reference image") · a **Reference video (speech)** line for talking shots · a
 music or lyrics). See `shots/*/drafts/*/prompt.md` (or
 `episodes/*/shots/*/drafts/*/prompt.md` in an episodic project) for worked examples.
 
+**Audio rule — never add music or sound effects unless the user explicitly asks.**
+Default the audio to the character's own speech only (plus incidental room tone that
+the scene unavoidably implies). Do **not** introduce a musical score, songs, lyrics,
+stingers, whooshes, impacts, foley, ambience beds, or any other sound effect on your
+own initiative — not in the prompt's audio line and not via `--generate-audio`. If a
+shot seems like it would benefit from music or SFX, propose it and wait for the user
+to confirm before adding it.
+
 ## Gotchas / common mistakes
 
 - **Mid-gray, never black.** A blank **black** speech video trips a false-positive
