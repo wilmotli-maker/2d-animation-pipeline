@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { discoverShotRoots } from '../src/review-scan.js';
+import { discoverShotRoots, scanImages } from '../src/review-scan.js';
 
 async function withTempRoot(fn) {
   const root = await mkdtemp(path.join(tmpdir(), 'review-'));
@@ -78,5 +78,39 @@ test('scanShots: episodic tags episode and filters by --episode later', async ()
     await seedShot(path.join(root, 'episodes', '1'), 'a', { drafts: [{ version: 'v001' }] });
     const model = await scanShots(root, {});
     assert.equal(model.shots[0].episode, '1');
+  });
+});
+
+test('scanImages: log-driven versions and panels', async () => {
+  await withTempRoot(async (root) => {
+    const el = path.join(root, 'elements', 'characters', 'mira');
+    await mkdir(path.join(el, 'sheets', 'turnaround', 'main'), { recursive: true });
+    const out = path.join(el, 'sheets', 'turnaround', 'main', 'v001.png');
+    await writeFile(out, 'x');
+    await writeFile(path.join(el, 'generations.jsonl'),
+      JSON.stringify({ sheetType: 'turnaround', sheetId: 'main', version: 'v001',
+        model: 'nano_banana_pro', prompt: 'p', output: out, panels: [], ts: 'T' }) + '\n');
+    const model = await scanImages(root);
+    assert.equal(model.type, 'images');
+    const c = model.characters.find((x) => x.name === 'mira');
+    assert.equal(c.type, 'characters');
+    const sheet = c.sheets.find((s) => s.sheetType === 'turnaround' && s.slug === 'main');
+    assert.equal(sheet.versions[0].version, 'v001');
+    assert.equal(sheet.versions[0].meta.model, 'nano_banana_pro');
+    assert.ok(sheet.versions[0].images[0].endsWith('v001.png'));
+  });
+});
+
+test('scanImages: filesystem fallback for slug-less layout, no log', async () => {
+  await withTempRoot(async (root) => {
+    const el = path.join(root, 'elements', 'characters', 'joh');
+    await mkdir(path.join(el, 'sheets', 'pose'), { recursive: true });
+    await writeFile(path.join(el, 'sheets', 'pose', 'v001.png'), 'x');
+    const model = await scanImages(root);
+    const c = model.characters.find((x) => x.name === 'joh');
+    const sheet = c.sheets.find((s) => s.sheetType === 'pose');
+    assert.equal(sheet.slug, '');
+    assert.equal(sheet.versions[0].version, 'v001');
+    assert.ok(sheet.versions[0].images[0].endsWith('v001.png'));
   });
 });

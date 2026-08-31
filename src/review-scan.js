@@ -138,3 +138,93 @@ export async function scanShots(projectRoot, { episodes } = {}) {
   }
   return { generatedAt: new Date().toISOString(), type: 'shots', shots };
 }
+
+function pushVersion(map, key, entry) {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(entry);
+}
+
+async function readGenerationsLog(elDir) {
+  try {
+    const text = await readFile(path.join(elDir, 'generations.jsonl'), 'utf8');
+    return text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// Walk sheets/<sheetType>/(<slug>/)?vNNN.<img> for elements without a usable log.
+async function walkSheets(projectRoot, elDir) {
+  const sheetsDir = path.join(elDir, 'sheets');
+  const found = new Map(); // `${sheetType} ${slug}` -> [{version, images}]
+  for (const sheetType of await listDirs(sheetsDir)) {
+    const typeDir = path.join(sheetsDir, sheetType);
+    const direct = (await listFiles(typeDir)).filter((n) => /^v\d+\.(png|jpe?g|webp)$/i.test(n));
+    for (const f of direct) {
+      pushVersion(found, `${sheetType} `, {
+        version: f.replace(/\.[^.]+$/, ''),
+        images: [relTo(projectRoot, path.join(typeDir, f))], upscaled: [], meta: {},
+      });
+    }
+    for (const slug of await listDirs(typeDir)) {
+      const slugDir = path.join(typeDir, slug);
+      const imgs = (await listFiles(slugDir)).filter((n) => /\.(png|jpe?g|webp)$/i.test(n));
+      const byV = new Map();
+      for (const f of imgs) {
+        const m = /^(v\d+)/.exec(f);
+        const v = m ? m[1] : 'v001';
+        if (!byV.has(v)) byV.set(v, []);
+        byV.get(v).push(relTo(projectRoot, path.join(slugDir, f)));
+      }
+      for (const [v, images] of byV) {
+        pushVersion(found, `${sheetType} ${slug}`, { version: v, images, upscaled: [], meta: {} });
+      }
+    }
+  }
+  return found;
+}
+
+function sheetEntriesFromMap(map) {
+  const sheets = [];
+  for (const [key, versions] of map) {
+    const [sheetType, slug] = key.split(' ');
+    versions.sort((a, b) => Number(a.version.slice(1)) - Number(b.version.slice(1)));
+    sheets.push({ sheetType, slug, versions });
+  }
+  return sheets.sort((a, b) => (a.sheetType + a.slug).localeCompare(b.sheetType + b.slug));
+}
+
+async function scanOneElement(projectRoot, type, name, elDir) {
+  const log = await readGenerationsLog(elDir);
+  const map = new Map();
+  if (log && log.some((e) => e.sheetType)) {
+    for (const e of log) {
+      if (!e.sheetType) continue;
+      const slug = e.sheetId ?? '';
+      const images = e.panels && e.panels.length
+        ? e.panels.map((p) => relTo(projectRoot, path.isAbsolute(p) ? p : path.join(projectRoot, p)))
+        : (e.output ? [relTo(projectRoot, path.isAbsolute(e.output) ? e.output : path.join(projectRoot, e.output))] : []);
+      pushVersion(map, `${e.sheetType} ${slug}`, {
+        version: e.version ?? 'v001', images, upscaled: [],
+        meta: { model: e.model, prompt: e.prompt, ts: e.ts },
+      });
+    }
+  } else {
+    for (const [k, v] of await walkSheets(projectRoot, elDir)) map.set(k, v);
+  }
+  return { type, name, sheets: sheetEntriesFromMap(map) };
+}
+
+export async function scanImages(projectRoot) {
+  const elementsDir = path.join(projectRoot, 'elements');
+  const characters = [];
+  for (const type of await listDirs(elementsDir)) {
+    for (const name of await listDirs(path.join(elementsDir, type))) {
+      const elDir = path.join(elementsDir, type, name);
+      const entry = await scanOneElement(projectRoot, type, name, elDir);
+      if (entry.sheets.length) characters.push(entry);
+    }
+  }
+  return { generatedAt: new Date().toISOString(), type: 'images', characters };
+}
