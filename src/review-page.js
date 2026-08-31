@@ -130,8 +130,12 @@ function warnUnknownFilters(type, raw, filters) {
 }
 
 export async function buildReviewPage(root, opts) {
-  const { type, slug, filters = {}, selection: providedSelection, update = false, title } = opts;
+  const { type, slug, filters = {}, selection: providedSelection, update = false, title, out } = opts;
   if (!slug) throw new Error('review: --slug is required');
+
+  // Pages are project-specific output, not pipeline tooling. Default to a `web/`
+  // folder off the project root (created if missing); --out overrides the base dir.
+  const outBase = out ? path.resolve(out) : path.join(root, 'web');
 
   const raw = type === 'images' ? await scanImages(root) : await scanShots(root, { episodes: filters.episodes });
   warnUnknownFilters(type, raw, filters);
@@ -140,10 +144,10 @@ export async function buildReviewPage(root, opts) {
     ? filtered.characters.reduce((a, c) => a + c.sheets.length, 0) : filtered.shots.length;
   if (count === 0) throw new Error(`review: no ${type} match the given filters`);
 
-  const pageDir = path.join(root, 'web', slug);
+  const pageDir = path.join(outBase, slug);
   const pageExists = await exists(pageDir);
   if (pageExists && !update) {
-    throw new Error(`review: web/${slug}/ already exists — pass --update to refresh it or choose a new --slug`);
+    throw new Error(`review: ${pageDir} already exists — pass --update to refresh it or choose a new --slug/--out`);
   }
 
   const fresh = type === 'images' ? defaultImageSelection(filtered) : defaultShotSelection(filtered);
@@ -164,7 +168,9 @@ export async function buildReviewPage(root, opts) {
   await writeFile(path.join(pageDir, 'review.json'),
     JSON.stringify({ type, filters, selection, model: filtered, generatedAt: new Date().toISOString() }, null, 2) + '\n');
 
-  await refreshWebIndex(root);
+  // The index generator maintains the pipeline repo's own web/README.md table; it
+  // only applies to the default <root>/web location, not a custom --out.
+  if (!out) await refreshWebIndex(root);
   return { pageDir, count };
 }
 
@@ -187,5 +193,5 @@ export function parseReviewArgs(sub, rest) {
   if (f.characters) filters.characters = splitList(f.characters);
   if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
   if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
-  return { type: sub, slug: f.slug, title: f.title, root: f.root, layout: f.layout, filters, update };
+  return { type: sub, slug: f.slug, title: f.title, root: f.root, out: f.out, layout: f.layout, filters, update };
 }

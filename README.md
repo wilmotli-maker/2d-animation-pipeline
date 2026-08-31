@@ -75,8 +75,8 @@ pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
-pipeline review shots   --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update]
-pipeline review images  --slug <name> [--characters a,b] [--sheets turnaround,pose,cycles] [--update]
+pipeline review shots   --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
+pipeline review images  --slug <name> [--characters a,b] [--sheets turnaround,pose,cycles] [--update] [--out <dir>]
 ```
 
 Run any command via `node bin/pipeline.js <...>` or `npm run pipeline -- <...>`.
@@ -117,8 +117,10 @@ how it was made. Needs `ffmpeg` on `PATH`.
 ### Review pages
 
 `pipeline review shots` and `pipeline review images` build a self-contained
-static HTML page under `web/<slug>/` for browsing generated shots or element
-sheets — open `web/<slug>/index.html` directly in a browser, no server needed.
+static HTML page for browsing generated shots or element sheets — open its
+`index.html` directly in a browser, no server needed. Pages are written to a
+`web/<slug>/` folder off the project root by default (created if missing); pass
+`--out <dir>` to write them somewhere else.
 
 - `review shots` covers shot clips (episodic or flat projects); `review
   images` covers element sheets (turnaround/pose/cycles).

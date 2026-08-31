@@ -122,10 +122,20 @@ Follows the existing `cmd sub` + `parseFlags` + `projectRoot(f.root)` pattern.
 ```
 pipeline review shots  --slug <name> [--match <re>] [--characters a,b]
                        [--episode N,M] [--versions <id>=v001,v003 ...]
-                       [--layout side-by-side|stacked] [--update] [--title ..] [--root <dir>]
+                       [--layout side-by-side|stacked] [--update]
+                       [--title ..] [--out <dir>] [--root <dir>]
 pipeline review images --slug <name> [--match <re>] [--characters a,b]
-                       [--sheets turnaround,pose,cycles] [--update] [--title ..] [--root <dir>]
+                       [--sheets turnaround,pose,cycles] [--update]
+                       [--title ..] [--out <dir>] [--root <dir>]
 ```
+
+**Output location.** Review pages are **project-specific output**, not pipeline tooling.
+The bundle is written to `<outBase>/<slug>/`, where `outBase` defaults to a `web/` folder
+off the project root (`--root`/env/cwd) and is **created if missing**. `--out <dir>` overrides
+`outBase` (resolved absolute) so a project can keep review pages wherever it likes. The
+`web/README.md` index refresh (below) only runs for the default `<root>/web` location — it
+maintains the pipeline repo's own page table and is meaningless for a custom `--out` or a
+user project without that README.
 Create: scan → apply filters → apply selection → write bundle. Update (`--update` or slug
 exists): read `review.json`, re-scan, add versions/sheets that appeared since, keep the prior
 selection/notes, rewrite the page. Explicit flags override stored filters/selection for what

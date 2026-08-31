@@ -78,7 +78,24 @@ test('buildReviewPage: errors on empty result', async () => {
   });
 });
 
+test('buildReviewPage: --out writes to a custom folder off no default web/', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 'art-talk-01');
+    const outDir = path.join(root, 'reviews');
+    const res = await buildReviewPage(root, { type: 'shots', slug: 'ep1', out: outDir });
+    assert.equal(res.pageDir, path.join(outDir, 'ep1'));
+    assert.ok((await stat(path.join(outDir, 'ep1', 'index.html'))).isFile());
+    // default <root>/web should not have gained an ep1 page
+    await assert.rejects(() => stat(path.join(root, 'web', 'ep1', 'index.html')));
+  });
+});
+
 import { parseReviewArgs } from '../src/review-page.js';
+
+test('parseReviewArgs: --out is captured', () => {
+  const o = parseReviewArgs('shots', ['--slug', 'ep1', '--out', '/tmp/reviews']);
+  assert.equal(o.out, '/tmp/reviews');
+});
 
 test('parseReviewArgs: shots filters and boolean --update', () => {
   const o = parseReviewArgs('shots',
