@@ -36,5 +36,6 @@ pipeline). Put a character's reference drawing in its
 - `pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]` — enlarge a sheet (panel-aware for turnaround/pose; each panel upscaled then reassembled)
 - `pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]` — enlarge any single image
 - `pipeline voice transcribe --audio <wav> [--dir <folder>] [--force]` — exact transcript sidecar (`<wav>.txt`) for lip-sync prompts; local whisper.cpp
+- `pipeline review shots --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update]` · `pipeline review images --slug <name> [--characters a,b] [--sheets turnaround,pose,cycles] [--update]` — build/refresh a self-contained review page under `web/<slug>/` with client-side filtering and side-by-side version comparison. Filters combine (intersection). Vendored clips/images under `web/<slug>/assets/` are gitignored.
 - `pipeline sync-skills` — refresh this project's `.claude/skills/` from the current pipeline templates (run after the tool updates)
 - Credit cost draws from your Higgsfield account — check `higgsfield account transactions`.
