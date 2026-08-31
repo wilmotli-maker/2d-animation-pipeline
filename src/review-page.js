@@ -123,3 +123,25 @@ export async function buildReviewPage(root, opts) {
   await refreshWebIndex(root);
   return { pageDir, count };
 }
+
+function splitList(s) { return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined; }
+
+// Pure arg parser for `pipeline review <sub> ...`. `--update` is a valueless boolean.
+export function parseReviewArgs(sub, rest) {
+  if (sub !== 'shots' && sub !== 'images') {
+    throw new Error('usage: pipeline review <shots|images> --slug <name> [filters]');
+  }
+  const argv = rest.filter((t) => t !== '--update');
+  const update = argv.length !== rest.length;
+  const f = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    if (!argv[i].startsWith('--')) throw new Error(`review: expected --flag, got "${argv[i]}"`);
+    f[argv[i].slice(2)] = argv[i + 1];
+  }
+  const filters = {};
+  if (f.match) filters.match = f.match;
+  if (f.characters) filters.characters = splitList(f.characters);
+  if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
+  if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
+  return { type: sub, slug: f.slug, title: f.title, root: f.root, layout: f.layout, filters, update };
+}

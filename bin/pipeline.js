@@ -14,6 +14,7 @@ import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
+import { buildReviewPage, parseReviewArgs } from '../src/review-page.js';
 
 const [, , cmd, sub, ...rest] = process.argv;
 
@@ -112,6 +113,11 @@ async function main() {
     }
     const r = await promoteDraft(projectRoot(f.root), f.id, Number(f.version), f.output);
     console.log(`promoted to final: ${r.finalPath}`);
+  } else if (cmd === 'review') {
+    const opts = parseReviewArgs(sub, rest);
+    if (!opts.slug) fail('usage: pipeline review <shots|images> --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--sheets turnaround,pose] [--layout side-by-side|stacked] [--update] [--title ..] [--root <dir>]');
+    const res = await buildReviewPage(projectRoot(opts.root), opts);
+    console.log(`review page: ${res.pageDir}  (${res.count} item(s))`);
   } else if (cmd === 'element' && sub === 'sheet') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id || !f.model) {

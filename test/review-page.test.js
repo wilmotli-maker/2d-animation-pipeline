@@ -59,3 +59,27 @@ test('buildReviewPage: errors on empty result', async () => {
       /no .* match/i);
   });
 });
+
+import { parseReviewArgs } from '../src/review-page.js';
+
+test('parseReviewArgs: shots filters and boolean --update', () => {
+  const o = parseReviewArgs('shots',
+    ['--slug', 'ep1', '--match', '^art-', '--characters', 'mira,joh', '--episode', '1,2', '--update']);
+  assert.equal(o.type, 'shots');
+  assert.equal(o.slug, 'ep1');
+  assert.deepEqual(o.filters.characters, ['mira', 'joh']);
+  assert.deepEqual(o.filters.episodes, ['1', '2']);
+  assert.equal(o.filters.match, '^art-');
+  assert.equal(o.update, true);
+});
+
+test('parseReviewArgs: images sheets filter', () => {
+  const o = parseReviewArgs('images', ['--slug', 's', '--sheets', 'turnaround,pose']);
+  assert.equal(o.type, 'images');
+  assert.deepEqual(o.filters.sheets, ['turnaround', 'pose']);
+  assert.equal(o.update, false);
+});
+
+test('parseReviewArgs: rejects unknown subcommand', () => {
+  assert.throws(() => parseReviewArgs('bogus', ['--slug', 's']), /shots\|images/);
+});

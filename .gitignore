@@ -25,3 +25,7 @@ evaluation/
 __pycache__/
 
 .DS_Store
+
+# Vendored review-page assets (copies of shot clips / sheet images). Pages are
+# local review artifacts; the copied media is not versioned.
+web/*/assets/
