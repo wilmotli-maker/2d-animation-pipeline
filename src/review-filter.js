@@ -23,3 +23,21 @@ export function applyImageFilters(model, { match, characters, sheets } = {}) {
   }
   return { ...model, characters: out };
 }
+
+function lastN(arr, n) { return arr.slice(Math.max(0, arr.length - n)); }
+
+export function defaultShotSelection(model, layout = 'side-by-side') {
+  const versions = {};
+  for (const s of model.shots) versions[s.shotId] = lastN(s.versions.map((v) => v.version), 2);
+  return { layout, versions };
+}
+
+export function defaultImageSelection(model, layout = 'side-by-side') {
+  const versions = {};
+  for (const c of model.characters) {
+    for (const sh of c.sheets) {
+      versions[`${c.name}/${sh.sheetType}/${sh.slug}`] = lastN(sh.versions.map((v) => v.version), 2);
+    }
+  }
+  return { layout, versions };
+}

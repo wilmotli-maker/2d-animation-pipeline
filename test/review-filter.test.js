@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyShotFilters, applyImageFilters } from '../src/review-filter.js';
+import { applyShotFilters, applyImageFilters, defaultShotSelection, defaultImageSelection } from '../src/review-filter.js';
 
 const shotModel = {
   type: 'shots', shots: [
@@ -40,4 +40,22 @@ test('applyImageFilters: characters + sheets intersect, prune empties', () => {
   assert.equal(r.characters[0].name, 'mira');
   assert.deepEqual(r.characters[0].sheets.map((s) => s.sheetType), ['pose']);
   assert.equal(applyImageFilters(imageModel, { sheets: ['pose'] }).characters.length, 2);
+});
+
+test('defaultShotSelection: up to 2 most recent, final newest', () => {
+  const m = { type: 'shots', shots: [
+    { shotId: 's', versions: [
+      { version: 'v001' }, { version: 'v002' }, { version: 'final' }] }] };
+  const sel = defaultShotSelection(m);
+  assert.deepEqual(sel.versions.s, ['v002', 'final']);
+  assert.equal(sel.layout, 'side-by-side');
+});
+
+test('defaultImageSelection: up to 2 most recent per sheet', () => {
+  const m = { type: 'images', characters: [
+    { name: 'mira', sheets: [
+      { sheetType: 'pose', slug: 'a', versions: [
+        { version: 'v001' }, { version: 'v002' }, { version: 'v003' }] }] }] };
+  const sel = defaultImageSelection(m);
+  assert.deepEqual(sel.versions['mira/pose/a'], ['v002', 'v003']);
 });
