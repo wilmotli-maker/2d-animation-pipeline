@@ -44,13 +44,22 @@ Every filter is optional; passing several ANDs them. No filters → everything o
 
 ## Project layout this must handle
 
-Two shapes (from the shot-author skill):
-- **Episodic:** top-level `episodes/<N>/shots/<id>/…` and `episodes/<N>/voices/`, with
-  **shared** top-level `elements/`. `--episode` selects among the `episodes/<N>` roots.
-- **Flat:** top-level `shots/` and `elements/`, no episodes. `--episode` is inert.
+The scanner is **structure-agnostic**: it locates shot directories wherever they live and
+treats "episode" as an *optional derived grouping*, not a required level. Neither subcommand
+assumes episodes exist. Supported shapes (both are first-class, not a primary + fallback):
 
-Elements are always shared top-level `elements/` — never per-episode. The scanner discovers
-episode roots by the presence of `episodes/*/shots/`, else falls back to top-level `shots/`.
+- **Flat:** top-level `shots/<id>/…` and `elements/`, no episodes. This is the default the
+  scanner expects when there is no `episodes/` folder. `--episode` is inert (and a warning if
+  passed), the shot model carries `episode: null`, and the page omits the episode facet.
+- **Episodic:** top-level `episodes/<N>/shots/<id>/…` and `episodes/<N>/voices/`, with
+  **shared** top-level `elements/`. `--episode` selects among the `episodes/<N>` roots; the
+  page shows the episode facet.
+
+Discovery rule: collect shot dirs from `episodes/*/shots/*` **and** top-level `shots/*` (a
+project may even have both during a migration — the model just unions them, tagging episode
+where known). Elements are always the shared top-level `elements/` — never per-episode. If a
+future project uses a different grouping folder, only the discovery glob and the `episode`
+derivation change; the rest of the pipeline (model shape, filters, page) is unaffected.
 
 ## Architecture
 
