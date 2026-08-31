@@ -29,7 +29,7 @@ shots, style-locks, and generated media — is *your* data: it's written to disk
 Each user runs everything under their own accounts; no credentials are shared.
 
 ```bash
-npm install                              # installs the Higgsfield CLI locally + deps
+npm install                              # installs deps + auto-downloads model weights (~1.3 GB) into models/
 npm link                                 # one-time: put `pipeline` on your PATH (symlinks the bin)
 npm run higgsfield -- auth login         # browser OAuth; session persists
 npm run higgsfield -- workspace list     # find your workspace id
@@ -43,6 +43,17 @@ cd ~/anim/my-project                      # run Claude Code from here so CLAUDE.
 `workspace set` is mandatory — generation fails with "No workspace selected"
 until it's run once, even for the default private workspace. For prompt direction
 and the critique loop you also need Claude Code (or an `ANTHROPIC_API_KEY`).
+
+**Model weights:** `voice transcribe` (whisper.cpp ggml) and `shot matte` (ONNX
+mattes — `fast`/isnet and `best`/BiRefNet) need local model files. They are large
+(~1.3 GB total) and gitignored, so `npm install` downloads them into `models/` via
+a `postinstall` hook. Set `SKIP_MODEL_DOWNLOAD=1` to skip it (e.g. on CI), and run
+`npm run fetch-models` later to fetch them on demand — `--only whisper|fast|best`
+to limit the set, `--force` to re-fetch. A postinstall download failure won't break
+`npm install`; matte/transcribe still print a manual `curl` hint when a file is
+missing. Upscaling needs no local model (it runs server-side via Higgsfield). To
+reuse models you already have elsewhere (e.g. rembg's `~/.u2net`), point at them
+with `MATTE_MODEL_DIR` / `WHISPER_CPP_MODEL` instead.
 
 **Where data is written:** commands write `elements/` and `shots/` under
 `--root <dir>` if given, else `$ANIMATION_PIPELINE_ROOT`, else the current

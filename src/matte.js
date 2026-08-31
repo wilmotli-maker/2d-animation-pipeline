@@ -103,7 +103,7 @@ export function matteEngine({
     async run({ input, output, format = 'prores4444', despill = true }) {
       if (!(await pathExists(weights))) {
         throw new Error(
-          `matte model for --quality ${quality} not found at ${weights} — download it:\n` +
+          `matte model for --quality ${quality} not found at ${weights} — run \`npm run fetch-models\`, or download it:\n` +
           `  curl -L -o "${weights}" ${matteModelUrl(quality)}\n` +
           '(or set MATTE_MODEL_DIR, MATTE_MODEL, or pass --model-file)');
       }

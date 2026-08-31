@@ -61,11 +61,27 @@ export function whisperBin() {
   return process.env.WHISPER_CPP_BIN || 'whisper-cli';
 }
 
+// The default ggml model for `voice transcribe`: filename + download URL. The
+// single source of truth for both the transcribe error hint and the install-time
+// fetch (scripts/fetch-models.js), so the two can't drift apart. Mirrors the
+// MATTE_MODELS policy below — downloaded into models/, never committed.
+export const WHISPER_MODEL = {
+  file: 'ggml-base.en.bin',
+  url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
+};
+
 // The ggml model file whisper.cpp loads. Precedence: explicit (--model-file) >
 // WHISPER_CPP_MODEL env > a default under the tool's own models/ dir. Model files
-// are not auto-downloaded; a missing one is reported with a download command.
+// are not auto-downloaded on use; the install fetch pulls them, and a missing one
+// is still reported with a download command at call time.
 export function whisperModelPath(explicit, root = REPO_ROOT) {
-  return explicit || process.env.WHISPER_CPP_MODEL || path.join(root, 'models', 'ggml-base.en.bin');
+  return explicit || process.env.WHISPER_CPP_MODEL || path.join(modelsDir(root), WHISPER_MODEL.file);
+}
+
+// The tool-local directory all default model weights (whisper ggml + matte ONNX)
+// download into. Gitignored; populated by scripts/fetch-models.js at install time.
+export function modelsDir(root = REPO_ROOT) {
+  return path.join(root, 'models');
 }
 
 // --- shot matte ----------------------------------------------------------
@@ -112,7 +128,7 @@ export function matteModelPath(explicit, quality = MATTE_DEFAULT_QUALITY, root =
     throw new Error(
       `unknown matte quality "${quality}" (expected: ${Object.keys(MATTE_MODELS).join(', ')})`);
   }
-  return path.join(process.env.MATTE_MODEL_DIR || path.join(root, 'models'), model.file);
+  return path.join(process.env.MATTE_MODEL_DIR || modelsDir(root), model.file);
 }
 
 export function matteModelUrl(quality = MATTE_DEFAULT_QUALITY) {

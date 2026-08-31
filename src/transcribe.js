@@ -2,7 +2,7 @@ import path from 'node:path';
 import { readdir, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { defaultExec } from './cli.js';
-import { whisperBin, whisperModelPath } from './config.js';
+import { whisperBin, whisperModelPath, WHISPER_MODEL } from './config.js';
 
 // Audio extensions the --dir scan and enumeration recognize (case-insensitive).
 export const AUDIO_EXTS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg'];
@@ -36,8 +36,8 @@ export function whisperTranscriber({ bin = whisperBin(), model = whisperModelPat
     async transcribe(audioPath) {
       if (!(await pathExists(model))) {
         throw new Error(
-          `whisper model not found at ${model} — download one, e.g.:\n` +
-          `  curl -L -o "${model}" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin\n` +
+          `whisper model not found at ${model} — run \`npm run fetch-models\`, or download one, e.g.:\n` +
+          `  curl -L -o "${model}" ${WHISPER_MODEL.url}\n` +
           '(or set WHISPER_CPP_MODEL, or pass --model-file)');
       }
       const { code, stdout, stderr } = await exec(bin, ['-m', model, '-f', audioPath, '-nt']);

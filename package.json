@@ -9,6 +9,8 @@
   },
   "scripts": {
     "higgsfield": "higgsfield",
+    "fetch-models": "node scripts/fetch-models.js",
+    "postinstall": "node scripts/fetch-models.js",
     "check-auth": "bash scripts/check-auth.sh",
     "sanity:free": "bash scripts/sanity-checks/run-free-checks.sh",
     "test": "node --test",
