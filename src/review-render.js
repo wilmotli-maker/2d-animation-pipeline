@@ -32,9 +32,11 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// JSON embedded in a <script type="application/json"> — only </script> needs escaping.
+// JSON embedded in a <script type="application/json"> — neutralize all angle brackets
+// so no tokenizer rule can let the JSON break out of the script element.
 function embed(data) {
-  return JSON.stringify(data, null, 2).replace(/<\/script>/gi, '<\\/script>');
+  return JSON.stringify(data, null, 2)
+    .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/\u2028|\u2029/g, '');
 }
 
 function page({ title, subtitle, data, script }) {
@@ -58,6 +60,7 @@ function page({ title, subtitle, data, script }) {
 }
 
 const SHOT_SCRIPT = `
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 const DATA = JSON.parse(document.getElementById('review-data').textContent);
 const state = { characters: new Set(), episodes: new Set(), text: '' };
 const rail = document.getElementById('rail'), grid = document.getElementById('grid');
@@ -66,7 +69,7 @@ const allEps = [...new Set(DATA.model.shots.map(s => s.episode).filter(Boolean))
 function facet(title, values, set) {
   if (!values.length) return '';
   return '<h3>' + title + '</h3>' + values.map(v =>
-    '<label><input type="checkbox" data-set="' + title + '" value="' + v + '">' + v + '</label>').join('');
+    '<label><input type="checkbox" data-set="' + title + '" value="' + esc(v) + '">' + esc(v) + '</label>').join('');
 }
 rail.innerHTML = '<h3>Filter</h3><label><input id="txt" placeholder="regex" style="width:100%"></label>'
   + facet('Characters', allChars, state.characters)
@@ -86,20 +89,20 @@ function visible(s) {
 }
 function col(v) {
   const media = v.video
-    ? '<video src="' + v.video + '" controls preload="metadata"></video>'
+    ? '<video src="' + esc(v.video) + '" controls preload="metadata"></video>'
     : '<div class="missing">missing artifact</div>';
-  const links = (v.variants.upscaled||[]).map(u => '<a href="' + u + '">upscaled</a>').join('')
-    + (v.variants.alpha ? '<a href="' + v.variants.alpha + '">alpha</a>' : '');
+  const links = (v.variants.upscaled||[]).map(u => '<a href="' + esc(u) + '">upscaled</a>').join('')
+    + (v.variants.alpha ? '<a href="' + esc(v.variants.alpha) + '">alpha</a>' : '');
   const m = [v.meta.model, v.meta.resolution, v.meta.ts].filter(Boolean).join(' · ');
-  return '<div class="col"><div class="v">' + v.version + '</div>' + media
-    + '<div class="m">' + m + '</div><div class="links">' + links + '</div></div>';
+  return '<div class="col"><div class="v">' + esc(v.version) + '</div>' + media
+    + '<div class="m">' + esc(m) + '</div><div class="links">' + links + '</div></div>';
 }
 function render() {
   grid.innerHTML = DATA.model.shots.filter(visible).map(s => {
     const picks = new Set(DATA.selection.versions[s.shotId] || []);
     const cols = s.versions.filter(v => picks.has(v.version)).map(col).join('');
-    return '<section class="row"><h2>' + s.shotId + '</h2><div class="tags">'
-      + [s.episode && 'ep ' + s.episode, s.characters.join(', '), s.description].filter(Boolean).join(' — ')
+    return '<section class="row"><h2>' + esc(s.shotId) + '</h2><div class="tags">'
+      + [s.episode && 'ep ' + esc(s.episode), esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ')
       + '</div><div class="cols ' + DATA.selection.layout + '">' + cols + '</div></section>';
   }).join('') || '<p class="missing">No shots match.</p>';
 }
@@ -107,6 +110,7 @@ render();
 `;
 
 const IMAGE_SCRIPT = `
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 const DATA = JSON.parse(document.getElementById('review-data').textContent);
 const state = { characters: new Set(), sheets: new Set(), text: '' };
 const rail = document.getElementById('rail'), grid = document.getElementById('grid');
@@ -118,7 +122,7 @@ const allSheets = [...new Set(rows.map(r => r.sheetType))].sort();
 function facet(title, values) {
   if (!values.length) return '';
   return '<h3>' + title + '</h3>' + values.map(v =>
-    '<label><input type="checkbox" data-set="' + title + '" value="' + v + '">' + v + '</label>').join('');
+    '<label><input type="checkbox" data-set="' + title + '" value="' + esc(v) + '">' + esc(v) + '</label>').join('');
 }
 rail.innerHTML = '<h3>Filter</h3><label><input id="txt" placeholder="slug regex" style="width:100%"></label>'
   + facet('Characters', allChars) + facet('Sheets', allSheets);
@@ -136,16 +140,16 @@ function visible(r) {
   return true;
 }
 function col(v) {
-  const imgs = (v.images||[]).map(s => '<img src="' + s + '" loading="lazy">').join('')
+  const imgs = (v.images||[]).map(s => '<img src="' + esc(s) + '" loading="lazy">').join('')
     || '<div class="missing">missing artifact</div>';
   const m = [v.meta.model, v.meta.ts].filter(Boolean).join(' · ');
-  return '<div class="col"><div class="v">' + v.version + '</div>' + imgs + '<div class="m">' + m + '</div></div>';
+  return '<div class="col"><div class="v">' + esc(v.version) + '</div>' + imgs + '<div class="m">' + esc(m) + '</div></div>';
 }
 function render() {
   grid.innerHTML = rows.filter(visible).map(r => {
     const picks = new Set(DATA.selection.versions[r.key] || []);
     const cols = r.versions.filter(v => picks.has(v.version)).map(col).join('');
-    return '<section class="row"><h2>' + r.key + '</h2><div class="cols ' + DATA.selection.layout + '">' + cols + '</div></section>';
+    return '<section class="row"><h2>' + esc(r.key) + '</h2><div class="cols ' + DATA.selection.layout + '">' + cols + '</div></section>';
   }).join('') || '<p class="missing">No sheets match.</p>';
 }
 render();

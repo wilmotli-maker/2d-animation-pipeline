@@ -76,8 +76,8 @@ async function readShotYaml(shotRoot, id) {
 async function readMeta(dir) {
   try {
     const j = JSON.parse(await readFile(path.join(dir, 'output.json'), 'utf8'));
-    const { model, prompt, resolution, aspectRatio, mode, ts } = j;
-    return { model, prompt, resolution, aspectRatio, mode, ts };
+    const { model, resolution, aspectRatio, mode, ts } = j;
+    return { model, resolution, aspectRatio, mode, ts };
   } catch { return {}; }
 }
 
@@ -157,12 +157,12 @@ async function readGenerationsLog(elDir) {
 // Walk sheets/<sheetType>/(<slug>/)?vNNN.<img> for elements without a usable log.
 async function walkSheets(projectRoot, elDir) {
   const sheetsDir = path.join(elDir, 'sheets');
-  const found = new Map(); // `${sheetType} ${slug}` -> [{version, images}]
+  const found = new Map(); // `${sheetType}\u0000${slug}` -> [{version, images}]
   for (const sheetType of await listDirs(sheetsDir)) {
     const typeDir = path.join(sheetsDir, sheetType);
     const direct = (await listFiles(typeDir)).filter((n) => /^v\d+\.(png|jpe?g|webp)$/i.test(n));
     for (const f of direct) {
-      pushVersion(found, `${sheetType} `, {
+      pushVersion(found, `${sheetType}\u0000`, {
         version: f.replace(/\.[^.]+$/, ''),
         images: [relTo(projectRoot, path.join(typeDir, f))], upscaled: [], meta: {},
       });
@@ -178,7 +178,7 @@ async function walkSheets(projectRoot, elDir) {
         byV.get(v).push(relTo(projectRoot, path.join(slugDir, f)));
       }
       for (const [v, images] of byV) {
-        pushVersion(found, `${sheetType} ${slug}`, { version: v, images, upscaled: [], meta: {} });
+        pushVersion(found, `${sheetType}\u0000${slug}`, { version: v, images, upscaled: [], meta: {} });
       }
     }
   }
@@ -188,7 +188,7 @@ async function walkSheets(projectRoot, elDir) {
 function sheetEntriesFromMap(map) {
   const sheets = [];
   for (const [key, versions] of map) {
-    const [sheetType, slug] = key.split(' ');
+    const [sheetType, slug] = key.split('\u0000');
     versions.sort((a, b) => Number(a.version.slice(1)) - Number(b.version.slice(1)));
     sheets.push({ sheetType, slug, versions });
   }
@@ -205,7 +205,7 @@ async function scanOneElement(projectRoot, type, name, elDir) {
       const images = e.panels && e.panels.length
         ? e.panels.map((p) => relTo(projectRoot, path.isAbsolute(p) ? p : path.join(projectRoot, p)))
         : (e.output ? [relTo(projectRoot, path.isAbsolute(e.output) ? e.output : path.join(projectRoot, e.output))] : []);
-      pushVersion(map, `${e.sheetType} ${slug}`, {
+      pushVersion(map, `${e.sheetType}\u0000${slug}`, {
         version: e.version ?? 'v001', images, upscaled: [],
         meta: { model: e.model, prompt: e.prompt, ts: e.ts },
       });

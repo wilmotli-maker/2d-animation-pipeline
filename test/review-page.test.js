@@ -51,6 +51,24 @@ test('buildReviewPage: refuses existing slug without update', async () => {
   });
 });
 
+test('buildReviewPage: warns on unknown filter values but succeeds with a real one', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 'art-talk-01');
+    const warnings = [];
+    const origWarn = console.warn;
+    console.warn = (...args) => warnings.push(args.join(' '));
+    try {
+      const res = await buildReviewPage(root, {
+        type: 'shots', slug: 'ep1', filters: { characters: ['mira', 'nobody'] },
+      });
+      assert.equal(res.count, 1);
+    } finally {
+      console.warn = origWarn;
+    }
+    assert.ok(warnings.some((w) => /no character matching "nobody"/.test(w)));
+  });
+});
+
 test('buildReviewPage: errors on empty result', async () => {
   await withTempRoot(async (root) => {
     await mkdir(path.join(root, 'shots'), { recursive: true });

@@ -19,6 +19,17 @@ test('renderShotPage: self-contained, embeds model, references videos', () => {
   assert.match(html, /"shotId": ?"s1"/);
 });
 
+test('renderShotPage: malicious description is escaped, not rendered as literal HTML', () => {
+  const model = { type: 'shots', shots: [
+    { shotId: 's1', episode: '1', characters: ['mira'], description: '<img src=x onerror=alert(1)>', versions: [
+      { version: 'v001', kind: 'draft', video: 'assets/s1/v001/output.mp4',
+        variants: { alpha: null, upscaled: [], qc: [] }, meta: {} }] }] };
+  const sel = { layout: 'side-by-side', versions: { s1: ['v001'] } };
+  const html = renderShotPage({ model, selection: sel, title: 'Shots' });
+  assert.doesNotMatch(html, /<img src=x onerror/);
+  assert.match(html, /\\u003cimg src=x onerror/);
+});
+
 test('renderImagePage: renders images and title', () => {
   const model = { type: 'images', characters: [
     { type: 'characters', name: 'mira', sheets: [

@@ -28,31 +28,41 @@ function mergeSelection(stored, fresh) {
 }
 
 // Copy one source file into the page's assets/ tree and return its page-relative path.
-async function vendorFile(projectRoot, pageDir, relSrc) {
+// `seen` maps dest -> source across the whole build so we can warn (not abort) when two
+// distinct sources collide on the same vendored destination.
+async function vendorFile(projectRoot, pageDir, relSrc, seen) {
   if (!relSrc) return null;
   const src = path.join(projectRoot, relSrc);
   if (!(await exists(src))) return null;
   const destRel = path.join('assets', relSrc.replace(/^(\.\.[/\\])+/, ''));
   const dest = path.join(pageDir, destRel);
+  const destKey = destRel.split(path.sep).join('/');
+  if (seen) {
+    const previous = seen.get(destKey);
+    if (previous && previous !== src) {
+      console.warn(`review: asset path collision — "${src}" overwrites "${previous}" at ${destKey}`);
+    }
+    seen.set(destKey, src);
+  }
   await mkdir(path.dirname(dest), { recursive: true });
   if ((await stat(src)).isDirectory()) await cp(src, dest, { recursive: true });
   else await copyFile(src, dest);
-  return destRel.split(path.sep).join('/');
+  return destKey;
 }
 
 // Rewrite every artifact path in the model to a vendored page-relative path.
-async function vendorShotModel(projectRoot, pageDir, model) {
+async function vendorShotModel(projectRoot, pageDir, model, seen) {
   const shots = [];
   for (const s of model.shots) {
     const versions = [];
     for (const v of s.versions) {
       versions.push({
         ...v,
-        video: await vendorFile(projectRoot, pageDir, v.video),
+        video: await vendorFile(projectRoot, pageDir, v.video, seen),
         variants: {
-          alpha: await vendorFile(projectRoot, pageDir, v.variants.alpha),
-          upscaled: (await Promise.all(v.variants.upscaled.map((u) => vendorFile(projectRoot, pageDir, u)))).filter(Boolean),
-          qc: (await Promise.all(v.variants.qc.map((q) => vendorFile(projectRoot, pageDir, q)))).filter(Boolean),
+          alpha: await vendorFile(projectRoot, pageDir, v.variants.alpha, seen),
+          upscaled: (await Promise.all(v.variants.upscaled.map((u) => vendorFile(projectRoot, pageDir, u, seen)))).filter(Boolean),
+          qc: (await Promise.all(v.variants.qc.map((q) => vendorFile(projectRoot, pageDir, q, seen)))).filter(Boolean),
         },
       });
     }
@@ -61,7 +71,7 @@ async function vendorShotModel(projectRoot, pageDir, model) {
   return { ...model, shots };
 }
 
-async function vendorImageModel(projectRoot, pageDir, model) {
+async function vendorImageModel(projectRoot, pageDir, model, seen) {
   const characters = [];
   for (const c of model.characters) {
     const sheets = [];
@@ -70,8 +80,8 @@ async function vendorImageModel(projectRoot, pageDir, model) {
       for (const v of sh.versions) {
         versions.push({
           ...v,
-          images: (await Promise.all(v.images.map((i) => vendorFile(projectRoot, pageDir, i)))).filter(Boolean),
-          upscaled: (await Promise.all((v.upscaled || []).map((u) => vendorFile(projectRoot, pageDir, u)))).filter(Boolean),
+          images: (await Promise.all(v.images.map((i) => vendorFile(projectRoot, pageDir, i, seen)))).filter(Boolean),
+          upscaled: (await Promise.all((v.upscaled || []).map((u) => vendorFile(projectRoot, pageDir, u, seen)))).filter(Boolean),
         });
       }
       sheets.push({ ...sh, versions });
@@ -87,11 +97,44 @@ async function refreshWebIndex(projectRoot) {
   try { await execFileP(process.execPath, [script], { cwd: projectRoot }); } catch { /* index is best-effort */ }
 }
 
+// Warn to stderr (and skip, not abort) when a requested filter value doesn't match
+// anything in the raw scanned model.
+function warnUnknownFilters(type, raw, filters) {
+  const warnFor = (kind, requested, available) => {
+    if (!requested || !requested.length) return;
+    const known = new Set(available);
+    for (const value of requested) {
+      if (!known.has(value)) console.warn(`review: no ${kind} matching "${value}"`);
+    }
+  };
+
+  if (type === 'images') {
+    const chars = new Set();
+    const sheets = new Set();
+    for (const c of raw.characters) {
+      chars.add(c.name);
+      for (const sh of c.sheets) sheets.add(sh.sheetType);
+    }
+    warnFor('character', filters.characters, chars);
+    warnFor('sheet', filters.sheets, sheets);
+  } else {
+    const chars = new Set();
+    const episodes = new Set();
+    for (const s of raw.shots) {
+      for (const c of s.characters) chars.add(c);
+      if (s.episode != null) episodes.add(s.episode);
+    }
+    warnFor('character', filters.characters, chars);
+    warnFor('episode', filters.episodes, episodes);
+  }
+}
+
 export async function buildReviewPage(root, opts) {
   const { type, slug, filters = {}, selection: providedSelection, update = false, title } = opts;
   if (!slug) throw new Error('review: --slug is required');
 
   const raw = type === 'images' ? await scanImages(root) : await scanShots(root, { episodes: filters.episodes });
+  warnUnknownFilters(type, raw, filters);
   const filtered = type === 'images' ? applyImageFilters(raw, filters) : applyShotFilters(raw, filters);
   const count = type === 'images'
     ? filtered.characters.reduce((a, c) => a + c.sheets.length, 0) : filtered.shots.length;
@@ -108,9 +151,10 @@ export async function buildReviewPage(root, opts) {
   const selection = providedSelection || mergeSelection(stored && stored.selection, fresh);
 
   await mkdir(pageDir, { recursive: true });
+  const seen = new Map();
   const pageModel = type === 'images'
-    ? await vendorImageModel(root, pageDir, filtered)
-    : await vendorShotModel(root, pageDir, filtered);
+    ? await vendorImageModel(root, pageDir, filtered, seen)
+    : await vendorShotModel(root, pageDir, filtered, seen);
 
   const html = type === 'images'
     ? renderImagePage({ model: pageModel, selection, title: title || 'Image review' })
