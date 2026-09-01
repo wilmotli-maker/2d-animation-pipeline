@@ -141,17 +141,14 @@ pipeline review images --slug <name> [--match <re>] [--exclude <re>] [--characte
 **Output location.** Review pages are **project-specific output**, not pipeline tooling.
 The bundle is written to `<outBase>/<slug>/`, where `outBase` defaults to a `web/` folder
 off the project root (`--root`/env/cwd) and is **created if missing**. `--out <dir>` overrides
-`outBase` (resolved absolute) so a project can keep review pages wherever it likes. The
-`web/README.md` index refresh (below) only runs for the default `<root>/web` location — it
-maintains the pipeline repo's own page table and is meaningless for a custom `--out` or a
-user project without that README.
+`outBase` (resolved absolute) so a project can keep review pages wherever it likes. No index
+file is touched — the pages are project output, not part of the pipeline repo's own `web/`
+table, so the command never edits any `README.md`.
 Create: scan → apply filters → apply selection (all versions) → write bundle. Update
 (`--update` or slug exists): re-scan, refresh the selection to the current all-versions set
 (so new drafts appear and skipped/removed versions drop off), carry over only the stored
 `layout`, rewrite the page. Per-version curation is client-side (the hide control) and not
-persisted, so there is nothing else to preserve. On completion, **auto-run
-`scripts/update-web-index.js`** for the default `<root>/web` location so `web/README.md`
-indexes the new page.
+persisted, so there is nothing else to preserve.
 
 ## Data flow
 
@@ -162,7 +159,6 @@ web/<slug>/review.json (prior state, on update)/          |
                                                     apply filters ⊕ selection
                                                           ↓
                             review-page.js → vendor assets + index.html + review.json
-                                            → scripts/update-web-index.js (refresh README)
 ```
 
 ## The page itself (client-side, self-contained)
@@ -170,8 +166,10 @@ web/<slug>/review.json (prior state, on update)/          |
 - **Default selection = ALL versions**, shown as a **horizontally scrolling side-by-side row**
   (one `<video>`/still column per version). Reviewers narrow the view in-page rather than at
   generation time.
-- **Per-column hide control:** every column has a `hide` button; hidden columns collapse and a
-  `Show N hidden version(s)` reset restores them. This is **client-side curation** — it is not
+- **Per-column hide control:** every column has a `hide` button. A hidden version collapses to
+  a thin vertical separator at its position in the row, labeled at top with the version number
+  and clickable to unhide just that version. A per-row `show N hidden` button next to the shot
+  name unhides all hidden versions of that row. This is **client-side curation** — it is not
   persisted to `review.json` (so `--update` never has stored per-version picks to preserve; it
   simply refreshes the selection to the current all-versions set).
 - **Shot page:** left rail with in-page facets mirroring the CLI filters (character
@@ -209,8 +207,9 @@ web/<slug>/review.json (prior state, on update)/          |
    and portable. ✅
 2. **Do NOT version vendored assets** — `web/*/assets/` is gitignored; pages are local-only,
    the repo stays small. ✅
-3. **Auto-refresh `web/README.md`** via `scripts/update-web-index.js` at the end of the
-   command. ✅
+3. **No index/README maintenance.** ~~Auto-refresh `web/README.md`.~~ Superseded: pages are
+   project-specific output written to the project (or `--out`) folder, so the command touches
+   no `README.md` — the pipeline repo's own `web/` table is unrelated to generated pages. ✅
 
 ## Assumptions (autonomous — correct on review)
 - Reviewers open the HTML directly (`file://`) or via any static server; no build step,

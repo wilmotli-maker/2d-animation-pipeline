@@ -16,7 +16,8 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .rail label { display:block; font-size:.9rem; padding:.15rem 0; cursor:pointer; }
 .rail input { margin-right:.5rem; }
 .row { border-top:1px solid var(--line); padding:1.2rem 0; }
-.row h2 { font-size:1rem; margin:0 0 .1rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--accent); }
+.rowhead { display:flex; align-items:center; gap:.6rem; margin:0 0 .1rem; }
+.row h2 { font-size:1rem; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--accent); }
 .row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
 .cols { display:flex; gap:1rem; overflow-x:auto; padding-bottom:.6rem; align-items:flex-start; }
 .cols.stacked { flex-direction:column; }
@@ -36,7 +37,7 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .col .m { color:var(--dim); font-size:.78rem; margin-top:.4rem; }
 .missing { color:var(--warn); font-size:.85rem; padding:2rem 0; text-align:center; }
 .links a { color:var(--accent); font-size:.78rem; margin-right:.6rem; }
-.reset { color:var(--accent); background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.82rem; padding:.3rem .6rem; margin-bottom:1rem; }
+.reset { color:var(--accent); background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.72rem; padding:.15rem .45rem; }
 .reset:hover { border-color:var(--accent); }
 `;
 
@@ -97,8 +98,9 @@ grid.addEventListener('click', (e) => {
   const t = e.target, mark = t.closest ? t.closest('.hmark') : null;
   if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
   else if (mark) { state.hidden.delete(mark.dataset.key + '::' + mark.dataset.v); render(); }
-  else if (t.classList.contains('reset')) { state.hidden.clear(); render(); }
+  else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); render(); }
 });
+function unhideRow(key){ const p = key + '::'; for (const k of [...state.hidden]) if (k.slice(0, p.length) === p) state.hidden.delete(k); }
 function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
 function visible(s) {
   if (state.text) { try { if (!new RegExp(state.text).test(s.shotId)) return false; } catch {} }
@@ -123,13 +125,13 @@ function col(v, key) {
     + '<div class="m">' + esc(m) + '</div><div class="links">' + links + '</div></div>';
 }
 function render() {
-  const banner = state.hidden.size
-    ? '<button class="reset">Show ' + state.hidden.size + ' hidden version(s)</button>' : '';
-  grid.innerHTML = banner + DATA.model.shots.filter(visible).map(s => {
+  grid.innerHTML = DATA.model.shots.filter(visible).map(s => {
     const picks = new Set(DATA.selection.versions[s.shotId] || []);
-    const cols = s.versions.filter(v => picks.has(v.version))
-      .map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
-    return '<section class="row"><h2>' + esc(s.shotId) + '</h2><div class="tags">'
+    const sel = s.versions.filter(v => picks.has(v.version));
+    const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
+    const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
+    const reset = hiddenN ? '<button class="reset" data-key="' + esc(s.shotId) + '">show ' + hiddenN + ' hidden</button>' : '';
+    return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2>' + reset + '</div><div class="tags">'
       + [s.episode && 'ep ' + esc(s.episode), s.promotedVersion && 'final: ' + esc(s.promotedVersion), esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ')
       + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No shots match.</p>';
@@ -164,8 +166,9 @@ grid.addEventListener('click', (e) => {
   const t = e.target, mark = t.closest ? t.closest('.hmark') : null;
   if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
   else if (mark) { state.hidden.delete(mark.dataset.key + '::' + mark.dataset.v); render(); }
-  else if (t.classList.contains('reset')) { state.hidden.clear(); render(); }
+  else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); render(); }
 });
+function unhideRow(key){ const p = key + '::'; for (const k of [...state.hidden]) if (k.slice(0, p.length) === p) state.hidden.delete(k); }
 function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
 function visible(r) {
   if (state.text) { try { if (!new RegExp(state.text).test(r.slug)) return false; } catch {} }
@@ -185,13 +188,13 @@ function col(v, key) {
   return '<div class="col"><div class="vrow"><span class="v">' + esc(v.version) + '</span>' + hide + '</div>' + imgs + '<div class="m">' + esc(m) + '</div></div>';
 }
 function render() {
-  const banner = state.hidden.size
-    ? '<button class="reset">Show ' + state.hidden.size + ' hidden version(s)</button>' : '';
-  grid.innerHTML = banner + rows.filter(visible).map(r => {
+  grid.innerHTML = rows.filter(visible).map(r => {
     const picks = new Set(DATA.selection.versions[r.key] || []);
-    const cols = r.versions.filter(v => picks.has(v.version))
-      .map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
-    return '<section class="row"><h2>' + esc(r.key) + '</h2><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+    const sel = r.versions.filter(v => picks.has(v.version));
+    const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
+    const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
+    const reset = hiddenN ? '<button class="reset" data-key="' + esc(r.key) + '">show ' + hiddenN + ' hidden</button>' : '';
+    return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2>' + reset + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No sheets match.</p>';
 }
 render();

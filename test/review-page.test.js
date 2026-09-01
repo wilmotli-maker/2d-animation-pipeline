@@ -9,10 +9,6 @@ import { buildReviewPage } from '../src/review-page.js';
 
 async function withTempRoot(fn) {
   const root = await mkdtemp(path.join(tmpdir(), 'review-page-'));
-  // minimal web/README.md with markers so the index refresh has something to update
-  await mkdir(path.join(root, 'web'), { recursive: true });
-  await writeFile(path.join(root, 'web', 'README.md'),
-    '# Web\n<!-- pages:start -->\n<!-- pages:end -->\n');
   try { await fn(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 

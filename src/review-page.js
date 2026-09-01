@@ -1,17 +1,11 @@
 // src/review-page.js
 import { mkdir, copyFile, writeFile, readFile, stat, cp } from 'node:fs/promises';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { scanShots, scanImages } from './review-scan.js';
 import {
   applyShotFilters, applyImageFilters, defaultShotSelection, defaultImageSelection,
 } from './review-filter.js';
 import { renderShotPage, renderImagePage } from './review-render.js';
-
-const execFileP = promisify(execFile);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 async function readJson(p) { try { return JSON.parse(await readFile(p, 'utf8')); } catch { return null; } }
@@ -90,12 +84,6 @@ async function vendorImageModel(projectRoot, pageDir, model, seen) {
   return { ...model, characters };
 }
 
-async function refreshWebIndex(projectRoot) {
-  const script = path.join(__dirname, '..', 'scripts', 'update-web-index.js');
-  if (!(await exists(script)) || !(await exists(path.join(projectRoot, 'web', 'README.md')))) return;
-  try { await execFileP(process.execPath, [script], { cwd: projectRoot }); } catch { /* index is best-effort */ }
-}
-
 // Warn to stderr (and skip, not abort) when a requested filter value doesn't match
 // anything in the raw scanned model.
 function warnUnknownFilters(type, raw, filters) {
@@ -167,9 +155,6 @@ export async function buildReviewPage(root, opts) {
   await writeFile(path.join(pageDir, 'review.json'),
     JSON.stringify({ type, filters, selection, model: filtered, generatedAt: new Date().toISOString() }, null, 2) + '\n');
 
-  // The index generator maintains the pipeline repo's own web/README.md table; it
-  // only applies to the default <root>/web location, not a custom --out.
-  if (!out) await refreshWebIndex(root);
   return { pageDir, count };
 }
 
