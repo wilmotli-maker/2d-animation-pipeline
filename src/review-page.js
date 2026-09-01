@@ -153,8 +153,8 @@ export async function buildReviewPage(root, opts) {
     : await vendorShotModel(root, pageDir, filtered, seen);
 
   const html = type === 'images'
-    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review' })
-    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review' });
+    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review', slug, type })
+    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review', slug, type });
 
   await writeFile(path.join(pageDir, 'index.html'), html);
   await writeFile(path.join(pageDir, 'review.json'),

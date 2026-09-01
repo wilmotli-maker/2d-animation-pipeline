@@ -136,3 +136,13 @@ test('parseReviewArgs: images sheets filter', () => {
 test('parseReviewArgs: rejects unknown subcommand', () => {
   assert.throws(() => parseReviewArgs('bogus', ['--slug', 's']), /shots\|images/);
 });
+
+test('buildReviewPage: embeds the page slug for marks storage/download', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 'art-talk-01');
+    await buildReviewPage(root, { type: 'shots', slug: 'ep1' });
+    const html = await readFile(path.join(root, 'web', 'ep1', 'index.html'), 'utf8');
+    assert.match(html, /"slug": ?"ep1"/);
+    assert.match(html, /"type": ?"shots"/);
+  });
+});
