@@ -39,6 +39,22 @@ test('buildReviewPage: vendors clips and writes a self-contained bundle', async 
   });
 });
 
+test('buildReviewPage: --update wipes stale/orphaned assets', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 'art-talk-01');
+    await buildReviewPage(root, { type: 'shots', slug: 'ep1' });
+    // simulate an orphaned asset left by an earlier build (e.g. a final/ clip)
+    const orphan = path.join(root, 'web', 'ep1', 'assets', 'shots', 'art-talk-01', 'final', 'alpha-review.mp4');
+    await mkdir(path.dirname(orphan), { recursive: true });
+    await writeFile(orphan, 'stale');
+    await buildReviewPage(root, { type: 'shots', slug: 'ep1', update: true });
+    await assert.rejects(() => stat(orphan));  // gone after rebuild
+    // the real, referenced clip is re-vendored
+    const live = path.join(root, 'web', 'ep1', 'assets', 'shots', 'art-talk-01', 'drafts', 'v001', 'output.mp4');
+    assert.ok((await stat(live)).isFile());
+  });
+});
+
 test('buildReviewPage: refuses existing slug without update', async () => {
   await withTempRoot(async (root) => {
     await seedShot(root, 'a');

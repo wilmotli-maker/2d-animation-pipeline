@@ -117,7 +117,11 @@ unit-testable.
 ### 2. `src/review-page.js` — filtered model + selection → page bundle
 Given a filtered model, a **selection** (which versions per item, layout), and a slug:
 - **Vendors** selected artifacts into `web/<slug>/assets/…` (copy — page is self-contained,
-  matches `matte-best-vs-fast`). `web/<slug>/assets/` is **gitignored** (see Decisions).
+  matches `matte-best-vs-fast`). `web/<slug>/assets/` is **gitignored** (see Decisions). The
+  `assets/` folder is **wiped and re-created on every build**, so a rebuild never leaves
+  orphaned media behind — dropped drafts, artifacts outside a narrowed filter, and the
+  no-longer-surfaced `final/` clips are all cleaned up automatically. (Safe because every file
+  under `assets/` is a copy this build re-creates.)
 - Emits self-contained `web/<slug>/index.html`: embeds the filtered model as **inline JSON**
   + vanilla JS controls; dark-theme tokens like existing `web/` pages. No network calls.
 - Emits `web/<slug>/review.json`: selection + model snapshot + the CLI filters used — the

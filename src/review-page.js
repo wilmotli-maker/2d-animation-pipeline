@@ -1,5 +1,5 @@
 // src/review-page.js
-import { mkdir, copyFile, writeFile, readFile, stat, cp } from 'node:fs/promises';
+import { mkdir, copyFile, writeFile, readFile, stat, cp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { scanShots, scanImages } from './review-scan.js';
 import {
@@ -141,6 +141,11 @@ export async function buildReviewPage(root, opts) {
   const stored = update ? await readJson(path.join(pageDir, 'review.json')) : null;
   const selection = providedSelection || mergeSelection(stored && stored.selection, fresh);
 
+  // Vendor from a clean slate so a rebuild never leaves orphaned media behind —
+  // e.g. the (no-longer-surfaced) final/ clips, dropped drafts, or artifacts that
+  // fall outside a narrowed filter. Everything under assets/ is a copy that this
+  // build re-creates, so wiping it first is safe.
+  await rm(path.join(pageDir, 'assets'), { recursive: true, force: true });
   await mkdir(pageDir, { recursive: true });
   const seen = new Map();
   const pageModel = type === 'images'
