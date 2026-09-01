@@ -28,11 +28,11 @@ export function applyImageFilters(model, { match, exclude, characters, sheets } 
   return { ...model, characters: out };
 }
 
-function lastN(arr, n) { return arr.slice(Math.max(0, arr.length - n)); }
-
+// Default selection shows ALL versions side by side; the reviewer hides any they
+// don't want from the page. (Was previously the 2 most recent.)
 export function defaultShotSelection(model, layout = 'side-by-side') {
   const versions = {};
-  for (const s of model.shots) versions[s.shotId] = lastN(s.versions.map((v) => v.version), 2);
+  for (const s of model.shots) versions[s.shotId] = s.versions.map((v) => v.version);
   return { layout, versions };
 }
 
@@ -40,7 +40,7 @@ export function defaultImageSelection(model, layout = 'side-by-side') {
   const versions = {};
   for (const c of model.characters) {
     for (const sh of c.sheets) {
-      versions[`${c.name}/${sh.sheetType}/${sh.slug}`] = lastN(sh.versions.map((v) => v.version), 2);
+      versions[`${c.name}/${sh.sheetType}/${sh.slug}`] = sh.versions.map((v) => v.version);
     }
   }
   return { layout, versions };

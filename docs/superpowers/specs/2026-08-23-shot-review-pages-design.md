@@ -76,17 +76,24 @@ shots: [{
   shotId, episode,                 // episode = <N> or null (flat)
   description, mode, duration,
   characters: [ ...element names from shot.yaml ],
+  promotedVersion,                 // draft promoted to final (from final/source-draft.txt), or null
   versions: [{
-    version: 'v001' | 'final', kind: 'draft' | 'final',
-    video,                          // repo-relative primary clip
+    version: 'v001', kind: 'draft',
+    promoted: <bool>,              // this draft is the one promoted to final
+    video,                          // repo-relative primary clip (output.mp4)
     variants: { alpha, upscaled: [...], qc: [...] },
-    meta: { model, prompt, resolution, aspectRatio, mode, ts }   // from output.json
+    meta: { model, resolution, aspectRatio, mode, ts }   // from output.json
   }]
 }]
 ```
-Discovers episode roots, reads `shot.yaml` (identity, `characters` from elements), each
-`drafts/vNNN/output.json` (rich meta) with sibling `output.mp4`, `final/` for promoted clips,
-and `shotVersionDir` siblings (`alpha.*`, `upscaled-*.mp4`, `qc/`) as variants. Missing
+Discovers episode roots, reads `shot.yaml` (identity, `characters` from elements) and each
+`drafts/vNNN/output.json` (rich meta) with sibling `output.mp4`.
+**Drafts with no `output.mp4` are skipped** (a folder holding only `prompt.md`/`notes.md`
+never renders as a broken column). The **`final/` folder is not surfaced as its own version** —
+it holds alpha/comparison renders (often soundless); instead `final/source-draft.txt` names the
+promoted draft, which is flagged `promoted: true` and badged on the page (and shown as a
+`final: vNNN` label even when that draft's own output was cleaned up).
+`shotVersionDir` siblings (`alpha.*`, `upscaled-*.mp4`, `qc/`) are read as variants. Missing
 `output.json` degrades gracefully (clip lists with empty meta). Reuses `src/paths.js`.
 
 **`scanImages(root)` → image model**
@@ -138,10 +145,12 @@ off the project root (`--root`/env/cwd) and is **created if missing**. `--out <d
 `web/README.md` index refresh (below) only runs for the default `<root>/web` location — it
 maintains the pipeline repo's own page table and is meaningless for a custom `--out` or a
 user project without that README.
-Create: scan → apply filters → apply selection → write bundle. Update (`--update` or slug
-exists): read `review.json`, re-scan, add versions/sheets that appeared since, keep the prior
-selection/notes, rewrite the page. Explicit flags override stored filters/selection for what
-they name. On completion, **auto-run `scripts/update-web-index.js`** so `web/README.md`
+Create: scan → apply filters → apply selection (all versions) → write bundle. Update
+(`--update` or slug exists): re-scan, refresh the selection to the current all-versions set
+(so new drafts appear and skipped/removed versions drop off), carry over only the stored
+`layout`, rewrite the page. Per-version curation is client-side (the hide control) and not
+persisted, so there is nothing else to preserve. On completion, **auto-run
+`scripts/update-web-index.js`** for the default `<root>/web` location so `web/README.md`
 indexes the new page.
 
 ## Data flow
@@ -158,20 +167,27 @@ web/<slug>/review.json (prior state, on update)/          |
 
 ## The page itself (client-side, self-contained)
 
+- **Default selection = ALL versions**, shown as a **horizontally scrolling side-by-side row**
+  (one `<video>`/still column per version). Reviewers narrow the view in-page rather than at
+  generation time.
+- **Per-column hide control:** every column has a `hide` button; hidden columns collapse and a
+  `Show N hidden version(s)` reset restores them. This is **client-side curation** — it is not
+  persisted to `review.json` (so `--update` never has stored per-version picks to preserve; it
+  simply refreshes the selection to the current all-versions set).
 - **Shot page:** left rail with in-page facets mirroring the CLI filters (character
-  checkboxes, episode checkboxes, a text/regex box, final-only/drafts-only). Main area: one
-  row per shot; within a row, one `<video>` column per selected version → **side-by-side**.
-  Each column labels version + key meta (model, resolution, ts) and links variants
-  (alpha/upscaled/qc). Optional synced play/scrub across a row (behind a checkbox).
-- **Image page:** facets for character / sheet type / slug regex. Main area: one row per
-  sheet instance; columns = selected versions/upscales → side-by-side stills with meta.
+  checkboxes, episode checkboxes, a text/regex box). Each column labels version + key meta
+  (model, resolution, ts) and links variants (alpha/upscaled/qc). The promoted draft carries a
+  `final` badge, and the row header shows a `final: vNNN` label.
+- **Image page:** facets for character / sheet type / slug regex; one row per sheet instance,
+  columns = versions/upscales, same hide control.
 - Both driven purely by the inline JSON model — no network. CLI filters set the *corpus*
-  baked into the page; in-page facets refine the *view* without regeneration.
+  baked into the page; in-page facets + hide refine the *view* without regeneration.
 
 ## Error handling
 - Unknown character/episode/sheet in a filter → warn to stderr, skip, continue.
-- Requested version/sheet missing its artifact → labeled "missing artifact" placeholder, not
-  a broken `<video>`/`<img>`.
+- Draft folder with no `output.mp4` → skipped entirely (not surfaced as a version), so it can
+  never render as a "missing artifact" column. The placeholder remains only for the rare case
+  of a selected version whose vendored file is unexpectedly absent.
 - Slug collision without `--update` → refuse; tell the user to pass `--update` or a new slug.
 - No matching content after filters → exit non-zero with a clear message (don't write an
   empty page).
@@ -199,7 +215,8 @@ web/<slug>/review.json (prior state, on update)/          |
 ## Assumptions (autonomous — correct on review)
 - Reviewers open the HTML directly (`file://`) or via any static server; no build step,
   framework, or server. Vanilla JS only, matching `web/`.
-- "Versions" for shots = draft `vNNN` + `final`; for images = sheet generation versions
+- "Versions" for shots = draft `vNNN` with a valid `output.mp4` (the `final/` folder is a
+  promoted-clip pointer, not a version); for images = sheet generation versions
   (+ upscales). Sheet types are the known set `turnaround|pose|cycles`.
 - A shot's characters come from `shot.yaml` elements; a shot with none is unaffected by the
   character filter (always shown unless excluded by another filter).

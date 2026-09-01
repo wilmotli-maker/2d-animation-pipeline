@@ -81,11 +81,29 @@ async function readMeta(dir) {
   } catch { return {}; }
 }
 
+// The draft version promoted to final, from final/source-draft.txt (e.g. "v006").
+// null when the shot has no promoted draft.
+async function readPromotedVersion(finalDir) {
+  try {
+    const raw = (await readFile(path.join(finalDir, 'source-draft.txt'), 'utf8')).trim();
+    const m = /^v\d+$/.exec(raw);
+    return m ? raw : null;
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 async function scanOneShot(projectRoot, shotRoot, episode, id) {
   const y = await readShotYaml(shotRoot, id);
   const characters = Array.isArray(y.elements)
     ? y.elements.map((e) => (typeof e === 'string' ? e : e && e.name)).filter(Boolean) : [];
   const versions = [];
+
+  // Which draft was promoted to final. The final/ folder itself is not surfaced as
+  // a version — it holds alpha/comparison renders (often soundless), and the real
+  // deliverable is the draft named in source-draft.txt. We just badge that draft.
+  const promotedVersion = await readPromotedVersion(shotFinalDir(shotRoot, id));
 
   const draftsDir = shotDraftsDir(shotRoot, id);
   const draftNames = (await listDirs(draftsDir)).filter((n) => /^v\d+$/.test(n))
@@ -93,29 +111,22 @@ async function scanOneShot(projectRoot, shotRoot, episode, id) {
   for (const v of draftNames) {
     const dir = shotVersionDir(shotRoot, id, Number(v.slice(1)));
     const video = path.join(dir, 'output.mp4');
+    // Skip versions with no valid output (e.g. a draft folder that only has
+    // prompt.md/notes.md) so they don't render as "missing artifact" columns.
+    if (!(await fileExists(video))) continue;
     versions.push({
       version: v, kind: 'draft',
-      video: (await fileExists(video)) ? relTo(projectRoot, video) : null,
+      promoted: v === promotedVersion,
+      video: relTo(projectRoot, video),
       variants: mapVariants(projectRoot, await readVariants(dir)),
       meta: await readMeta(dir),
-    });
-  }
-
-  const finalDir = shotFinalDir(shotRoot, id);
-  const finalMp4 = (await listFiles(finalDir)).find((n) => n.endsWith('.mp4'));
-  if (finalMp4) {
-    versions.push({
-      version: 'final', kind: 'final',
-      video: relTo(projectRoot, path.join(finalDir, finalMp4)),
-      variants: mapVariants(projectRoot, await readVariants(finalDir)),
-      meta: await readMeta(finalDir),
     });
   }
 
   return {
     shotId: id, episode,
     description: y.description ?? '', mode: y.mode ?? null, duration: y.duration ?? null,
-    characters, versions,
+    promotedVersion, characters, versions,
   };
 }
 

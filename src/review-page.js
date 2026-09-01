@@ -16,15 +16,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 async function readJson(p) { try { return JSON.parse(await readFile(p, 'utf8')); } catch { return null; } }
 
-// Merge a stored selection with fresh defaults: keep stored picks for items that
-// still exist; add default picks for items that appeared since.
+// On --update, the version selection is refreshed to the current model (all
+// versions) so newly-added drafts appear and removed ones drop off; per-version
+// curation is a client-side concern (the page's per-column hide control), so
+// there is no stored per-version selection to preserve — only the layout carries
+// over from the stored page.
 function mergeSelection(stored, fresh) {
   if (!stored) return fresh;
-  const versions = { ...fresh.versions };
-  for (const [k, v] of Object.entries(stored.versions || {})) {
-    if (k in versions) versions[k] = v;
-  }
-  return { layout: stored.layout || fresh.layout, versions };
+  return { layout: stored.layout || fresh.layout, versions: fresh.versions };
 }
 
 // Copy one source file into the page's assets/ tree and return its page-relative path.
