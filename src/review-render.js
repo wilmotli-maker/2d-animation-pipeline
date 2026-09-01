@@ -27,6 +27,7 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
 .cols { display:flex; gap:1rem; overflow-x:auto; padding-bottom:.6rem; align-items:flex-start; }
 .cols.stacked { flex-direction:column; }
+.cols.marked-only .hide { display:none; }
 .col { flex:0 0 320px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
 .cols.stacked .col { flex-basis:auto; width:100%; max-width:640px; }
 .col.marked { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
@@ -212,7 +213,7 @@ function render(){
     if (state.showMarkedOnly) {
       const cols = sel.filter(v => state.marked.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
       return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
-        + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+        + '</div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
@@ -267,7 +268,7 @@ function render(){
     const sel = r.versions.filter(v => picks.has(v.version));
     if (state.showMarkedOnly) {
       const cols = sel.filter(v => state.marked.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
