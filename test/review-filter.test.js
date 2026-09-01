@@ -54,20 +54,20 @@ test('applyImageFilters: characters + sheets intersect, prune empties', () => {
   assert.deepEqual(ex.characters.map((c) => c.name), ['mira']);
 });
 
-test('defaultShotSelection: up to 2 most recent, final newest', () => {
+test('defaultShotSelection: selects all versions', () => {
   const m = { type: 'shots', shots: [
     { shotId: 's', versions: [
-      { version: 'v001' }, { version: 'v002' }, { version: 'final' }] }] };
+      { version: 'v001' }, { version: 'v002' }, { version: 'v003' }] }] };
   const sel = defaultShotSelection(m);
-  assert.deepEqual(sel.versions.s, ['v002', 'final']);
+  assert.deepEqual(sel.versions.s, ['v001', 'v002', 'v003']);
   assert.equal(sel.layout, 'side-by-side');
 });
 
-test('defaultImageSelection: up to 2 most recent per sheet', () => {
+test('defaultImageSelection: selects all versions per sheet', () => {
   const m = { type: 'images', characters: [
     { name: 'mira', sheets: [
       { sheetType: 'pose', slug: 'a', versions: [
         { version: 'v001' }, { version: 'v002' }, { version: 'v003' }] }] }] };
   const sel = defaultImageSelection(m);
-  assert.deepEqual(sel.versions['mira/pose/a'], ['v002', 'v003']);
+  assert.deepEqual(sel.versions['mira/pose/a'], ['v001', 'v002', 'v003']);
 });

@@ -32,7 +32,7 @@ test('discoverShotRoots: episodic layout yields one root per episode', async () 
 // append to test/review-scan.test.js
 import { scanShots } from '../src/review-scan.js';
 
-async function seedShot(root, id, { drafts = [], final = null, elements = [] } = {}) {
+async function seedShot(root, id, { drafts = [], final = null, promoted = null, elements = [] } = {}) {
   await mkdir(path.join(root, 'shots', id, 'drafts'), { recursive: true });
   await mkdir(path.join(root, 'shots', id, 'final'), { recursive: true });
   await writeFile(path.join(root, 'shots', id, 'shot.yaml'),
@@ -40,35 +40,41 @@ async function seedShot(root, id, { drafts = [], final = null, elements = [] } =
   for (const d of drafts) {
     const dir = path.join(root, 'shots', id, 'drafts', d.version);
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, 'output.mp4'), 'x');
+    if (!d.noOutput) await writeFile(path.join(dir, 'output.mp4'), 'x');
     if (d.output) await writeFile(path.join(dir, 'output.json'), JSON.stringify(d.output));
   }
   if (final) await writeFile(path.join(root, 'shots', id, 'final', final), 'x');
+  if (promoted) await writeFile(path.join(root, 'shots', id, 'final', 'source-draft.txt'), promoted + '\n');
 }
 // tiny inline YAML.stringify to avoid another import in the helper
 import YAML2 from 'yaml';
 function YAMLstringify(o) { return YAML2.stringify(o); }
 
-test('scanShots: builds versions, characters, and graceful meta', async () => {
+test('scanShots: versions, characters, graceful meta; skips outputless drafts; badges promoted; no final version', async () => {
   await withTempRoot(async (root) => {
     await seedShot(root, 'art-talk-01', {
       elements: [{ type: 'characters', name: 'mira' }, { type: 'characters', name: 'joh' }],
       drafts: [
         { version: 'v001' },                                   // no output.json -> meta {}
         { version: 'v002', output: { model: 'seedance_2_5', resolution: '480p', ts: 'T' } },
+        { version: 'v003', noOutput: true },                   // only prompt/notes -> skipped
       ],
-      final: 'art-talk-01-v002.mp4',
+      final: 'art-talk-01-alpha-review.mp4',                   // final folder is NOT surfaced
+      promoted: 'v002',
     });
     const model = await scanShots(root, {});
     assert.equal(model.type, 'shots');
     const s = model.shots.find((x) => x.shotId === 'art-talk-01');
     assert.deepEqual(s.characters, ['mira', 'joh']);
     assert.equal(s.episode, null);
-    assert.deepEqual(s.versions.map((v) => v.version), ['v001', 'v002', 'final']);
+    // v003 skipped (no output), no synthetic 'final' version
+    assert.deepEqual(s.versions.map((v) => v.version), ['v001', 'v002']);
+    assert.equal(s.promotedVersion, 'v002');
     assert.equal(s.versions[0].meta.model, undefined); // graceful: {}
+    assert.equal(s.versions[0].promoted, false);
     assert.equal(s.versions[1].meta.model, 'seedance_2_5');
-    assert.equal(s.versions[2].kind, 'final');
-    assert.ok(s.versions[2].video.endsWith('art-talk-01-v002.mp4'));
+    assert.equal(s.versions[1].promoted, true);           // badged as final
+    assert.ok(s.versions.every((v) => v.video && v.video.endsWith('output.mp4')));
   });
 });
 

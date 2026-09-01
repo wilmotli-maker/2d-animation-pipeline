@@ -1,30 +1,23 @@
 // src/review-page.js
 import { mkdir, copyFile, writeFile, readFile, stat, cp } from 'node:fs/promises';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { scanShots, scanImages } from './review-scan.js';
 import {
   applyShotFilters, applyImageFilters, defaultShotSelection, defaultImageSelection,
 } from './review-filter.js';
 import { renderShotPage, renderImagePage } from './review-render.js';
 
-const execFileP = promisify(execFile);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 async function readJson(p) { try { return JSON.parse(await readFile(p, 'utf8')); } catch { return null; } }
 
-// Merge a stored selection with fresh defaults: keep stored picks for items that
-// still exist; add default picks for items that appeared since.
+// On --update, the version selection is refreshed to the current model (all
+// versions) so newly-added drafts appear and removed ones drop off; per-version
+// curation is a client-side concern (the page's per-column hide control), so
+// there is no stored per-version selection to preserve — only the layout carries
+// over from the stored page.
 function mergeSelection(stored, fresh) {
   if (!stored) return fresh;
-  const versions = { ...fresh.versions };
-  for (const [k, v] of Object.entries(stored.versions || {})) {
-    if (k in versions) versions[k] = v;
-  }
-  return { layout: stored.layout || fresh.layout, versions };
+  return { layout: stored.layout || fresh.layout, versions: fresh.versions };
 }
 
 // Copy one source file into the page's assets/ tree and return its page-relative path.
@@ -89,12 +82,6 @@ async function vendorImageModel(projectRoot, pageDir, model, seen) {
     characters.push({ ...c, sheets });
   }
   return { ...model, characters };
-}
-
-async function refreshWebIndex(projectRoot) {
-  const script = path.join(__dirname, '..', 'scripts', 'update-web-index.js');
-  if (!(await exists(script)) || !(await exists(path.join(projectRoot, 'web', 'README.md')))) return;
-  try { await execFileP(process.execPath, [script], { cwd: projectRoot }); } catch { /* index is best-effort */ }
 }
 
 // Warn to stderr (and skip, not abort) when a requested filter value doesn't match
@@ -168,9 +155,6 @@ export async function buildReviewPage(root, opts) {
   await writeFile(path.join(pageDir, 'review.json'),
     JSON.stringify({ type, filters, selection, model: filtered, generatedAt: new Date().toISOString() }, null, 2) + '\n');
 
-  // The index generator maintains the pipeline repo's own web/README.md table; it
-  // only applies to the default <root>/web location, not a custom --out.
-  if (!out) await refreshWebIndex(root);
   return { pageDir, count };
 }
 
