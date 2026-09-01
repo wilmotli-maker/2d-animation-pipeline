@@ -132,6 +132,11 @@ static HTML page for browsing generated shots or element sheets — open its
   `--layout`) for quick comparison.
 - Re-run with `--update` to refresh a page in place after new generations,
   rather than rebuilding it from scratch.
+- Mark the takes you like with each version's **mark** checkbox; the toolbar's
+  **Show only marked** collapses every row to its marked versions (rows with none
+  say so). **Download marks** exports a small JSON of the marked shot/versions
+  (names only, no media) and **Import marks** restores it; marks also auto-save in
+  the browser. All client-side, so it works on a static GitHub Pages host.
 - Vendored media referenced by the page lives under `web/<slug>/assets/`,
   which is gitignored — review pages are local artifacts, not committed
   deliverables (only the generated `index.html`/`review.json` are trackable).

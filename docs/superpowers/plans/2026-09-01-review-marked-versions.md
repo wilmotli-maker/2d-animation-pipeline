@@ -1,3 +1,99 @@
+# Marked Versions Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Let reviewers mark liked versions on a review page, show only marked versions page-wide, and download/import the marked set as JSON with `localStorage` auto-persist — all client-side so it works on GitHub Pages.
+
+**Architecture:** Almost entirely in the embedded page JS of `src/review-render.js`. The duplicated shot/image client scripts are refactored into one shared `COMMON_SCRIPT` (escaping, marks state + persistence, the marks toolbar, download/import, hide handlers, the hidden-version marker) concatenated ahead of a page-specific script (facets, `visible`, `col`, `render`). `buildReviewPage` passes the page `slug` and `type` into the render functions so the page can namespace `localStorage` and name its download.
+
+**Tech Stack:** Node ESM, `node:test`. Client side: vanilla JS, `localStorage`, `Blob`/`URL.createObjectURL` download, `FileReader` import. No new dependencies.
+
+**Spec:** `docs/superpowers/specs/2026-09-01-review-marked-versions-design.md`
+
+---
+
+## File structure
+
+- Modify `src/review-render.js` — full rewrite: add `COMMON_SCRIPT`, refactor `SHOT_SCRIPT`/`IMAGE_SCRIPT` to page-specific bodies, add marks CSS, embed `slug`/`type`/`title` in page `DATA`, accept `slug`/`type` in the two exported render fns.
+- Modify `bin/pipeline.js` — nothing (no new flag).
+- Modify `src/review-page.js` — pass `slug` and `type` into `renderShotPage`/`renderImagePage`.
+- Modify `test/review-render.test.js` — assert the new controls/markup and the embedded `slug`/`type`.
+- Modify `test/review-page.test.js` — assert the generated `index.html` embeds the page `slug`.
+- Modify `README.md` — one line in the Review-pages section about marking + export.
+
+**Client `state` (in the embedded JS), reused across tasks:**
+```
+state = { text, hidden:Set, marked:Set<"key::version">, showMarkedOnly:bool,
+          characters:Set, episodes|sheets:Set }
+```
+Storage key `review:marks:<slug>`; `VALID` = every `key::version` from `DATA.selection.versions`.
+
+---
+
+## Task 1: Rewrite `review-render.js` (shared script + marks feature + CSS)
+
+**Files:**
+- Modify: `src/review-render.js` (full replace)
+- Test: `test/review-render.test.js`
+
+- [ ] **Step 1: Update the render tests first (they will fail)**
+
+Replace the whole body of `test/review-render.test.js` with:
+
+```js
+// test/review-render.test.js
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { renderShotPage, renderImagePage } from '../src/review-render.js';
+
+const shotModel = { type: 'shots', generatedAt: 'T', shots: [
+  { shotId: 's1', episode: '1', characters: ['mira'], description: 'd', promotedVersion: 'v002', versions: [
+    { version: 'v001', kind: 'draft', promoted: false, video: 'assets/s1/v001/output.mp4',
+      variants: { alpha: null, upscaled: [], qc: [] }, meta: {} },
+    { version: 'v002', kind: 'draft', promoted: true, video: 'assets/s1/v002/output.mp4',
+      variants: { alpha: null, upscaled: [], qc: [] }, meta: { model: 'seedance_2_5' } }] }] };
+const shotSel = { layout: 'side-by-side', versions: { s1: ['v001', 'v002'] } };
+
+test('renderShotPage: embeds slug/type, marks controls, preserves hide/marker', () => {
+  const html = renderShotPage({ model: shotModel, selection: shotSel, title: 'Shots', slug: 'ep1', type: 'shots' });
+  assert.match(html, /<!doctype html>/i);
+  assert.doesNotMatch(html, /https?:\/\//);
+  assert.match(html, /"slug": ?"ep1"/);            // slug embedded (namespaces storage/download)
+  assert.match(html, /"type": ?"shots"/);
+  assert.match(html, /review:marks:/);             // localStorage key prefix
+  assert.match(html, /-marks\.json/);              // download filename
+  assert.match(html, /class="markbox"/);           // per-version mark checkbox
+  assert.match(html, /Show only marked/);
+  assert.match(html, /Download marks/);
+  assert.match(html, /Import marks/);
+  assert.match(html, /no marked versions/);
+  assert.match(html, /class="hide"/);              // preserved
+  assert.match(html, /function hmark/);            // preserved
+  assert.match(html, /"promotedVersion": ?"v002"/);
+});
+
+test('renderImagePage: embeds slug and marks controls', () => {
+  const model = { type: 'images', generatedAt: 'T', characters: [
+    { type: 'characters', name: 'mira', sheets: [
+      { sheetType: 'pose', slug: 'a', versions: [
+        { version: 'v001', images: ['assets/mira/pose/a/v001.png'], upscaled: [], meta: {} }] }] }] };
+  const sel = { layout: 'side-by-side', versions: { 'mira/pose/a': ['v001'] } };
+  const html = renderImagePage({ model, selection: sel, title: 'Sheets', slug: 'sh', type: 'images' });
+  assert.match(html, /assets\/mira\/pose\/a\/v001\.png/);
+  assert.match(html, /"slug": ?"sh"/);
+  assert.match(html, /class="markbox"/);
+  assert.match(html, /Show only marked/);
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `node --test test/review-render.test.js`
+Expected: FAIL (render fns don't embed slug / lack marks controls).
+
+- [ ] **Step 3: Replace `src/review-render.js` entirely with:**
+
+```js
 // src/review-render.js
 // Pure HTML rendering. Asset paths in `model` must already be page-relative.
 
@@ -27,7 +123,6 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
 .cols { display:flex; gap:1rem; overflow-x:auto; padding-bottom:.6rem; align-items:flex-start; }
 .cols.stacked { flex-direction:column; }
-.cols.marked-only .hide { display:none; }
 .col { flex:0 0 320px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
 .cols.stacked .col { flex-basis:auto; width:100%; max-width:640px; }
 .col.marked { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
@@ -213,7 +308,7 @@ function render(){
     if (state.showMarkedOnly) {
       const cols = sel.filter(v => state.marked.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
       return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
-        + '</div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+        + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
@@ -268,7 +363,7 @@ function render(){
     const sel = r.versions.filter(v => picks.has(v.version));
     if (state.showMarkedOnly) {
       const cols = sel.filter(v => state.marked.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
@@ -289,3 +384,134 @@ export function renderImagePage({ model, selection, title = 'Image review', slug
   return page({ title, subtitle: `${n} sheet(s) · generated ${model.generatedAt || ''}`,
     data: { model, selection, slug, type, title }, script: COMMON_SCRIPT + IMAGE_SCRIPT });
 }
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `node --test test/review-render.test.js`
+Expected: PASS (2 tests).
+
+Then the full suite to catch regressions:
+Run: `node --test`
+Expected: PASS (the `review-page` build tests still pass — render is called with the same args plus new optional ones).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/review-render.js test/review-render.test.js
+git commit -m "feat(review): mark versions, show-only-marked, download/import; share client JS"
+```
+
+---
+
+## Task 2: Pass `slug`/`type` from `buildReviewPage` into the render functions
+
+**Files:**
+- Modify: `src/review-page.js`
+- Test: `test/review-page.test.js`
+
+- [ ] **Step 1: Add the failing test**
+
+Append to `test/review-page.test.js` (near the other `buildReviewPage` tests):
+
+```js
+test('buildReviewPage: embeds the page slug for marks storage/download', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 'art-talk-01');
+    await buildReviewPage(root, { type: 'shots', slug: 'ep1' });
+    const html = await readFile(path.join(root, 'web', 'ep1', 'index.html'), 'utf8');
+    assert.match(html, /"slug": ?"ep1"/);
+    assert.match(html, /"type": ?"shots"/);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `node --test test/review-page.test.js`
+Expected: FAIL (`"slug": "ep1"` not present — render isn't given the slug yet).
+
+- [ ] **Step 3: Pass slug/type in `buildReviewPage`**
+
+In `src/review-page.js`, find:
+
+```js
+  const html = type === 'images'
+    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review' })
+    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review' });
+```
+
+Replace with:
+
+```js
+  const html = type === 'images'
+    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review', slug, type })
+    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review', slug, type });
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `node --test test/review-page.test.js`
+Expected: PASS.
+
+Full suite:
+Run: `node --test`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/review-page.js test/review-page.test.js
+git commit -m "feat(review): pass page slug/type into the rendered page"
+```
+
+---
+
+## Task 3: Manual smoke test + docs
+
+**Files:**
+- Modify: `README.md`
+
+- [ ] **Step 1: Manual smoke test against the real project**
+
+Run:
+```bash
+cd "/Users/wilmotli/Projects/Seedance Animation/ArtAI"
+node /Users/wilmotli/Projects/2d-animation-pipeline/bin/pipeline.js review shots \
+  --episode 1 --match '^art-' --exclude 'candidates|assembled' --slug art-ep1 --update
+```
+Expected: `review page: …/web/art-ep1 (8 item(s))`. Open `web/art-ep1/index.html` in a browser and confirm: a toolbar with **Show only marked / N marked / Download marks / Import marks**; a **mark** checkbox on each version; marking highlights the column (accent border) and bumps the count; **Show only marked** collapses rows to marked versions and shows *"no marked versions"* where there are none; **Download marks** saves `art-ep1-marks.json`; reloading the page keeps the marks (localStorage); **Import marks** of that file re-applies them.
+
+- [ ] **Step 2: Update `README.md`**
+
+In the "Review pages" section (the bullet list), add a bullet after the `--update` bullet:
+
+```markdown
+- Mark the takes you like with each version's **mark** checkbox; the toolbar's
+  **Show only marked** collapses every row to its marked versions (rows with none
+  say so). **Download marks** exports a small JSON of the marked shot/versions
+  (names only, no media) and **Import marks** restores it; marks also auto-save in
+  the browser. All client-side, so it works on a static GitHub Pages host.
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md
+git commit -m "docs(review): document marking, show-only-marked, and marks export/import"
+```
+
+---
+
+## Self-review notes (author)
+
+- **Spec coverage:** mark checkbox (Task 1 `markbox`/`col`), show-only-marked toggle + no-marks text (Task 1 `render`), download (`downloadMarks`) and import (`importMarks`) with the documented JSON schema, `localStorage` auto-persist namespaced by slug (`LSKEY`/`loadMarks`/`saveMarks`), slug/type plumbing (Task 2), the shared-`COMMON_SCRIPT` refactor (Task 1), GitHub-Pages-only browser APIs. All covered.
+- **Preserved behavior:** hide/unhide/reset, hidden-version markers, per-row `show N hidden`, promoted `final` badge + `final: vNNN` label, facets, filters — all retained in the rewritten scripts and asserted (`class="hide"`, `function hmark`, `promotedVersion`).
+- **Scope-scoping the `VALID` set:** it's built from `DATA.selection.versions`, which is page-type-agnostic, so `loadMarks`/import validation and the whole `COMMON_SCRIPT` need no shot-vs-image branching.
+- **Hoisting:** `COMMON_SCRIPT` references `render`/`updateCount` (defined in the page script) only inside event handlers and after concatenation into one `<script>`; function declarations hoist across the combined scope, and the handlers fire only after load, so ordering is safe. `state.characters`/`state.episodes|sheets` are created at the top of each page script before any `render()`.
+- **No placeholders**; every step has full code and exact commands.
+
+## Out of scope (do not build)
+- A CLI consumer of the marks JSON (promote/export marked versions).
+- An import that clears existing marks first (current import merges).
+- Per-row show-only-marked toggles.
