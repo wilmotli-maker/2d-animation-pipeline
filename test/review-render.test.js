@@ -18,6 +18,7 @@ test('renderShotPage: self-contained, embeds model, hide controls, promoted labe
   assert.match(html, /<script[^>]*id="review-data"[^>]*>/);
   assert.match(html, /"shotId": ?"s1"/);
   assert.match(html, /class="hide"/);                    // per-version hide control
+  assert.match(html, /function hmark/);                  // hidden-version marker (unhide on click)
   assert.match(html, /"promotedVersion": ?"v002"/);      // promoted label source
 });
 

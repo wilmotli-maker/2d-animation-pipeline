@@ -7,7 +7,8 @@ const STYLE = `
 * { box-sizing:border-box; }
 body { margin:0; padding:1.5rem 1.25rem 5rem; background:var(--bg); color:var(--fg);
   font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
-.wrap { max-width:1400px; margin:0 auto; display:grid; grid-template-columns:220px 1fr; gap:1.5rem; }
+.wrap { max-width:1400px; margin:0 auto; display:grid; grid-template-columns:220px minmax(0,1fr); gap:1.5rem; }
+main { min-width:0; }
 h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .sub { color:var(--dim); margin:0 0 1.5rem; }
 .rail { position:sticky; top:1rem; align-self:start; }
@@ -26,6 +27,11 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .col .badge { background:var(--good); color:#0b0d10; font-size:.68rem; font-weight:600; padding:.05rem .35rem; border-radius:4px; margin-left:.4rem; text-transform:uppercase; letter-spacing:.03em; }
 .col .hide { background:none; border:1px solid var(--line); color:var(--dim); border-radius:4px; cursor:pointer; font-size:.72rem; line-height:1; padding:.15rem .4rem; }
 .col .hide:hover { color:var(--fg); border-color:var(--dim); }
+.hmark { flex:0 0 auto; align-self:stretch; width:26px; background:none; border:none; padding:.2rem 0 0; margin:0; cursor:pointer; display:flex; flex-direction:column; align-items:center; }
+.hmark .lbl { font:.6rem/1 ui-monospace,Menlo,monospace; color:var(--dim); margin-bottom:.3rem; white-space:nowrap; }
+.hmark .bar { flex:1; width:2px; background:var(--line); border-radius:2px; }
+.hmark:hover .bar { background:var(--accent); }
+.hmark:hover .lbl { color:var(--accent); }
 .col video, .col img { width:100%; border-radius:6px; display:block; background:#000; }
 .col .m { color:var(--dim); font-size:.78rem; margin-top:.4rem; }
 .missing { color:var(--warn); font-size:.85rem; padding:2rem 0; text-align:center; }
@@ -88,8 +94,9 @@ rail.addEventListener('input', (e) => {
   render();
 });
 grid.addEventListener('click', (e) => {
-  const t = e.target;
+  const t = e.target, mark = t.closest ? t.closest('.hmark') : null;
   if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
+  else if (mark) { state.hidden.delete(mark.dataset.key + '::' + mark.dataset.v); render(); }
   else if (t.classList.contains('reset')) { state.hidden.clear(); render(); }
 });
 function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
@@ -98,6 +105,10 @@ function visible(s) {
   if (state.characters.size && !s.characters.some(c => state.characters.has(c))) return false;
   if (state.episodes.size && !state.episodes.has(s.episode)) return false;
   return true;
+}
+function hmark(key, version) {
+  return '<button class="hmark" data-key="' + esc(key) + '" data-v="' + esc(version) + '" title="Show ' + esc(version) + '">'
+    + '<span class="lbl">' + esc(version) + '</span><span class="bar"></span></button>';
 }
 function col(v, key) {
   const media = v.video
@@ -116,12 +127,11 @@ function render() {
     ? '<button class="reset">Show ' + state.hidden.size + ' hidden version(s)</button>' : '';
   grid.innerHTML = banner + DATA.model.shots.filter(visible).map(s => {
     const picks = new Set(DATA.selection.versions[s.shotId] || []);
-    const cols = s.versions
-      .filter(v => picks.has(v.version) && !state.hidden.has(s.shotId + '::' + v.version))
-      .map(v => col(v, s.shotId)).join('');
+    const cols = s.versions.filter(v => picks.has(v.version))
+      .map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
     return '<section class="row"><h2>' + esc(s.shotId) + '</h2><div class="tags">'
       + [s.episode && 'ep ' + esc(s.episode), s.promotedVersion && 'final: ' + esc(s.promotedVersion), esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ')
-      + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">all versions hidden</span>') + '</div></section>';
+      + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No shots match.</p>';
 }
 render();
@@ -151,8 +161,9 @@ rail.addEventListener('input', (e) => {
   render();
 });
 grid.addEventListener('click', (e) => {
-  const t = e.target;
+  const t = e.target, mark = t.closest ? t.closest('.hmark') : null;
   if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
+  else if (mark) { state.hidden.delete(mark.dataset.key + '::' + mark.dataset.v); render(); }
   else if (t.classList.contains('reset')) { state.hidden.clear(); render(); }
 });
 function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
@@ -161,6 +172,10 @@ function visible(r) {
   if (state.characters.size && !state.characters.has(r.name)) return false;
   if (state.sheets.size && !state.sheets.has(r.sheetType)) return false;
   return true;
+}
+function hmark(key, version) {
+  return '<button class="hmark" data-key="' + esc(key) + '" data-v="' + esc(version) + '" title="Show ' + esc(version) + '">'
+    + '<span class="lbl">' + esc(version) + '</span><span class="bar"></span></button>';
 }
 function col(v, key) {
   const imgs = (v.images||[]).map(s => '<img src="' + esc(s) + '" loading="lazy">').join('')
@@ -174,10 +189,9 @@ function render() {
     ? '<button class="reset">Show ' + state.hidden.size + ' hidden version(s)</button>' : '';
   grid.innerHTML = banner + rows.filter(visible).map(r => {
     const picks = new Set(DATA.selection.versions[r.key] || []);
-    const cols = r.versions
-      .filter(v => picks.has(v.version) && !state.hidden.has(r.key + '::' + v.version))
-      .map(v => col(v, r.key)).join('');
-    return '<section class="row"><h2>' + esc(r.key) + '</h2><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">all versions hidden</span>') + '</div></section>';
+    const cols = r.versions.filter(v => picks.has(v.version))
+      .map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
+    return '<section class="row"><h2>' + esc(r.key) + '</h2><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No sheets match.</p>';
 }
 render();
