@@ -75,6 +75,8 @@ pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
+pipeline review shots   --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
+pipeline review images  --slug <name> [--characters a,b] [--sheets turnaround,pose,cycles] [--update] [--out <dir>]
 ```
 
 Run any command via `node bin/pipeline.js <...>` or `npm run pipeline -- <...>`.
@@ -111,6 +113,27 @@ pipeline shot upscale --id mayor-mono-03 --version 3 --resolution 2160p
 2D art; `bytedance_video_upscale` is cheaper but smooths fine detail. The result
 lands next to the source as `upscaled-<res>.mp4` with a JSON sidecar recording
 how it was made. Needs `ffmpeg` on `PATH`.
+
+### Review pages
+
+`pipeline review shots` and `pipeline review images` build a self-contained
+static HTML page for browsing generated shots or element sheets — open its
+`index.html` directly in a browser, no server needed. Pages are written to a
+`web/<slug>/` folder off the project root by default (created if missing); pass
+`--out <dir>` to write them somewhere else.
+
+- `review shots` covers shot clips (episodic or flat projects); `review
+  images` covers element sheets (turnaround/pose/cycles).
+- Filters combine as an intersection: e.g. `--characters a,b --episode 2` on
+  `review shots` narrows to shots featuring both characters *and* in episode
+  2.
+- Each shot/sheet shows its available versions side by side (or stacked, via
+  `--layout`) for quick comparison.
+- Re-run with `--update` to refresh a page in place after new generations,
+  rather than rebuilding it from scratch.
+- Vendored media referenced by the page lives under `web/<slug>/assets/`,
+  which is gitignored — review pages are local artifacts, not committed
+  deliverables (only the generated `index.html`/`review.json` are trackable).
 
 ## Example
 
