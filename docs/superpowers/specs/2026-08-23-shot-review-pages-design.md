@@ -30,7 +30,8 @@ its own image page. This resolves the earlier shots-vs-characters muddle.
 ## Filters (combinable — result is the intersection / AND)
 
 **Shots** (`pipeline review shots`):
-- `--match <regex>` — regex on shot id (e.g. `^art-talk-`).
+- `--match <regex>` — keep shots whose id matches (e.g. `^art-talk-`).
+- `--exclude <regex>` — drop shots whose id matches (applied after `--match`, e.g. `candidates|assembled`).
 - `--characters a,b` — shots whose `shot.yaml` elements include **any** of these.
 - `--episode <N>[,<M>]` — restrict to episode root(s). Episodes are `episodes/<N>/` folders
   (see Project layout). Omitted → all episodes (or the flat top-level `shots/`).
@@ -38,7 +39,8 @@ its own image page. This resolves the earlier shots-vs-characters muddle.
 **Images** (`pipeline review images`):
 - `--characters a,b` — element names (any-of).
 - `--sheets turnaround,pose,cycles` — sheet types (any-of).
-- `--match <regex>` — regex on sheet slug.
+- `--match <regex>` — keep sheets whose slug matches.
+- `--exclude <regex>` — drop sheets whose slug matches (a character with no sheets left is pruned).
 
 Every filter is optional; passing several ANDs them. No filters → everything of that type.
 
@@ -120,11 +122,11 @@ One HTML renderer with two layouts (shot page vs. image page) selected by model 
 Follows the existing `cmd sub` + `parseFlags` + `projectRoot(f.root)` pattern.
 
 ```
-pipeline review shots  --slug <name> [--match <re>] [--characters a,b]
+pipeline review shots  --slug <name> [--match <re>] [--exclude <re>] [--characters a,b]
                        [--episode N,M] [--versions <id>=v001,v003 ...]
                        [--layout side-by-side|stacked] [--update]
                        [--title ..] [--out <dir>] [--root <dir>]
-pipeline review images --slug <name> [--match <re>] [--characters a,b]
+pipeline review images --slug <name> [--match <re>] [--exclude <re>] [--characters a,b]
                        [--sheets turnaround,pose,cycles] [--update]
                        [--title ..] [--out <dir>] [--root <dir>]
 ```

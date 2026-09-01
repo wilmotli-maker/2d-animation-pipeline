@@ -97,6 +97,12 @@ test('parseReviewArgs: --out is captured', () => {
   assert.equal(o.out, '/tmp/reviews');
 });
 
+test('parseReviewArgs: --exclude is captured into filters', () => {
+  const o = parseReviewArgs('shots', ['--slug', 'ep1', '--match', '^art-', '--exclude', 'candidates']);
+  assert.equal(o.filters.exclude, 'candidates');
+  assert.equal(o.filters.match, '^art-');
+});
+
 test('parseReviewArgs: shots filters and boolean --update', () => {
   const o = parseReviewArgs('shots',
     ['--slug', 'ep1', '--match', '^art-', '--characters', 'mira,joh', '--episode', '1,2', '--update']);

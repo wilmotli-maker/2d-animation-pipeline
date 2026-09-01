@@ -75,8 +75,8 @@ pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
-pipeline review shots   --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
-pipeline review images  --slug <name> [--characters a,b] [--sheets turnaround,pose,cycles] [--update] [--out <dir>]
+pipeline review shots   --slug <name> [--match <re>] [--exclude <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
+pipeline review images  --slug <name> [--match <re>] [--exclude <re>] [--characters a,b] [--sheets turnaround,pose,cycles] [--update] [--out <dir>]
 ```
 
 Run any command via `node bin/pipeline.js <...>` or `npm run pipeline -- <...>`.
@@ -126,7 +126,8 @@ static HTML page for browsing generated shots or element sheets — open its
   images` covers element sheets (turnaround/pose/cycles).
 - Filters combine as an intersection: e.g. `--characters a,b --episode 2` on
   `review shots` narrows to shots featuring both characters *and* in episode
-  2.
+  2. `--exclude <re>` then drops any id/slug matching a regex (e.g.
+  `--match '^art-' --exclude 'candidates|assembled'`).
 - Each shot/sheet shows its available versions side by side (or stacked, via
   `--layout`) for quick comparison.
 - Re-run with `--update` to refresh a page in place after new generations,

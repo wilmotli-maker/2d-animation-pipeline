@@ -115,7 +115,7 @@ async function main() {
     console.log(`promoted to final: ${r.finalPath}`);
   } else if (cmd === 'review') {
     const opts = parseReviewArgs(sub, rest);
-    if (!opts.slug) fail('usage: pipeline review <shots|images> --slug <name> [--match <re>] [--characters a,b] [--episode N,M] [--sheets turnaround,pose] [--layout side-by-side|stacked] [--update] [--title ..] [--out <dir>] [--root <dir>]');
+    if (!opts.slug) fail('usage: pipeline review <shots|images> --slug <name> [--match <re>] [--exclude <re>] [--characters a,b] [--episode N,M] [--sheets turnaround,pose] [--layout side-by-side|stacked] [--update] [--title ..] [--out <dir>] [--root <dir>]');
     const res = await buildReviewPage(projectRoot(opts.root), opts);
     console.log(`review page: ${res.pageDir}  (${res.count} item(s))`);
   } else if (cmd === 'element' && sub === 'sheet') {
