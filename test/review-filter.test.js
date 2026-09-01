@@ -24,6 +24,15 @@ test('applyShotFilters: regex, characters, episode intersect', () => {
   assert.equal(applyShotFilters(shotModel, {}).shots.length, 3);
 });
 
+test('applyShotFilters: exclude drops matches, combines with match', () => {
+  assert.deepEqual(
+    applyShotFilters(shotModel, { exclude: 'walk' }).shots.map((s) => s.shotId),
+    ['art-talk-01', 'bg-plate-01']);
+  assert.deepEqual(
+    applyShotFilters(shotModel, { match: '^art-', exclude: 'walk' }).shots.map((s) => s.shotId),
+    ['art-talk-01']);
+});
+
 const imageModel = {
   type: 'images', characters: [
     { type: 'characters', name: 'mira', sheets: [
@@ -40,6 +49,9 @@ test('applyImageFilters: characters + sheets intersect, prune empties', () => {
   assert.equal(r.characters[0].name, 'mira');
   assert.deepEqual(r.characters[0].sheets.map((s) => s.sheetType), ['pose']);
   assert.equal(applyImageFilters(imageModel, { sheets: ['pose'] }).characters.length, 2);
+  // exclude drops sheets by slug regex, pruning now-empty characters
+  const ex = applyImageFilters(imageModel, { exclude: '^c$' });
+  assert.deepEqual(ex.characters.map((c) => c.name), ['mira']);
 });
 
 test('defaultShotSelection: up to 2 most recent, final newest', () => {

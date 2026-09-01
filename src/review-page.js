@@ -190,6 +190,7 @@ export function parseReviewArgs(sub, rest) {
   }
   const filters = {};
   if (f.match) filters.match = f.match;
+  if (f.exclude) filters.exclude = f.exclude;
   if (f.characters) filters.characters = splitList(f.characters);
   if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
   if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
