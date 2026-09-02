@@ -27,15 +27,15 @@ h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
 .row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
 .cols { display:flex; gap:1rem; overflow-x:auto; padding-bottom:.6rem; align-items:flex-start; }
 .cols.stacked { flex-direction:column; }
-.cols.marked-only .hide { display:none; }
+.cols.selected-only .hide { display:none; }
 .col { flex:0 0 320px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
 .cols.stacked .col { flex-basis:auto; width:100%; max-width:640px; }
-.col.marked { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+.col.selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
 .col .vrow { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.4rem; }
 .col .ctl { display:flex; align-items:center; gap:.4rem; }
 .col .v { font-family:ui-monospace,Menlo,monospace; color:var(--good); font-size:.85rem; }
-.col .mark { display:flex; align-items:center; gap:.25rem; font-size:.72rem; color:var(--dim); cursor:pointer; }
-.col .mark input { margin:0; }
+.col .select { display:flex; align-items:center; gap:.25rem; font-size:.72rem; color:var(--dim); cursor:pointer; }
+.col .select input { margin:0; }
 .col .badge { background:var(--good); color:#0b0d10; font-size:.68rem; font-weight:600; padding:.05rem .35rem; border-radius:4px; margin-left:.4rem; text-transform:uppercase; letter-spacing:.03em; }
 .col .hide { background:none; border:1px solid var(--line); color:var(--dim); border-radius:4px; cursor:pointer; font-size:.72rem; line-height:1; padding:.15rem .4rem; }
 .col .hide:hover { color:var(--fg); border-color:var(--dim); }
@@ -93,15 +93,15 @@ const COMMON_SCRIPT = `
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 const DATA = JSON.parse(document.getElementById('review-data').textContent);
 const rail = document.getElementById('rail'), grid = document.getElementById('grid');
-const state = { text: '', hidden: new Set(), marked: new Set(), showMarkedOnly: false };
+const state = { text: '', hidden: new Set(), selected: new Set(), showSelectedOnly: false };
 const VALID = new Set();
 for (const key in DATA.selection.versions) for (const v of DATA.selection.versions[key]) VALID.add(key + '::' + v);
-const LSKEY = 'review:marks:' + (DATA.slug || '');
-function loadMarks(){ try { const raw = localStorage.getItem(LSKEY); if (raw) for (const k of JSON.parse(raw)) if (VALID.has(k)) state.marked.add(k); } catch (e) {} }
-function saveMarks(){ try { localStorage.setItem(LSKEY, JSON.stringify([...state.marked])); } catch (e) {} }
-function marksObject(){
+const LSKEY = 'review:selected:' + (DATA.slug || '');
+function loadSelected(){ try { const raw = localStorage.getItem(LSKEY); if (raw) for (const k of JSON.parse(raw)) if (VALID.has(k)) state.selected.add(k); } catch (e) {} }
+function saveSelected(){ try { localStorage.setItem(LSKEY, JSON.stringify([...state.selected])); } catch (e) {} }
+function selectedObject(){
   const out = {};
-  for (const k of state.marked){ const i = k.lastIndexOf('::'); const key = k.slice(0, i), v = k.slice(i + 2); (out[key] = out[key] || []).push(v); }
+  for (const k of state.selected){ const i = k.lastIndexOf('::'); const key = k.slice(0, i), v = k.slice(i + 2); (out[key] = out[key] || []).push(v); }
   for (const key in out) out[key].sort(function(a, b){ return (parseInt(a.slice(1), 10) || 0) - (parseInt(b.slice(1), 10) || 0); });
   return out;
 }
@@ -111,44 +111,44 @@ function hmark(key, version){
   return '<button class="hmark" data-key="' + esc(key) + '" data-v="' + esc(version) + '" title="Show ' + esc(version) + '">'
     + '<span class="lbl">' + esc(version) + '</span><span class="bar"></span></button>';
 }
-function markbox(key, version){
-  const on = state.marked.has(key + '::' + version) ? ' checked' : '';
-  return '<label class="mark"><input type="checkbox" class="markbox" data-key="' + esc(key) + '" data-v="' + esc(version) + '"' + on + '>mark</label>';
+function selectbox(key, version){
+  const on = state.selected.has(key + '::' + version) ? ' checked' : '';
+  return '<label class="select"><input type="checkbox" class="selectbox" data-key="' + esc(key) + '" data-v="' + esc(version) + '"' + on + '>select</label>';
 }
-function downloadMarks(){
-  const obj = { page: DATA.slug || '', type: DATA.type || '', title: DATA.title || '', exportedAt: new Date().toISOString(), marks: marksObject() };
+function downloadSelected(){
+  const obj = { page: DATA.slug || '', type: DATA.type || '', title: DATA.title || '', exportedAt: new Date().toISOString(), selected: selectedObject() };
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = (DATA.slug || 'review') + '-marks.json';
+  a.href = url; a.download = (DATA.slug || 'review') + '-selection.json';
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
-function importMarks(file){
+function importSelected(file){
   const errEl = document.getElementById('impErr'); errEl.textContent = '';
   const reader = new FileReader();
-  reader.onerror = function(){ errEl.textContent = 'could not read marks file'; };
+  reader.onerror = function(){ errEl.textContent = 'could not read selection file'; };
   reader.onload = function(){
     try {
       const obj = JSON.parse(reader.result);
-      if (!obj || typeof obj !== 'object' || !obj.marks || typeof obj.marks !== 'object') throw new Error('bad');
+      if (!obj || typeof obj !== 'object' || !obj.selected || typeof obj.selected !== 'object') throw new Error('bad');
       let n = 0;
-      for (const key in obj.marks){ const arr = obj.marks[key]; if (!Array.isArray(arr)) continue;
-        for (const v of arr){ const k = key + '::' + v; if (VALID.has(k) && !state.marked.has(k)){ state.marked.add(k); n++; } } }
-      saveMarks(); render();
-      errEl.textContent = 'imported ' + n + ' mark' + (n === 1 ? '' : 's');
-    } catch (e) { errEl.textContent = 'could not read marks file'; }
+      for (const key in obj.selected){ const arr = obj.selected[key]; if (!Array.isArray(arr)) continue;
+        for (const v of arr){ const k = key + '::' + v; if (VALID.has(k) && !state.selected.has(k)){ state.selected.add(k); n++; } } }
+      saveSelected(); render();
+      errEl.textContent = 'imported ' + n + ' selection' + (n === 1 ? '' : 's');
+    } catch (e) { errEl.textContent = 'could not read selection file'; }
   };
   reader.readAsText(file);
 }
-function updateCount(){ document.getElementById('markCount').textContent = state.marked.size + ' marked'; }
+function updateCount(){ document.getElementById('selectCount').textContent = state.selected.size + ' selected'; }
 document.getElementById('toolbar').innerHTML =
-  '<button id="onlyMarked">Show only marked</button><span class="count" id="markCount"></span>'
-  + '<button id="dl">Download marks</button>'
-  + '<label class="btn" for="imp">Import marks</label>'
+  '<button id="onlySelected">Show only selected</button><span class="count" id="selectCount"></span>'
+  + '<button id="dl">Download selection</button>'
+  + '<label class="btn" for="imp">Import selection</label>'
   + '<input id="imp" type="file" accept="application/json" style="display:none">'
   + '<span class="err" id="impErr"></span>';
-document.getElementById('onlyMarked').addEventListener('click', function(e){ state.showMarkedOnly = !state.showMarkedOnly; e.currentTarget.classList.toggle('on', state.showMarkedOnly); render(); });
-document.getElementById('dl').addEventListener('click', downloadMarks);
-document.getElementById('imp').addEventListener('change', function(e){ const f = e.target.files[0]; if (f) importMarks(f); e.target.value = ''; });
+document.getElementById('onlySelected').addEventListener('click', function(e){ state.showSelectedOnly = !state.showSelectedOnly; e.currentTarget.classList.toggle('on', state.showSelectedOnly); render(); });
+document.getElementById('dl').addEventListener('click', downloadSelected);
+document.getElementById('imp').addEventListener('change', function(e){ const f = e.target.files[0]; if (f) importSelected(f); e.target.value = ''; });
 grid.addEventListener('click', function(e){
   const t = e.target, mk = t.closest ? t.closest('.hmark') : null;
   if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
@@ -156,13 +156,13 @@ grid.addEventListener('click', function(e){
   else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); render(); }
 });
 grid.addEventListener('change', function(e){
-  if (e.target.classList.contains('markbox')) {
+  if (e.target.classList.contains('selectbox')) {
     const k = e.target.dataset.key + '::' + e.target.dataset.v;
-    e.target.checked ? state.marked.add(k) : state.marked.delete(k);
-    saveMarks(); render();
+    e.target.checked ? state.selected.add(k) : state.selected.delete(k);
+    saveSelected(); render();
   }
 });
-loadMarks();
+loadSelected();
 `;
 
 const SHOT_SCRIPT = `
@@ -197,9 +197,9 @@ function col(v, key){
   const m = [v.meta.model, v.meta.resolution, v.meta.ts].filter(Boolean).join(' · ');
   const badge = v.promoted ? '<span class="badge">final</span>' : '';
   const hide = '<button class="hide" data-key="' + esc(key) + '" data-v="' + esc(v.version) + '">hide</button>';
-  const on = state.marked.has(key + '::' + v.version) ? ' marked' : '';
+  const on = state.selected.has(key + '::' + v.version) ? ' selected' : '';
   return '<div class="col' + on + '"><div class="vrow"><span class="v">' + esc(v.version) + badge + '</span>'
-    + '<span class="ctl">' + markbox(key, v.version) + hide + '</span></div>' + media
+    + '<span class="ctl">' + selectbox(key, v.version) + hide + '</span></div>' + media
     + '<div class="m">' + esc(m) + '</div><div class="links">' + links + '</div></div>';
 }
 function tags(s){
@@ -210,10 +210,10 @@ function render(){
   grid.innerHTML = DATA.model.shots.filter(visible).map(s => {
     const picks = new Set(DATA.selection.versions[s.shotId] || []);
     const sel = s.versions.filter(v => picks.has(v.version));
-    if (state.showMarkedOnly) {
-      const cols = sel.filter(v => state.marked.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
+    if (state.showSelectedOnly) {
+      const cols = sel.filter(v => state.selected.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
       return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
-        + '</div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+        + '</div><div class="cols selected-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
@@ -256,9 +256,9 @@ function col(v, key){
     || '<div class="missing">missing artifact</div>';
   const m = [v.meta.model, v.meta.ts].filter(Boolean).join(' · ');
   const hide = '<button class="hide" data-key="' + esc(key) + '" data-v="' + esc(v.version) + '">hide</button>';
-  const on = state.marked.has(key + '::' + v.version) ? ' marked' : '';
+  const on = state.selected.has(key + '::' + v.version) ? ' selected' : '';
   return '<div class="col' + on + '"><div class="vrow"><span class="v">' + esc(v.version) + '</span>'
-    + '<span class="ctl">' + markbox(key, v.version) + hide + '</span></div>' + imgs
+    + '<span class="ctl">' + selectbox(key, v.version) + hide + '</span></div>' + imgs
     + '<div class="m">' + esc(m) + '</div></div>';
 }
 function render(){
@@ -266,9 +266,9 @@ function render(){
   grid.innerHTML = rows.filter(visible).map(r => {
     const picks = new Set(DATA.selection.versions[r.key] || []);
     const sel = r.versions.filter(v => picks.has(v.version));
-    if (state.showMarkedOnly) {
-      const cols = sel.filter(v => state.marked.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols marked-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no marked versions</span>') + '</div></section>';
+    if (state.showSelectedOnly) {
+      const cols = sel.filter(v => state.selected.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
+      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols selected-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');

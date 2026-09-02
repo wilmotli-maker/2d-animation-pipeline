@@ -17,13 +17,13 @@ test('renderShotPage: embeds slug/type, marks controls, preserves hide/marker', 
   assert.doesNotMatch(html, /https?:\/\//);
   assert.match(html, /"slug": ?"ep1"/);            // slug embedded (namespaces storage/download)
   assert.match(html, /"type": ?"shots"/);
-  assert.match(html, /review:marks:/);             // localStorage key prefix
-  assert.match(html, /-marks\.json/);              // download filename
-  assert.match(html, /class="markbox"/);           // per-version mark checkbox
-  assert.match(html, /Show only marked/);
-  assert.match(html, /Download marks/);
-  assert.match(html, /Import marks/);
-  assert.match(html, /no marked versions/);
+  assert.match(html, /review:selected:/);          // localStorage key prefix
+  assert.match(html, /-selection\.json/);          // download filename
+  assert.match(html, /class="selectbox"/);         // per-version select checkbox
+  assert.match(html, /Show only selected/);
+  assert.match(html, /Download selection/);
+  assert.match(html, /Import selection/);
+  assert.match(html, /no selected versions/);
   assert.match(html, /class="hide"/);              // preserved
   assert.match(html, /function hmark/);            // preserved
   assert.match(html, /"promotedVersion": ?"v002"/);
@@ -38,6 +38,6 @@ test('renderImagePage: embeds slug and marks controls', () => {
   const html = renderImagePage({ model, selection: sel, title: 'Sheets', slug: 'sh', type: 'images' });
   assert.match(html, /assets\/mira\/pose\/a\/v001\.png/);
   assert.match(html, /"slug": ?"sh"/);
-  assert.match(html, /class="markbox"/);
-  assert.match(html, /Show only marked/);
+  assert.match(html, /class="selectbox"/);
+  assert.match(html, /Show only selected/);
 });
