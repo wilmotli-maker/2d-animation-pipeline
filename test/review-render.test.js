@@ -23,6 +23,10 @@ test('renderShotPage: embeds slug/type, marks controls, preserves hide/marker', 
   assert.match(html, /Show only selected/);
   assert.match(html, /Download selection/);
   assert.match(html, /Import selection/);
+  assert.match(html, /\.toolbar \{ position:sticky/);
+  assert.match(html, /class="toolbar-actions" id="toolbar"/);
+  assert.match(html, /class="toolbar-head"/);
+  assert.match(html, /<h1>Shots<\/h1>/);
   assert.match(html, /no selected versions/);
   assert.match(html, /class="hide"/);              // preserved
   assert.match(html, /function hmark/);            // preserved

@@ -5,23 +5,30 @@ const STYLE = `
 :root { --bg:#14151a; --panel:#1c1e25; --line:#2c2f39; --fg:#e8e9ee;
   --dim:#9aa0b0; --accent:#7cc4ff; --warn:#ffcc66; --good:#7ddba0; }
 * { box-sizing:border-box; }
-body { margin:0; padding:1.5rem 1.25rem 5rem; background:var(--bg); color:var(--fg);
+body { margin:0; padding:1.25rem 1.25rem 5rem; background:var(--bg); color:var(--fg);
   font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
-.wrap { max-width:1400px; margin:0 auto; display:grid; grid-template-columns:220px minmax(0,1fr); gap:1.5rem; }
+.wrap { max-width:1400px; margin:0 auto; display:grid; grid-template-columns:220px minmax(0,1fr); gap:1.5rem; align-items:start; }
 main { min-width:0; }
-h1 { font-size:1.5rem; margin:0 0 .3rem; letter-spacing:-.01em; }
-.sub { color:var(--dim); margin:0 0 1rem; }
-.rail { position:sticky; top:1rem; align-self:start; }
-.rail h3 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:1.2rem 0 .4rem; }
+.rail { position:sticky; top:0; align-self:start; max-height:100vh; overflow-x:hidden; overflow-y:auto; min-width:0; }
+.rail h3 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 .4rem; }
+.rail h3:not(:first-child) { margin-top:1.2rem; }
 .rail label { display:block; font-size:.9rem; padding:.15rem 0; cursor:pointer; }
-.rail input { margin-right:.5rem; }
-.toolbar { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin:0 0 1.2rem; }
+.rail input { margin-right:.5rem; max-width:100%; }
+.rail #txt { width:100%; box-sizing:border-box; }
+.toolbar { position:sticky; top:0; z-index:10; display:flex; flex-direction:column; align-items:stretch; gap:0;
+  margin:0 0 1rem; padding:.55rem 0 1rem; background:rgba(20,21,26,.96); backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line); }
+.toolbar-head { min-width:0; }
+.toolbar-head h1 { font-size:1.25rem; margin:0; letter-spacing:-.01em; line-height:1.2; }
+.toolbar-head .sub { color:var(--dim); margin:.15rem 0 0; font-size:.85rem; line-height:1.3; }
+.toolbar-actions { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-top:.55rem; }
 .toolbar button, .toolbar label.btn { color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.8rem; padding:.3rem .6rem; }
 .toolbar button:hover, .toolbar label.btn:hover { border-color:var(--accent); }
 .toolbar button.on { background:var(--accent); color:#0b0d10; border-color:var(--accent); }
 .toolbar .count { color:var(--dim); font-size:.8rem; }
 .toolbar .err { color:var(--warn); font-size:.8rem; }
-.row { border-top:1px solid var(--line); padding:1.2rem 0; }
+.row { padding:1.2rem 0; }
+.row + .row { border-top:1px solid var(--line); }
 .rowhead { display:flex; align-items:center; gap:.6rem; margin:0 0 .1rem; }
 .row h2 { font-size:1rem; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--accent); }
 .row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
@@ -74,9 +81,13 @@ function page({ title, subtitle, data, script }) {
 <div class="wrap">
   <aside class="rail" id="rail"></aside>
   <main>
-    <h1>${esc(title)}</h1>
-    <p class="sub">${esc(subtitle)}</p>
-    <div class="toolbar" id="toolbar"></div>
+    <div class="toolbar">
+      <div class="toolbar-head">
+        <h1>${esc(title)}</h1>
+        <p class="sub">${esc(subtitle)}</p>
+        <div class="toolbar-actions" id="toolbar"></div>
+      </div>
+    </div>
     <div id="grid"></div>
   </main>
 </div>
