@@ -256,6 +256,7 @@ export async function scanFolder(projectRoot, dir) {
     const m = /^(.+)-(v\d+)$/.exec(stem);       // "-v003" (empty stem) fails .+ -> falls through
     const shotId = m ? m[1] : stem;
     const version = m ? m[2] : 'v001';
+    if (!shotId) continue;                       // e.g. a bare ".mp4" — no shot id to key on
     if (!byShot.has(shotId)) byShot.set(shotId, []);
     byShot.get(shotId).push({
       version, kind: 'draft', promoted: false,
