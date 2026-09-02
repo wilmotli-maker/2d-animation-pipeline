@@ -146,6 +146,18 @@ test('scanFolder: filenames -> shots/versions, single-version fallback, skips no
   });
 });
 
+test('scanFolder: shots sort naturally (ai-2 before ai-10)', async () => {
+  await withTempRoot(async (root) => {
+    const dir = path.join(root, 'cand');
+    await mkdir(dir, { recursive: true });
+    for (const n of ['ai-1-v001.mp4', 'ai-2-v001.mp4', 'ai-10-v001.mp4', 'ai-11-v001.mp4']) {
+      await writeFile(path.join(dir, n), 'x');
+    }
+    const ids = (await scanFolder(root, dir)).shots.map((s) => s.shotId);
+    assert.deepEqual(ids, ['ai-1', 'ai-2', 'ai-10', 'ai-11']);
+  });
+});
+
 test('scanFolder: empty/no-video folder yields no shots', async () => {
   await withTempRoot(async (root) => {
     const dir = path.join(root, 'empty');

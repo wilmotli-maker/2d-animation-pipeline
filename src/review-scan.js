@@ -11,6 +11,12 @@ async function isDir(p) {
   try { return (await stat(p)).isDirectory(); } catch { return false; }
 }
 
+// Numeric-aware compare so shot ids sort chronologically (ai-1, ai-2, … ai-10)
+// rather than lexicographically (ai-1, ai-10, ai-11, ai-2).
+function naturalCompare(a, b) {
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
 async function listDirs(p) {
   try {
     return (await readdir(p, { withFileTypes: true }))
@@ -143,7 +149,7 @@ export async function scanShots(projectRoot, { episodes } = {}) {
   const shots = [];
   for (const { root: shotRoot, episode } of roots) {
     if (episodes && episodes.length && (episode == null || !episodes.includes(episode))) continue;
-    for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort()) {
+    for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort(naturalCompare)) {
       shots.push(await scanOneShot(projectRoot, shotRoot, episode, id));
     }
   }
@@ -267,6 +273,6 @@ export async function scanFolder(projectRoot, dir) {
   const shots = [...byShot.entries()].map(([shotId, versions]) => {
     versions.sort((a, b) => (parseInt(a.version.slice(1), 10) || 0) - (parseInt(b.version.slice(1), 10) || 0));
     return { shotId, episode: null, description: '', mode: null, duration: null, promotedVersion: null, characters: [], versions };
-  }).sort((a, b) => a.shotId.localeCompare(b.shotId));
+  }).sort((a, b) => naturalCompare(a.shotId, b.shotId));
   return { generatedAt: new Date().toISOString(), type: 'shots', shots };
 }
