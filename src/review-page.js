@@ -1,7 +1,7 @@
 // src/review-page.js
 import { mkdir, copyFile, writeFile, readFile, stat, cp, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { scanShots, scanImages } from './review-scan.js';
+import { scanShots, scanImages, scanFolder } from './review-scan.js';
 import {
   applyShotFilters, applyImageFilters, defaultShotSelection, defaultImageSelection,
 } from './review-filter.js';
@@ -117,14 +117,21 @@ function warnUnknownFilters(type, raw, filters) {
 }
 
 export async function buildReviewPage(root, opts) {
-  const { type, slug, filters = {}, selection: providedSelection, update = false, title, out } = opts;
+  const { type, slug, filters = {}, selection: providedSelection, update = false, title, out, folder } = opts;
   if (!slug) throw new Error('review: --slug is required');
 
   // Pages are project-specific output, not pipeline tooling. Default to a `web/`
   // folder off the project root (created if missing); --out overrides the base dir.
   const outBase = out ? path.resolve(out) : path.join(root, 'web');
 
-  const raw = type === 'images' ? await scanImages(root) : await scanShots(root, { episodes: filters.episodes });
+  if (folder && type !== 'shots') throw new Error("review: --folder is only valid with 'shots'");
+  const folderAbs = folder ? path.resolve(folder) : null;
+
+  const raw = folderAbs
+    ? await scanFolder(root, folderAbs)
+    : (type === 'images' ? await scanImages(root) : await scanShots(root, { episodes: filters.episodes }));
+  if (folderAbs && raw.shots.length === 0) throw new Error(`review: no video files in ${folderAbs}`);
+
   warnUnknownFilters(type, raw, filters);
   const filtered = type === 'images' ? applyImageFilters(raw, filters) : applyShotFilters(raw, filters);
   const count = type === 'images'
@@ -183,5 +190,5 @@ export function parseReviewArgs(sub, rest) {
   if (f.characters) filters.characters = splitList(f.characters);
   if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
   if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
-  return { type: sub, slug: f.slug, title: f.title, root: f.root, out: f.out, layout: f.layout, filters, update };
+  return { type: sub, slug: f.slug, title: f.title, root: f.root, out: f.out, folder: f.folder, layout: f.layout, filters, update };
 }

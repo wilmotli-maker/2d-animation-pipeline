@@ -11,6 +11,12 @@ async function isDir(p) {
   try { return (await stat(p)).isDirectory(); } catch { return false; }
 }
 
+// Numeric-aware compare so shot ids sort chronologically (ai-1, ai-2, … ai-10)
+// rather than lexicographically (ai-1, ai-10, ai-11, ai-2).
+function naturalCompare(a, b) {
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+}
+
 async function listDirs(p) {
   try {
     return (await readdir(p, { withFileTypes: true }))
@@ -143,7 +149,7 @@ export async function scanShots(projectRoot, { episodes } = {}) {
   const shots = [];
   for (const { root: shotRoot, episode } of roots) {
     if (episodes && episodes.length && (episode == null || !episodes.includes(episode))) continue;
-    for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort()) {
+    for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort(naturalCompare)) {
       shots.push(await scanOneShot(projectRoot, shotRoot, episode, id));
     }
   }
@@ -238,4 +244,35 @@ export async function scanImages(projectRoot) {
     }
   }
   return { generatedAt: new Date().toISOString(), type: 'images', characters };
+}
+
+// A flat, manually-curated folder of shot files (e.g. episodes/N/shots/candidates/).
+// Filenames encode shot + version as "<shotId>-vNNN.<ext>"; a file with no -vNNN
+// suffix is a single-version shot (v001). Non-video files are skipped. Emits the
+// same model shape as scanShots so filtering/selection/vendoring/rendering are reused.
+const VIDEO_EXT = new Set(['mp4', 'mov', 'webm', 'm4v']);
+
+export async function scanFolder(projectRoot, dir) {
+  const byShot = new Map();
+  for (const name of await listFiles(dir)) {
+    const dot = name.lastIndexOf('.');
+    const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+    if (!VIDEO_EXT.has(ext)) continue;
+    const stem = name.slice(0, dot);
+    const m = /^(.+)-(v\d+)$/.exec(stem);       // "-v003" (empty stem) fails .+ -> falls through
+    const shotId = m ? m[1] : stem;
+    const version = m ? m[2] : 'v001';
+    if (!shotId) continue;                       // e.g. a bare ".mp4" — no shot id to key on
+    if (!byShot.has(shotId)) byShot.set(shotId, []);
+    byShot.get(shotId).push({
+      version, kind: 'draft', promoted: false,
+      video: relTo(projectRoot, path.join(dir, name)),
+      variants: { alpha: null, upscaled: [], qc: [] }, meta: {},
+    });
+  }
+  const shots = [...byShot.entries()].map(([shotId, versions]) => {
+    versions.sort((a, b) => (parseInt(a.version.slice(1), 10) || 0) - (parseInt(b.version.slice(1), 10) || 0));
+    return { shotId, episode: null, description: '', mode: null, duration: null, promotedVersion: null, characters: [], versions };
+  }).sort((a, b) => naturalCompare(a.shotId, b.shotId));
+  return { generatedAt: new Date().toISOString(), type: 'shots', shots };
 }
