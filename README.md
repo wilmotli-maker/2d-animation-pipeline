@@ -128,6 +128,10 @@ static HTML page for browsing generated shots or element sheets — open its
   `review shots` narrows to shots featuring both characters *and* in episode
   2. `--exclude <re>` then drops any id/slug matching a regex (e.g.
   `--match '^art-' --exclude 'candidates|assembled'`).
+- Point `review shots --folder <dir>` at a flat, manually-curated folder of clips
+  named `<shotId>-vNNN.ext` (e.g. `episodes/2/shots/candidates/`); shots and versions
+  are read from the filenames (a name with no `-vNNN` is a single `v001`). `--match`/
+  `--exclude` still apply; `--episode` is ignored.
 - Each shot/sheet shows its available versions side by side (or stacked, via
   `--layout`) for quick comparison.
 - Re-run with `--update` to refresh a page in place after new generations,
