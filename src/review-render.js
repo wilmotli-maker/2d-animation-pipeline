@@ -133,7 +133,7 @@ function importSelected(file){
       let n = 0;
       for (const key in obj.selected){ const arr = obj.selected[key]; if (!Array.isArray(arr)) continue;
         for (const v of arr){ const k = key + '::' + v; if (VALID.has(k) && !state.selected.has(k)){ state.selected.add(k); n++; } } }
-      saveSelected(); render();
+      saveSelected(); fullRender();
       errEl.textContent = 'imported ' + n + ' selection' + (n === 1 ? '' : 's');
     } catch (e) { errEl.textContent = 'could not read selection file'; }
   };
@@ -145,26 +145,38 @@ function updateCount(){ document.getElementById('selectCount').textContent = sta
 // after, so a select/hide click doesn't yank the row back to the left.
 function snapshotScroll(){ const m = {}; grid.querySelectorAll('.cols[data-row]').forEach(function(c){ m[c.dataset.row] = c.scrollLeft; }); return m; }
 function restoreScroll(m){ grid.querySelectorAll('.cols[data-row]').forEach(function(c){ if (m[c.dataset.row] != null) c.scrollLeft = m[c.dataset.row]; }); }
+// A select/hide click only affects one row. Re-render just that row's <section>
+// (via the page-specific rowHTML/ITEMS) instead of the whole grid, so the other
+// rows' loaded <video>/<img> elements are left intact — a full grid rebuild
+// momentarily collapses every media element, shrinking the page and yanking the
+// vertical scroll upward. rowSection finds a row by its data-row key.
+function rowSection(key){ let sec = null; grid.querySelectorAll('.cols[data-row]').forEach(function(c){ if (c.dataset.row === key) sec = c.closest('section'); }); return sec; }
+function rerenderRow(key){ const sec = rowSection(key), item = ITEMS[key]; if (sec && item) { const hs = snapshotScroll(); sec.outerHTML = rowHTML(item); restoreScroll(hs); } updateCount(); }
+// Full rebuilds (show-only toggle, import) change every row; keep the page from
+// jumping by restoring the window's vertical scroll after the rebuild.
+function fullRender(){ const y = window.scrollY; render(); window.scrollTo(0, y); }
 document.getElementById('toolbar').innerHTML =
   '<button id="onlySelected">Show only selected</button><span class="count" id="selectCount"></span>'
   + '<button id="dl">Download selection</button>'
   + '<label class="btn" for="imp">Import selection</label>'
   + '<input id="imp" type="file" accept="application/json" style="display:none">'
   + '<span class="err" id="impErr"></span>';
-document.getElementById('onlySelected').addEventListener('click', function(e){ state.showSelectedOnly = !state.showSelectedOnly; e.currentTarget.classList.toggle('on', state.showSelectedOnly); render(); });
+document.getElementById('onlySelected').addEventListener('click', function(e){ state.showSelectedOnly = !state.showSelectedOnly; e.currentTarget.classList.toggle('on', state.showSelectedOnly); fullRender(); });
 document.getElementById('dl').addEventListener('click', downloadSelected);
 document.getElementById('imp').addEventListener('change', function(e){ const f = e.target.files[0]; if (f) importSelected(f); e.target.value = ''; });
 grid.addEventListener('click', function(e){
   const t = e.target, mk = t.closest ? t.closest('.hmark') : null;
-  if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); render(); }
-  else if (mk) { state.hidden.delete(mk.dataset.key + '::' + mk.dataset.v); render(); }
-  else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); render(); }
+  if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); rerenderRow(t.dataset.key); }
+  else if (mk) { state.hidden.delete(mk.dataset.key + '::' + mk.dataset.v); rerenderRow(mk.dataset.key); }
+  else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); rerenderRow(t.dataset.key); }
 });
 grid.addEventListener('change', function(e){
   if (e.target.classList.contains('selectbox')) {
-    const k = e.target.dataset.key + '::' + e.target.dataset.v;
+    const key = e.target.dataset.key, k = key + '::' + e.target.dataset.v;
     e.target.checked ? state.selected.add(k) : state.selected.delete(k);
-    saveSelected(); render();
+    saveSelected();
+    if (state.showSelectedOnly) { rerenderRow(key); }         // column set changes — rebuild the row
+    else { const c = e.target.closest('.col'); if (c) c.classList.toggle('selected', e.target.checked); updateCount(); }
   }
 });
 loadSelected();
@@ -210,23 +222,26 @@ function col(v, key){
 function tags(s){
   return [s.episode && 'ep ' + esc(s.episode), s.promotedVersion && 'final: ' + esc(s.promotedVersion), esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ');
 }
+const ITEMS = {};
+for (const s of DATA.model.shots) ITEMS[s.shotId] = s;
+function rowHTML(s){
+  const picks = new Set(DATA.selection.versions[s.shotId] || []);
+  const sel = s.versions.filter(v => picks.has(v.version));
+  if (state.showSelectedOnly) {
+    const cols = sel.filter(v => state.selected.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
+    return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
+      + '</div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
+  }
+  const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
+  const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
+  const reset = hiddenN ? '<button class="reset" data-key="' + esc(s.shotId) + '">show ' + hiddenN + ' hidden</button>' : '';
+  return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2>' + reset + '</div><div class="tags">' + tags(s)
+    + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+}
 function render(){
   updateCount();
   const scroll = snapshotScroll();
-  grid.innerHTML = DATA.model.shots.filter(visible).map(s => {
-    const picks = new Set(DATA.selection.versions[s.shotId] || []);
-    const sel = s.versions.filter(v => picks.has(v.version));
-    if (state.showSelectedOnly) {
-      const cols = sel.filter(v => state.selected.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
-        + '</div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
-    }
-    const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
-    const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
-    const reset = hiddenN ? '<button class="reset" data-key="' + esc(s.shotId) + '">show ' + hiddenN + ' hidden</button>' : '';
-    return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2>' + reset + '</div><div class="tags">' + tags(s)
-      + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
-  }).join('') || '<p class="missing">No shots match.</p>';
+  grid.innerHTML = DATA.model.shots.filter(visible).map(rowHTML).join('') || '<p class="missing">No shots match.</p>';
   restoreScroll(scroll);
 }
 render();
@@ -268,21 +283,24 @@ function col(v, key){
     + '<span class="ctl">' + selectbox(key, v.version) + hide + '</span></div>' + imgs
     + '<div class="m">' + esc(m) + '</div></div>';
 }
+const ITEMS = {};
+for (const r of rows) ITEMS[r.key] = r;
+function rowHTML(r){
+  const picks = new Set(DATA.selection.versions[r.key] || []);
+  const sel = r.versions.filter(v => picks.has(v.version));
+  if (state.showSelectedOnly) {
+    const cols = sel.filter(v => state.selected.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
+    return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
+  }
+  const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
+  const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
+  const reset = hiddenN ? '<button class="reset" data-key="' + esc(r.key) + '">show ' + hiddenN + ' hidden</button>' : '';
+  return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2>' + reset + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+}
 function render(){
   updateCount();
   const scroll = snapshotScroll();
-  grid.innerHTML = rows.filter(visible).map(r => {
-    const picks = new Set(DATA.selection.versions[r.key] || []);
-    const sel = r.versions.filter(v => picks.has(v.version));
-    if (state.showSelectedOnly) {
-      const cols = sel.filter(v => state.selected.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
-    }
-    const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
-    const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
-    const reset = hiddenN ? '<button class="reset" data-key="' + esc(r.key) + '">show ' + hiddenN + ' hidden</button>' : '';
-    return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2>' + reset + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
-  }).join('') || '<p class="missing">No sheets match.</p>';
+  grid.innerHTML = rows.filter(visible).map(rowHTML).join('') || '<p class="missing">No sheets match.</p>';
   restoreScroll(scroll);
 }
 render();
