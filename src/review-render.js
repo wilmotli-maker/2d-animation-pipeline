@@ -140,6 +140,11 @@ function importSelected(file){
   reader.readAsText(file);
 }
 function updateCount(){ document.getElementById('selectCount').textContent = state.selected.size + ' selected'; }
+// Re-rendering replaces grid.innerHTML, which resets each row's horizontal scroll.
+// Snapshot scrollLeft per row (keyed by data-row) before the rebuild and restore
+// after, so a select/hide click doesn't yank the row back to the left.
+function snapshotScroll(){ const m = {}; grid.querySelectorAll('.cols[data-row]').forEach(function(c){ m[c.dataset.row] = c.scrollLeft; }); return m; }
+function restoreScroll(m){ grid.querySelectorAll('.cols[data-row]').forEach(function(c){ if (m[c.dataset.row] != null) c.scrollLeft = m[c.dataset.row]; }); }
 document.getElementById('toolbar').innerHTML =
   '<button id="onlySelected">Show only selected</button><span class="count" id="selectCount"></span>'
   + '<button id="dl">Download selection</button>'
@@ -207,20 +212,22 @@ function tags(s){
 }
 function render(){
   updateCount();
+  const scroll = snapshotScroll();
   grid.innerHTML = DATA.model.shots.filter(visible).map(s => {
     const picks = new Set(DATA.selection.versions[s.shotId] || []);
     const sel = s.versions.filter(v => picks.has(v.version));
     if (state.showSelectedOnly) {
       const cols = sel.filter(v => state.selected.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
       return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
-        + '</div><div class="cols selected-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
+        + '</div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
     const reset = hiddenN ? '<button class="reset" data-key="' + esc(s.shotId) + '">show ' + hiddenN + ' hidden</button>' : '';
     return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2>' + reset + '</div><div class="tags">' + tags(s)
-      + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+      + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No shots match.</p>';
+  restoreScroll(scroll);
 }
 render();
 `;
@@ -263,18 +270,20 @@ function col(v, key){
 }
 function render(){
   updateCount();
+  const scroll = snapshotScroll();
   grid.innerHTML = rows.filter(visible).map(r => {
     const picks = new Set(DATA.selection.versions[r.key] || []);
     const sel = r.versions.filter(v => picks.has(v.version));
     if (state.showSelectedOnly) {
       const cols = sel.filter(v => state.selected.has(r.key + '::' + v.version)).map(v => col(v, r.key)).join('');
-      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols selected-only ' + DATA.selection.layout + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
+      return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2></div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
     }
     const hiddenN = sel.filter(v => state.hidden.has(r.key + '::' + v.version)).length;
     const cols = sel.map(v => state.hidden.has(r.key + '::' + v.version) ? hmark(r.key, v.version) : col(v, r.key)).join('');
     const reset = hiddenN ? '<button class="reset" data-key="' + esc(r.key) + '">show ' + hiddenN + ' hidden</button>' : '';
-    return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2>' + reset + '</div><div class="cols ' + DATA.selection.layout + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+    return '<section class="row"><div class="rowhead"><h2>' + esc(r.key) + '</h2>' + reset + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(r.key) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
   }).join('') || '<p class="missing">No sheets match.</p>';
+  restoreScroll(scroll);
 }
 render();
 `;
