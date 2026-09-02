@@ -133,6 +133,48 @@ test('parseReviewArgs: images sheets filter', () => {
   assert.equal(o.update, false);
 });
 
+async function seedFolder(root, files) {
+  const dir = path.join(root, 'candidates');
+  await mkdir(dir, { recursive: true });
+  for (const n of files) await writeFile(path.join(dir, n), 'v');
+  return dir;
+}
+
+test('buildReviewPage: --folder builds a page from filenames and vendors the files', async () => {
+  await withTempRoot(async (root) => {
+    const dir = await seedFolder(root, ['ai-1-v003.mp4', 'ai-1-v006.mp4', 'art-2-v015.mp4']);
+    const res = await buildReviewPage(root, { type: 'shots', slug: 'cand', folder: dir });
+    assert.equal(res.count, 2);                          // ai-1, art-2
+    const saved = JSON.parse(await readFile(path.join(root, 'web', 'cand', 'review.json'), 'utf8'));
+    assert.deepEqual(saved.selection.versions['ai-1'], ['v003', 'v006']);   // all versions
+    const vendored = path.join(root, 'web', 'cand', 'assets', 'candidates', 'ai-1-v003.mp4');
+    assert.ok((await stat(vendored)).isFile());
+  });
+});
+
+test('buildReviewPage: --folder with images is rejected', async () => {
+  await withTempRoot(async (root) => {
+    const dir = await seedFolder(root, ['x-v001.mp4']);
+    await assert.rejects(
+      () => buildReviewPage(root, { type: 'images', slug: 'x', folder: dir }),
+      /only valid with 'shots'/);
+  });
+});
+
+test('buildReviewPage: --folder with no video files is rejected', async () => {
+  await withTempRoot(async (root) => {
+    const dir = await seedFolder(root, ['readme.txt']);
+    await assert.rejects(
+      () => buildReviewPage(root, { type: 'shots', slug: 'x', folder: dir }),
+      /no video files/);
+  });
+});
+
+test('parseReviewArgs: --folder captured on opts', () => {
+  const o = parseReviewArgs('shots', ['--slug', 'cand', '--folder', '/tmp/candidates']);
+  assert.equal(o.folder, '/tmp/candidates');
+});
+
 test('parseReviewArgs: rejects unknown subcommand', () => {
   assert.throws(() => parseReviewArgs('bogus', ['--slug', 's']), /shots\|images/);
 });
