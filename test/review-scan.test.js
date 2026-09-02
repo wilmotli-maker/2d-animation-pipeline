@@ -120,3 +120,38 @@ test('scanImages: filesystem fallback for slug-less layout, no log', async () =>
     assert.ok(sheet.versions[0].images[0].endsWith('v001.png'));
   });
 });
+
+import { scanFolder } from '../src/review-scan.js';
+
+test('scanFolder: filenames -> shots/versions, single-version fallback, skips non-video', async () => {
+  await withTempRoot(async (root) => {
+    const dir = path.join(root, 'episodes', '2', 'shots', 'candidates');
+    await mkdir(dir, { recursive: true });
+    for (const n of ['ai-1-v003.mp4', 'ai-1-v006.mp4', 'art-2-v015.mp4', 'intro.mp4', 'notes.txt']) {
+      await writeFile(path.join(dir, n), 'x');
+    }
+    const model = await scanFolder(root, dir);
+    assert.equal(model.type, 'shots');
+    const ids = model.shots.map((s) => s.shotId);
+    assert.deepEqual(ids, ['ai-1', 'art-2', 'intro']);            // sorted, notes.txt skipped
+    const ai1 = model.shots.find((s) => s.shotId === 'ai-1');
+    assert.deepEqual(ai1.versions.map((v) => v.version), ['v003', 'v006']);
+    assert.equal(ai1.episode, null);
+    assert.deepEqual(ai1.characters, []);
+    assert.equal(ai1.promotedVersion, null);
+    assert.ok(ai1.versions[0].video.endsWith('candidates/ai-1-v003.mp4'));
+    const intro = model.shots.find((s) => s.shotId === 'intro');
+    assert.deepEqual(intro.versions.map((v) => v.version), ['v001']);   // no -vNNN -> single v001
+    assert.equal(intro.versions[0].kind, 'draft');
+  });
+});
+
+test('scanFolder: empty/no-video folder yields no shots', async () => {
+  await withTempRoot(async (root) => {
+    const dir = path.join(root, 'empty');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'readme.txt'), 'x');
+    const model = await scanFolder(root, dir);
+    assert.equal(model.shots.length, 0);
+  });
+});
