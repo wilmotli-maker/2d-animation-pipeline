@@ -21,9 +21,11 @@ All three are in `.claude/skills/`. They gather inputs, read the relevant locked
 invoke the right director skill, verify (`pipeline verify`), and run generation. For
 lip-sync specifics see `docs/recipes/seedance-lipsync.md`.
 
-Element and shot data live here under `elements/` and `shots/` (created by the
-pipeline). Put a character's reference drawing in its
-`inputs/reference-images/` folder before authoring.
+Two folders are scaffolded at init: `references/` (source clips, frames, and any
+input imagery for the project) and `elements/` (shared character/prop/scene data).
+The rest of the structure — `shots/`, `episodes/`, etc. — differs per project and is
+created by the pipeline as you author. Put a character's reference drawing in its
+`elements/<type>/<name>/inputs/reference-images/` folder before authoring.
 
 ## Command quick-reference
 

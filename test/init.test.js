@@ -29,6 +29,17 @@ test('initProject scaffolds CLAUDE.md and all skill templates', async () => {
   });
 });
 
+test('initProject scaffolds references/ and elements/ structural dirs', async () => {
+  await withTemp(async (base) => {
+    const target = path.join(base, 'proj');
+    const res = await initProject(target);
+    assert.ok((await stat(path.join(target, 'references'))).isDirectory());
+    assert.ok((await stat(path.join(target, 'elements'))).isDirectory());
+    assert.ok(res.files.includes('references/.gitkeep'));
+    assert.ok(res.files.includes('elements/.gitkeep'));
+  });
+});
+
 test('initProject scaffolds alongside pre-existing content (e.g. a references/ folder)', async () => {
   await withTemp(async (base) => {
     await mkdir(path.join(base, 'references'), { recursive: true });
