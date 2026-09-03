@@ -38,7 +38,8 @@ Homebrew is already installed at `/opt/homebrew`, owned by `wilmotli:admin`, wor
 1. [ ] Create the test user (from your admin account):
    `sudo sysadminctl -addUser testuser -fullName "Install Test" -password - -admin`
 2. [ ] **GUI login** as `testuser` (log out or Fast User Switching — NOT `su`; the point is a fresh shell with no inherited `.zshrc`, PATH, or cached credentials).
-3. [ ] Get the repo: `git clone <repo-url> ~/anim-pipeline`
+3. [ ] Get the repo (the harness lives on a branch until it's merged to `main`):
+   `git clone -b feat/install-script-and-test-harness https://github.com/wilmotli-maker/2d-animation-pipeline.git ~/anim-pipeline`
    - Note whether this triggers a git/Xcode-CLI-tools prompt or a GitHub auth wall — that's part of onboarding. (Shortcut if you don't want to test cloning: `cp -R` the repo into `~testuser` instead, but that hides a real step.)
 4. [ ] `cd ~/anim-pipeline && ./scripts/install.sh` (must be run from inside the repo — it locates the workspace from its own path).
 5. [ ] Observe: does it get past the Homebrew check? (See the state note above — likely reports "not found"; decide whether to run `eval "$(/opt/homebrew/bin/brew shellenv)"` and retry, or accept that VM is needed for the true bootstrap.)
