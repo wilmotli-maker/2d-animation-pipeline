@@ -41,6 +41,11 @@ Homebrew is already installed at `/opt/homebrew`, owned by `wilmotli:admin`, wor
 3. [ ] Get the repo (the harness lives on a branch until it's merged to `main`):
    `git clone -b feat/install-script-and-test-harness https://github.com/wilmotli-maker/2d-animation-pipeline.git ~/anim-pipeline`
    - Note whether this triggers a git/Xcode-CLI-tools prompt or a GitHub auth wall — that's part of onboarding. (Shortcut if you don't want to test cloning: `cp -R` the repo into `~testuser` instead, but that hides a real step.)
+   - **Private-repo auth (the real collaborator path):** the repo is private, so cloning requires GitHub credentials the fresh user won't have. Collaborators are added by GitHub username (Settings → Collaborators; note personal-repo collaborators get *write* access — there's no read-only role without moving the repo to an Org). Each collaborator authenticates the clone one of these ways, once:
+     - `gh auth login` (GitHub CLI, browser flow) — easiest for a human.
+     - HTTPS + a Personal Access Token used as the password.
+     - An SSH key added to their GitHub account (clone the `git@github.com:` URL).
+   - For your own tier-2 run, authenticate `testuser`'s clone the same way (e.g. `gh auth login` as yourself) so you exercise the exact step collaborators will hit.
 4. [ ] `cd ~/anim-pipeline && ./scripts/install.sh` (must be run from inside the repo — it locates the workspace from its own path).
 5. [ ] Observe: does it get past the Homebrew check? (See the state note above — likely reports "not found"; decide whether to run `eval "$(/opt/homebrew/bin/brew shellenv)"` and retry, or accept that VM is needed for the true bootstrap.)
 6. [ ] Do the printed manual steps: Higgsfield `auth login` + `workspace set`, Claude access.
