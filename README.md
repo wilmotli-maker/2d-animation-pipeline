@@ -29,8 +29,18 @@ shots, style-locks, and generated media — is *your* data: it's written to disk
 Each user runs everything under their own accounts; no credentials are shared.
 
 ```bash
-npm install                              # installs deps + auto-downloads model weights (~1.3 GB) into models/
-npm link                                 # one-time: put `pipeline` on your PATH (symlinks the bin)
+./scripts/install.sh                     # one-shot: system deps (brew), npm deps, `pipeline` on PATH, model weights
+```
+
+`install.sh` is idempotent (safe to re-run) and does the machine setup: checks
+for Homebrew, installs the system tools (`ffmpeg`, `uv`, whisper-cpp), runs
+`npm install`, links `pipeline` onto your PATH, and downloads the ~1.3 GB model
+weights into `models/`. Flags: `--skip-brew`, `--skip-models`, `--yes` (non-interactive).
+Run it from inside the repo — it locates the workspace from its own path.
+
+Then authenticate (interactive, so the installer can't do it for you):
+
+```bash
 npm run higgsfield -- auth login         # browser OAuth; session persists
 npm run higgsfield -- workspace list     # find your workspace id
 npm run higgsfield -- workspace set <id> # REQUIRED: selects the billing workspace
@@ -43,6 +53,9 @@ cd ~/anim/my-project                      # run Claude Code from here so CLAUDE.
 `workspace set` is mandatory — generation fails with "No workspace selected"
 until it's run once, even for the default private workspace. For prompt direction
 and the critique loop you also need Claude Code (or an `ANTHROPIC_API_KEY`).
+
+> Prefer to set up by hand? `install.sh` just automates the steps above:
+> `npm install` (deps + model weights) then `npm link` (puts `pipeline` on your PATH).
 
 **Model weights:** `voice transcribe` (whisper.cpp ggml) and `shot matte` (ONNX
 mattes — `fast`/isnet and `best`/BiRefNet) need local model files. They are large
