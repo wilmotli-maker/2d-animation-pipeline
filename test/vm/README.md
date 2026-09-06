@@ -47,6 +47,20 @@ runs `provision.sh` (guest), which asserts, in order:
 
 A green run ends with `TIER-2 PASS`.
 
+## Troubleshooting
+
+**VM boots and gets an IP, but SSH never comes up / "No route to host" on ping.**
+On macOS 15+ and 26 this is almost always the **Local Network privacy block**.
+The system DHCP daemon still gives the guest an IP (so `tart ip` works), but
+direct host→guest packets from the app that launched `tart` are dropped until
+that app is granted access under **System Settings → Privacy & Security → Local
+Network**. Grant it to whatever runs the script (Terminal, iTerm, or the Claude
+app), then re-run. If that isn't it, try Softnet networking:
+`sudo tart run --net-softnet <vm>` (needs sudo), or bridged: `--net-bridged en0`.
+
+To watch what the VM is actually doing, boot it with a screen:
+`tart run <vm>` (built-in UI) or `tart run --vnc <vm>` (Screen Sharing URL).
+
 ## What it does NOT cover
 
 The account/browser steps — Higgsfield `auth login` + `workspace set`, Claude

@@ -117,7 +117,16 @@ info "VM IP: $VM_IP"
 
 info "Waiting for SSH..."
 for _ in $(seq 1 60); do vm_ssh true 2>/dev/null && break; sleep 5; done
-vm_ssh true 2>/dev/null || die "SSH never came up."
+if ! vm_ssh true 2>/dev/null; then
+  warn "The VM booted and got IP $VM_IP, but host->guest traffic never worked."
+  if ! ping -c1 -t2 "$VM_IP" >/dev/null 2>&1; then
+    warn "The guest doesn't even answer ping ('No route to host'). On macOS 15+/26 this is"
+    warn "almost always the LOCAL NETWORK privacy block: grant the app that runs this script"
+    warn "(Terminal / Claude / iTerm) access under System Settings > Privacy & Security >"
+    warn "Local Network, then re-run. Alternatively try 'tart run --net-softnet' (needs sudo)."
+  fi
+  die "SSH never came up (see hint above; VM left running for inspection: tart ip $VMNAME)."
+fi
 pass "SSH is up ($VM_USER@$VM_IP)."
 
 # ---- push the working tree + provision script -------------------------------
