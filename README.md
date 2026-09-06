@@ -133,11 +133,14 @@ with `npm run higgsfield -- model get <model>`. List models with
 
 ### A typical session
 
-Work from inside an initialized project (`cd` into it and run `claude` so
-`CLAUDE.md` auto-loads the **element-author**, **build-element**, and
-**shot-author** skills). A normal end-to-end pass looks like this — you direct in
-plain language, Claude authors the prompts and calls the pipeline, and you judge
-the output at each gate:
+Work from inside an initialized project so `CLAUDE.md` auto-loads the
+**element-author**, **build-element**, and **shot-author** skills. Two ways to
+start: `cd` into the project and run `claude` in the terminal, or open **Claude
+Desktop**, start a session, and select the project folder as the working folder.
+The Desktop app is often nicer here because it renders some generated results
+(sheets, shots) inline in the chat as they're produced. A normal end-to-end pass
+looks like this — you direct in plain language, Claude authors the prompts and
+calls the pipeline, and you judge the output at each gate:
 
 1. **Build a character from references.** Drop one or more reference drawings into
    the character's `inputs/reference-images/` folder, then: *"use element-author to
