@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Tier-2 install test: run scripts/install.sh on a clean macOS VM.
 #
-# This is the automated, repeatable version of the "clean macOS VM" checklist in
-# docs/install-test-harness.md. It works from any clone of the repo — clone the
-# project anywhere and run `./test/vm/run-tier2.sh` to spin up a throwaway
-# vanilla-macOS VM (via Tart), push this working tree into it, and validate the
+# This is the automated, repeatable clean-macOS-VM test. It works from any clone
+# of the repo — clone the project anywhere and run `./test/vm/run-tier2.sh` to
+# spin up a throwaway macOS VM (via Tart), push this working tree into it, and validate the
 # installer end-to-end on a machine that starts with no Homebrew, no Node, no
 # ffmpeg/uv, and no cached auth.
 #
 # What it does NOT test: the account/browser auth steps (Higgsfield OAuth,
 # workspace select, Claude). Those need a human and personal credentials, so the
 # VM run stops at "install + tooling work on a clean box"; do the auth steps by
-# hand per docs/install-test-harness.md once the machine is provisioned.
+# hand per the repo README once the machine is provisioned.
 #
 # Requirements (host): Apple Silicon Mac, Homebrew. The script installs Tart and
 # sshpass via brew if they're missing (with a prompt unless --yes).
