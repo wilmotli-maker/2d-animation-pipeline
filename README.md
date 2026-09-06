@@ -27,18 +27,48 @@ shots, style-locks, and generated media — is *your* data: it's written to disk
 ## Setup
 
 Each user runs everything under their own accounts; no credentials are shared.
+Apple Silicon Mac assumed. Work through the steps in order — each one tells you
+what to do if it fails.
+
+**Step 1 — Get the code.**
 
 ```bash
-./scripts/install.sh                     # one-shot: system deps (brew), npm deps, `pipeline` on PATH, model weights
+git clone https://github.com/wilmotli-maker/2d-animation-pipeline.git ~/anim-pipeline
+cd ~/anim-pipeline
 ```
 
-`install.sh` is idempotent (safe to re-run) and does the machine setup: checks
-for Homebrew, installs the system tools (`ffmpeg`, `uv`, whisper-cpp), runs
-`npm install`, links `pipeline` onto your PATH, and downloads the ~1.3 GB model
-weights into `models/`. Flags: `--skip-brew`, `--skip-models`, `--yes` (non-interactive).
-Run it from inside the repo — it locates the workspace from its own path.
+- The repo is **public**, so no GitHub login or token is needed.
+- **If `git` isn't installed:** macOS pops up a "command line developer tools"
+  dialog the first time you run `git` — click **Install**, wait for it to finish,
+  then run the `git clone` again. (Or trigger it yourself first with
+  `xcode-select --install`.)
 
-Then authenticate (interactive, so the installer can't do it for you):
+**Step 2 — Run the installer.** It does all the machine setup: installs the
+system tools (`node`, `ffmpeg`, `uv`, whisper-cpp via Homebrew), runs
+`npm install`, links `pipeline` onto your PATH, and downloads the ~1.3 GB model
+weights into `models/`.
+
+```bash
+./scripts/install.sh
+```
+
+- `install.sh` is **idempotent** — safe to re-run any time. If a step fails, fix
+  the cause below and just run it again; it picks up where it left off.
+- **If it says "Homebrew not found":** install Homebrew, add it to your PATH, then
+  re-run the installer:
+
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  eval "$(/opt/homebrew/bin/brew shellenv)"   # puts brew on PATH (Apple Silicon)
+  ./scripts/install.sh                          # re-run
+  ```
+
+- **If `pipeline` isn't found afterward:** open a new terminal (so the freshly
+  linked command is on PATH), or use `npm run pipeline -- <...>` in the meantime.
+- Flags: `--skip-brew`, `--skip-models`, `--yes` (non-interactive). Run it from
+  inside the repo — it locates the workspace from its own path.
+
+**Step 3 — Authenticate** (interactive, so the installer can't do it for you):
 
 ```bash
 npm run higgsfield -- auth login         # browser OAuth; session persists
