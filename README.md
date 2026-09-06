@@ -115,12 +115,14 @@ The Desktop app is often nicer here because it renders some generated results
 looks like this — you direct in plain language, Claude authors the prompts and
 calls the pipeline, and you judge the output at each gate:
 
-1. **Build a character from references.** Drop one or more reference drawings into
-   the character's `inputs/reference-images/` folder, then: *"use element-author to
-   make a turnaround for hero from these references."* Claude writes the
+1. **Build a character from references.** Put one or more reference drawings
+   anywhere convenient to start — a `references/images/` folder in the project root
+   works well — then just ask: *"create a character element for hero from these
+   reference images and make a turnaround."* Claude creates the element, writes its
    `style-lock.yaml`, composes the prompt, and runs `pipeline element sheet` to
-   generate a multi-angle turnaround. Add a few **pose** sheets the same way (chain
-   the finished turnaround as an `--image` reference so poses stay on-model).
+   generate a multi-angle turnaround (it copies the references into the element as it
+   goes). Add a few **pose** sheets the same way (chain the finished turnaround as an
+   `--image` reference so poses stay on-model).
 
 2. **Check and iterate.** Open the generated `sheets/.../vNNN.png` and judge the
    look against the reference. Not right? Ask for another take — each regeneration
@@ -272,60 +274,54 @@ static HTML page for browsing generated shots or element sheets — open its
 ## Example
 
 A full pass on the **ArtAI** project: build the `art` character, then author the
-`art1` shot of Art delivering a line. Prompt-authoring happens in Claude via the
-**element-author** and **shot-author** skills; the pipeline generates and preserves
-each result.
+`art1` shot of Art delivering a line. You work entirely by talking to Claude in the
+project session — Claude drives the **element-author** and **shot-author** skills,
+which author the prompts and call the pipeline for you. The `pipeline` commands
+shown below are what Claude runs under the hood; you rarely type them yourself.
 
-**1. Create the Art element and its turnaround.**
+**1. Create the Art element and its turnaround.** Drop Art's concept art somewhere
+in the project (say `references/images/art-concept.png`), then ask:
+
+> *"Create a character element called art from references/images/art-concept.png,
+> then make a turnaround for it."*
+
+Claude creates the element, authors its `style-lock.yaml`, composes a real
+multi-angle turnaround prompt, and generates the sheet — roughly:
 
 ```bash
-# From the ArtAI project folder (CLAUDE.md auto-loaded):
 pipeline element create --type characters --name art
-cp ~/Downloads/art-concept.png elements/characters/art/inputs/reference-images/ref.png
-```
-
-Then, to Claude: *"use element-author to make a turnaround for art from that
-reference."* The skill authors `style-lock.yaml`, composes the detailed prompt (a
-real multi-angle turnaround, not a single figure), writes it to
-`sheets/turnaround/default/prompt.md`, runs `pipeline verify`, and generates:
-
-```bash
 pipeline element sheet --type characters --name art --sheet turnaround --id default --model nano_banana \
-  --image elements/characters/art/inputs/reference-images/ref.png
+  --image references/images/art-concept.png
 # -> saved v001: elements/characters/art/sheets/turnaround/default/v001.png
 ```
 
-Check `v001.png`; regenerate for a new version under the same slug until the look is
-locked. Add pose sheets the same way, chaining the turnaround as an `--image` so Art
-stays on-model.
+Look at the result. Not right? *"Try the turnaround again, but keep the jacket
+red"* — each take is a new version under the same slug. Once the look is locked,
+*"add a few pose sheets for art"* (Claude chains the turnaround as a reference so
+Art stays on-model).
 
-**2. Author the art1 shot (Art says a line).**
+**2. Author the art1 shot (Art says a line).** Drop the voice recording into the
+project and ask:
 
-Drop the voice recording into the project, then to Claude: *"transcribe
-art1-line.wav, then use shot-author to make art1 — Art saying it, starting
-three-quarter front."* Claude transcribes the audio and, pulling the starting pose
-from the turnaround, generates a Seedance draft:
+> *"Transcribe art1-line.wav, then make a shot art1 of Art saying it — start on the
+> three-quarter-front pose from the turnaround."*
+
+Claude transcribes the audio, then has shot-author build and generate a Seedance
+draft with the speech and the starting pose:
 
 ```bash
-pipeline voice transcribe --audio art1-line.wav           # -> art1-line.wav.txt (exact transcript)
+pipeline voice transcribe --audio references/audio/art1-line.wav   # -> exact transcript sidecar
 pipeline shot create --id art1 --description "Art delivers the opening line"
-pipeline shot draft  --id art1                            # opens draft v001
 pipeline shot generate --id art1 --version 1 --model seedance_2_5 --mode omni_reference \
-  --resolution 480p --speech-audio art1-line.wav \
+  --resolution 480p --speech-audio references/audio/art1-line.wav \
   --image elements/characters/art/sheets/turnaround/default/v001.png
 # -> saved shots/art1/drafts/v001/
 ```
 
-Review the draft, regenerate versions until the delivery lands, then finish it —
-promote the keeper and upscale the 480p draft to a 1080p production final:
-
-```bash
-pipeline shot promote --id art1 --version 1 --output shots/art1/final/art1.mp4
-pipeline shot upscale --id art1                           # -> upscaled-1080p.mp4 beside the final
-```
-
-Each render keeps its exact prompt in a `vNNN.prompt.md` sidecar, so every version
-is reproducible.
+Review the draft. *"The timing's off on the last word — regenerate it"* until the
+delivery lands, then *"promote v1 and upscale it for the final."* Claude promotes
+the keeper and upscales the 480p draft to a 1080p production final. Every render
+keeps its exact prompt in a `vNNN.prompt.md` sidecar, so results stay reproducible.
 
 ## Costs
 
