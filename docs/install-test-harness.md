@@ -25,40 +25,41 @@ Expect a final `TIER-1 PASS` line. Nothing writes back to the host.
   - Confirmed correct: under non-root, `npm link` hits EACCES on the global prefix and the installer *warns* rather than dying (mirrors a Mac user without global-npm write access).
 - [ ] Next: tier-2 fresh macOS user run.
 
-### Tier 2 — Fresh macOS local user account (real test)
-Once Tier 1 passes, validate on an actual clean-ish macOS environment before calling it done.
+### Tier 2 — Clean macOS VM (real test)
+Once Tier 1 passes, validate on an actual vanilla macOS install before calling it done.
 
-**What this Mac's Homebrew state means for the test (checked 2026-09-03):**
-Homebrew is already installed at `/opt/homebrew`, owned by `wilmotli:admin`, world-readable/executable. Consequences for a fresh `testuser`:
-- Brew exists on disk and is runnable, but `/opt/homebrew/bin` is **not** on a fresh user's default PATH (Apple-silicon brew isn't in `path_helper`; it's normally added by `eval "$(/opt/homebrew/bin/brew shellenv)"` in the user's profile). So `install.sh` will report **"Homebrew not found"** for `testuser` until they run that shellenv line — a realistic onboarding gotcha worth watching.
-- Even with brew on PATH, `brew install` writes under `/opt/homebrew`, which is owned by `wilmotli` and not group-writable → package installs may hit permission errors for a different user.
-- **Therefore this Mac cannot cleanly test the true first-time Homebrew bootstrap.** For that specific path, use a VM (UTM/Tart, vanilla macOS image). The fresh-user run still validates everything else: repo clone, the `npm install`/`npm link` workspace logic, non-brew branches, and the manual-auth flow.
+**Why a VM, not a fresh local user on this Mac (decided 2026-09-05):**
+A second local account on this machine can't do a *true* first-time install. Homebrew is already installed at `/opt/homebrew`, owned by `wilmotli:admin` and world-readable. For any other user that means brew is either on PATH (so the "no Homebrew" bootstrap branch never runs) or writable-into with the wrong owner (permission errors that a real onboarding user would never hit). Xcode CLI tools, cached git credentials, and system-wide state are shared too. A fresh account tests the *shell environment* but not the *machine state* — and the machine state is exactly what a new collaborator's Mac differs on. Only a clean VM gives us: no Homebrew, no Xcode CLI tools, no `node`/`uv`/`ffmpeg`, no GitHub auth, no inherited PATH.
 
-**Checklist:**
-1. [ ] Create the test user (from your admin account):
-   `sudo sysadminctl -addUser testuser -fullName "Install Test" -password - -admin`
-2. [ ] **GUI login** as `testuser` (log out or Fast User Switching — NOT `su`; the point is a fresh shell with no inherited `.zshrc`, PATH, or cached credentials).
-3. [ ] Get the repo (the harness lives on a branch until it's merged to `main`):
+**VM tooling (Apple Silicon host):**
+- **Tart** (recommended) — `cirruslabs/tart`, a CLI wrapper over Apple's `Virtualization.framework`, purpose-built for scriptable/ephemeral macOS guests. `brew install cirruslabs/cli/tart`. Pull a vanilla image instead of hand-installing: `tart clone ghcr.io/cirruslabs/macos-sequoia-vanilla:latest anim-test`, then `tart run anim-test`. Cheap to reset — `tart delete` + re-clone gives a pristine box every run.
+- **UTM** (GUI alternative) — free, App Store or `brew install --cask utm`. Install macOS from an IPSW via the Apple Virtualization backend. More clicking, no CLI reset loop, but no external image trust needed.
+- **Licensing / limits:** Apple's macOS license permits up to **2 macOS VMs** on a single Apple-silicon Mac. VMs are Apple-silicon guests only — they cannot test an Intel Mac. Vanilla images from `cirruslabs` are convenient but third-party; if that's a concern, build the base yourself from an Apple IPSW in UTM.
+
+**Setup (one-time, host):**
+1. [ ] Install the VM tool: `brew install cirruslabs/cli/tart` (or the UTM cask).
+2. [ ] Create the clean guest:
+   - Tart: `tart clone ghcr.io/cirruslabs/macos-sequoia-vanilla:latest anim-test && tart run anim-test`
+   - UTM: new macOS VM from IPSW, complete Setup Assistant, create one admin user.
+3. [ ] Snapshot / keep the pristine image so each test run starts clean (Tart: keep the pulled image and `tart clone` a throwaway per run; UTM: duplicate the VM before first boot into the test).
+
+**Test run (inside the VM — treat it as a brand-new collaborator's Mac):**
+4. [ ] Confirm the box really is clean: `which brew node uv ffmpeg git` should mostly miss. A first `git`/`clang` invocation should trigger the **Xcode Command Line Tools** prompt — note whether onboarding needs it before anything else works.
+5. [ ] Get the repo (private, so this exercises the real auth wall the way a collaborator hits it):
    `git clone -b feat/install-script-and-test-harness https://github.com/wilmotli-maker/2d-animation-pipeline.git ~/anim-pipeline`
-   - Note whether this triggers a git/Xcode-CLI-tools prompt or a GitHub auth wall — that's part of onboarding. (Shortcut if you don't want to test cloning: `cp -R` the repo into `~testuser` instead, but that hides a real step.)
-   - **Private-repo auth (the real collaborator path):** the repo is private, so cloning requires GitHub credentials the fresh user won't have. Collaborators are added by GitHub username (Settings → Collaborators; note personal-repo collaborators get *write* access — there's no read-only role without moving the repo to an Org). Each collaborator authenticates the clone one of these ways, once:
-     - `gh auth login` (GitHub CLI, browser flow) — easiest for a human.
-     - HTTPS + a Personal Access Token used as the password.
-     - An SSH key added to their GitHub account (clone the `git@github.com:` URL).
-   - For your own tier-2 run, authenticate `testuser`'s clone the same way (e.g. `gh auth login` as yourself) so you exercise the exact step collaborators will hit.
-4. [ ] `cd ~/anim-pipeline && ./scripts/install.sh` (must be run from inside the repo — it locates the workspace from its own path).
-5. [ ] Observe: does it get past the Homebrew check? (See the state note above — likely reports "not found"; decide whether to run `eval "$(/opt/homebrew/bin/brew shellenv)"` and retry, or accept that VM is needed for the true bootstrap.)
-6. [ ] Do the printed manual steps: Higgsfield `auth login` + `workspace set`, Claude access.
-7. [ ] `npm run check-auth` — confirm all green.
-8. [ ] Record any manual fix you had to make → feed it back into `install.sh` or the docs.
-9. [ ] Clean up (from admin account): `sudo sysadminctl -deleteUser testuser`
+   - **Private-repo auth:** the repo is private; collaborators are added by GitHub username (Settings → Collaborators — note personal-repo collaborators get *write* access; there's no read-only role without moving the repo to an Org). Authenticate the clone one of: `gh auth login` (browser flow, easiest), HTTPS + a Personal Access Token as the password, or an SSH key added to the account (clone the `git@github.com:` URL). Do the same in the VM so you hit the exact step collaborators will.
+6. [ ] `cd ~/anim-pipeline && ./scripts/install.sh` (must run from inside the repo — it locates the workspace from its own path). This is the real test: does the "Homebrew not found" branch bootstrap brew (or guide the user to), and does the rest — `npm install`/`npm link`, model fetch, ffmpeg/uv/whisper deps — complete on a machine that started with none of it?
+7. [ ] Do the printed manual steps: Higgsfield `auth login` + `workspace set`, Claude access.
+8. [ ] `npm run check-auth` — confirm all green.
+9. [ ] Record **every** manual fix or undocumented step the run required → feed it back into `install.sh` or the docs. The whole point of the clean VM is to surface these.
+10. [ ] Reset for the next iteration: `tart delete anim-test` and re-clone (or revert the UTM VM to its pre-test snapshot) so fixes are validated against a truly fresh box, not a half-configured one.
 
 ## Definition of done
 - [ ] Docker run: install succeeds clean, and succeeds again on re-run (idempotent).
-- [ ] Fresh-user Mac run: install succeeds following only the written instructions, no manual fixes.
-- [ ] Any manual fix needed during the fresh-user run gets fed back into the install script or docs.
+- [ ] Clean-VM run: install succeeds following only the written instructions on a box with no Homebrew/Xcode-CLI/node/auth, no manual fixes.
+- [ ] Any manual fix needed during the VM run gets fed back into the install script or docs, then re-validated against a freshly-reset VM.
 
 ## Status
 - Install script drafted: `scripts/install.sh` (idempotent; `--skip-brew` for Docker tier-1, `--yes` for CI, `--skip-models` to skip the ~1.3 GB fetch). Syntax-checked but NOT yet run end-to-end.
-- Next session: run tier-1 (Docker, `--skip-brew`) then tier-2 (fresh macOS user).
+- Next session: run tier-1 (Docker, `--skip-brew`) then tier-2 (clean macOS VM per above).
 - Held until tier-2 passes: (1) open the PR for `scripts/install.sh`, (2) update README Setup to lead with `./scripts/install.sh`.
