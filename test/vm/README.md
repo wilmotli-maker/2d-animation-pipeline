@@ -1,7 +1,6 @@
 # Tier-2 install test (clean macOS VM)
 
-Automated, repeatable version of the "clean macOS VM" checklist in
-[`docs/install-test-harness.md`](../../docs/install-test-harness.md). It boots a
+Automated, repeatable clean-macOS-VM test of the installer. It boots a
 throwaway macOS VM with [Tart](https://tart.run) and runs `scripts/install.sh`
 end-to-end on a machine that starts with **no Node, no ffmpeg/uv, and no cached
 auth** — the state a new collaborator's Mac is close to.
