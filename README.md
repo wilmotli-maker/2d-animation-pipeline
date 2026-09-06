@@ -156,7 +156,11 @@ the output at each gate:
    *"transcribe this wav, then use shot-author to make a shot of hero saying it."*
    Claude runs `pipeline voice transcribe` to get an exact transcript sidecar, then
    `pipeline shot generate` with `--speech-audio <wav>` so the character reproduces
-   those exact words and pacing (Seedance lip-sync — see the recipe below).
+   those exact words and pacing (Seedance lip-sync — see the recipe below). It's
+   often worth feeding **reference images** alongside the audio (`--image`) to pin
+   down the look: the starting pose — e.g. the three-quarter-front angle from the
+   turnaround — and/or specific key poses you want the shot to hit. This keeps the
+   character on-model and gives the motion a defined beginning and target.
 
 4. **Review and iterate the shot** the same way: watch the draft, regenerate until
    the delivery and framing are right. Draft cheap at 480p (below).
