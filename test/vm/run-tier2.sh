@@ -61,13 +61,20 @@ confirm() { [[ "$ASSUME_YES" == 1 ]] && return 0; read -r -p "$1 [y/N] " r; [[ "
 [[ "$(uname -m)" == arm64 ]]  || die "host must be Apple Silicon (arm64); Tart runs arm64 macOS guests only."
 command -v brew >/dev/null || die "Homebrew required on the host to install Tart/sshpass."
 
-ensure_tool() { # <cmd> <brew-install-arg> <label>
+ensure_tool() { # <cmd> <brew-install-arg> <label> [<tap-to-trust>]
   command -v "$1" >/dev/null && { info "$3 present: $(command -v "$1")"; return 0; }
-  confirm "Install $3 via 'brew install $2'?" || die "$3 is required — install it and re-run."
+  local tap="${4:-}"
+  confirm "Install $3 via 'brew install $2'${tap:+ (trusts tap $tap)}?" || die "$3 is required — install it and re-run."
+  # Homebrew >=6 refuses to load formulae from untrusted third-party taps until
+  # the tap is trusted. tart and sshpass both live in third-party taps.
+  if [[ -n "$tap" ]]; then
+    brew tap "$tap" 2>/dev/null || true
+    brew trust --tap "$tap" 2>/dev/null || warn "brew trust --tap $tap unavailable/failed (older brew won't need it) — continuing."
+  fi
   brew install $2 || die "brew install $2 failed."
 }
-ensure_tool tart    cirruslabs/cli/tart          "Tart"
-ensure_tool sshpass hudochenkov/sshpass/sshpass  "sshpass"
+ensure_tool tart    cirruslabs/cli/tart          "Tart"    cirruslabs/cli
+ensure_tool sshpass hudochenkov/sshpass/sshpass  "sshpass" hudochenkov/sshpass
 
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
 vm_ssh()  { sshpass -p "$VM_PASS" ssh  "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "$@"; }
