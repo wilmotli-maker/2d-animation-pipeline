@@ -30,7 +30,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
-IMAGE="ghcr.io/cirruslabs/macos-sequoia-vanilla:latest"  # vanilla = no brew/CLT: the real clean-box test
+IMAGE="ghcr.io/cirruslabs/macos-sequoia-base:latest"  # base = admin/admin + SSH + CLT (vanilla has no SSH, can't script)
 VMNAME="anim-tier2"
 VM_USER="admin"; VM_PASS="admin"   # cirruslabs image default creds (passwordless sudo inside)
 ASSUME_YES=0; KEEP=0; REUSE=0; WITH_MODELS=0
@@ -82,10 +82,14 @@ vm_rsync() { sshpass -p "$VM_PASS" rsync -e "ssh ${SSH_OPTS[*]}" "$@"; }
 
 RUN_PID=""
 cleanup() {
-  [[ -n "$RUN_PID" ]] && kill "$RUN_PID" 2>/dev/null
   if [[ "$KEEP" == 1 ]]; then
-    warn "--keep set: leaving VM '$VMNAME' in place. Delete later with: tart delete $VMNAME"
+    # Leave the VM running so the auth steps can be done over SSH. Do NOT kill
+    # RUN_PID — that is the `tart run` process; killing it stops the VM.
+    warn "--keep set: leaving VM '$VMNAME' running at ${VM_IP:-<booting>} (user/pass: $VM_USER/$VM_PASS)."
+    warn "  SSH in:  sshpass -p $VM_PASS ssh $VM_USER@${VM_IP:-<ip>}    Stop later: tart stop $VMNAME && tart delete $VMNAME"
+    disown "$RUN_PID" 2>/dev/null || true
   else
+    [[ -n "$RUN_PID" ]] && kill "$RUN_PID" 2>/dev/null
     info "Tearing down VM '$VMNAME'..."; tart stop "$VMNAME" 2>/dev/null; tart delete "$VMNAME" 2>/dev/null || true
   fi
 }
