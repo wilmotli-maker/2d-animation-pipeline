@@ -116,6 +116,8 @@ pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <
 pipeline verify shot    --id <shotId> --version <n> [--model <m>]
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
+pipeline shot matte     --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--input <file>]
+pipeline voice transcribe --audio <wav> [--out <file>] | --dir <folder> [--force]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
 pipeline review shots   --slug <name> [--match <re>] [--exclude <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
@@ -128,6 +130,48 @@ All commands accept `--root <dir>`. `--image` feeds a local reference image
 with `npm run higgsfield -- model get <model>`. List models with
 `npm run higgsfield -- model list` (e.g. `nano_banana` for images,
 `seedance_2_5` / `seedance_2_0` for video).
+
+### A typical session
+
+Work from inside an initialized project (`cd` into it and run `claude` so
+`CLAUDE.md` auto-loads the **element-author**, **build-element**, and
+**shot-author** skills). A normal end-to-end pass looks like this — you direct in
+plain language, Claude authors the prompts and calls the pipeline, and you judge
+the output at each gate:
+
+1. **Build a character from references.** Drop one or more reference drawings into
+   the character's `inputs/reference-images/` folder, then: *"use element-author to
+   make a turnaround for hero from these references."* Claude writes the
+   `style-lock.yaml`, composes the prompt, and runs `pipeline element sheet` to
+   generate a multi-angle turnaround. Add a few **pose** sheets the same way (chain
+   the finished turnaround as an `--image` reference so poses stay on-model).
+
+2. **Check and iterate.** Open the generated `sheets/.../vNNN.png` and judge the
+   look against the reference. Not right? Ask for another take — each regeneration
+   lands as a new version under the same slug, so you compare and keep iterating
+   until the design is locked. (For a whole set of sheets at once, use
+   **build-element** instead of element-author.)
+
+3. **Make a talking shot.** Drop a reference voice recording into the project and:
+   *"transcribe this wav, then use shot-author to make a shot of hero saying it."*
+   Claude runs `pipeline voice transcribe` to get an exact transcript sidecar, then
+   `pipeline shot generate` with `--speech-audio <wav>` so the character reproduces
+   those exact words and pacing (Seedance lip-sync — see the recipe below).
+
+4. **Review and iterate the shot** the same way: watch the draft, regenerate until
+   the delivery and framing are right. Draft cheap at 480p (below).
+
+5. **Compare across a batch.** Once you have several shots, build a review page with
+   `pipeline review shots` — a static HTML page (no server) to view versions side by
+   side and tick the takes you like. See [Review pages](#review-pages).
+
+6. **Finish for production.** For the keepers, promote the chosen draft, then
+   **upscale** it to 1080p+ (`pipeline shot upscale`) and, when you need the
+   character on a transparent background for compositing, **matte** it to alpha
+   (`pipeline shot matte`). These are the production finals.
+
+Throughout, generation spends real credits — Claude presents the plan and reads the
+prompt back for approval before every generation. See [Costs](#costs).
 
 For talking-character (Seedance) shots, pass the speech recording via
 `--speech-audio <wav>`: the pipeline wraps it into a blank mid-gray video and
