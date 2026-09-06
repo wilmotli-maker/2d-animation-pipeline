@@ -104,6 +104,64 @@ directory. One install can serve many projects — run it from each project's fo
 
 ## Usage
 
+### A typical session
+
+Work from inside an initialized project so `CLAUDE.md` auto-loads the
+**element-author**, **build-element**, and **shot-author** skills. Two ways to
+start: `cd` into the project and run `claude` in the terminal, or open **Claude
+Desktop**, start a session, and select the project folder as the working folder.
+The Desktop app is often nicer here because it renders some generated results
+(sheets, shots) inline in the chat as they're produced. A normal end-to-end pass
+looks like this — you direct in plain language, Claude authors the prompts and
+calls the pipeline, and you judge the output at each gate:
+
+1. **Build a character from references.** Put one or more reference drawings
+   anywhere convenient to start — a `references/images/` folder in the project root
+   works well — then just ask: *"create a character element for hero from these
+   reference images and make a turnaround."* Claude creates the element, writes its
+   `style-lock.yaml`, composes the prompt, and runs `pipeline element sheet` to
+   generate a multi-angle turnaround (it copies the references into the element as it
+   goes). Add a few **pose** sheets the same way (chain the finished turnaround as an
+   `--image` reference so poses stay on-model).
+
+2. **Check and iterate.** Open the generated `sheets/.../vNNN.png` and judge the
+   look against the reference. Not right? Ask for another take — each regeneration
+   lands as a new version under the same slug, so you compare and keep iterating
+   until the design is locked. (For a whole set of sheets at once, use
+   **build-element** instead of element-author.)
+
+3. **Make a talking shot.** Drop a reference voice recording into the project and:
+   *"transcribe this wav, then use shot-author to make a shot of hero saying it."*
+   Claude runs `pipeline voice transcribe` to get an exact transcript sidecar, then
+   `pipeline shot generate` with `--speech-audio <wav>` so the character reproduces
+   those exact words and pacing (Seedance lip-sync — see the recipe below). It's
+   often worth feeding **reference images** alongside the audio (`--image`) to pin
+   down the look: the starting pose — e.g. the three-quarter-front angle from the
+   turnaround — and/or specific key poses you want the shot to hit. This keeps the
+   character on-model and gives the motion a defined beginning and target.
+
+4. **Review and iterate the shot** the same way: watch the draft, regenerate until
+   the delivery and framing are right. Draft cheap at 480p (below).
+
+5. **Compare across a batch.** Once you have several shots, build a review page with
+   `pipeline review shots` — a static HTML page (no server) to view versions side by
+   side and tick the takes you like. See [Review pages](#review-pages).
+
+6. **Finish for production.** For the keepers, promote the chosen draft, then
+   **upscale** it to 1080p+ (`pipeline shot upscale`) and, when you need the
+   character on a transparent background for compositing, **matte** it to alpha
+   (`pipeline shot matte`). These are the production finals.
+
+Throughout, generation spends real credits — Claude presents the plan and reads the
+prompt back for approval before every generation. See [Costs](#costs).
+
+### Using the pipeline directly
+
+An alternative to driving Claude is to call the pipeline yourself from the command
+line — useful for scripting, batch runs, or when you already have the prompt in
+hand. Claude authors prompts and calls these same commands under the hood. The full
+surface:
+
 ```
 pipeline init <dir>
 pipeline sync-skills    [--root <dir>]   # refresh a project's .claude/skills/ after the tool updates
@@ -116,6 +174,8 @@ pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <
 pipeline verify shot    --id <shotId> --version <n> [--model <m>]
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
+pipeline shot matte     --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--input <file>]
+pipeline voice transcribe --audio <wav> [--out <file>] | --dir <folder> [--force]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]
 pipeline review shots   --slug <name> [--match <re>] [--exclude <re>] [--characters a,b] [--episode N,M] [--layout side-by-side|stacked] [--update] [--out <dir>]
@@ -128,6 +188,29 @@ All commands accept `--root <dir>`. `--image` feeds a local reference image
 with `npm run higgsfield -- model get <model>`. List models with
 `npm run higgsfield -- model list` (e.g. `nano_banana` for images,
 `seedance_2_5` / `seedance_2_0` for video).
+
+### Creating elements
+
+An element is created once, then given one or more **sheets**.
+`pipeline element create --type characters --name hero` scaffolds
+`elements/characters/hero/` (its inputs, `style-lock.yaml`, and `sheets/`). Render a
+sheet with `pipeline element sheet`: pick the `--sheet` kind (`turnaround`, `pose`,
+or `cycles`) and an `--id` slug to group its versions — each run saves the next
+`vNNN.png`, so re-running iterates. Feed reference art with `--image` (chain a
+finished turnaround into pose sheets so they stay on-model). `pipeline verify
+element` sanity-checks the inputs and prompt before you spend credits; element art
+defaults to Nano Banana. Use `pipeline element upscale` for a hi-res sheet and
+`pipeline review images` to compare versions side by side.
+
+### Creating shots
+
+A **shot** is a short clip built from elements. `pipeline shot create --id <shotId>`
+scaffolds it; `pipeline shot draft --id <shotId>` opens a new draft version to fill;
+`pipeline shot generate --id <shotId> --version <n> --model seedance_2_5 ...` renders
+that version, taking image references via `--image` and speech via `--speech-audio`.
+`pipeline verify shot` checks a version before generating, and `pipeline shot
+promote` marks the draft you picked as the final. Iterate by generating more
+versions under the same shot id.
 
 For talking-character (Seedance) shots, pass the speech recording via
 `--speech-audio <wav>`: the pipeline wraps it into a blank mid-gray video and
@@ -190,23 +273,55 @@ static HTML page for browsing generated shots or element sheets — open its
 
 ## Example
 
-The prompt-authoring happens in Claude Code via the **element-author** skill; the pipeline generates and preserves the result.
+A full pass on the **ArtAI** project: build the `art` character, then author the
+`art1` shot of Art delivering a line. You work entirely by talking to Claude in the
+project session — Claude drives the **element-author** and **shot-author** skills,
+which author the prompts and call the pipeline for you. The `pipeline` commands
+shown below are what Claude runs under the hood; you rarely type them yourself.
+
+**1. Create the Art element and its turnaround.** Drop Art's concept art somewhere
+in the project (say `references/images/art-concept.png`), then ask:
+
+> *"Create a character element called art from references/images/art-concept.png,
+> then make a turnaround for it."*
+
+Claude creates the element, authors its `style-lock.yaml`, composes a real
+multi-angle turnaround prompt, and generates the sheet — roughly:
 
 ```bash
-# From your project folder (CLAUDE.md auto-loaded):
-pipeline element create --type characters --name cecilia
-cp ~/Downloads/cecilia-drawing.png elements/characters/cecilia/inputs/reference-images/ref.png
+pipeline element create --type characters --name art
+pipeline element sheet --type characters --name art --sheet turnaround --id default --model nano_banana \
+  --image references/images/art-concept.png
+# -> saved v001: elements/characters/art/sheets/turnaround/default/v001.png
 ```
 
-Then, in Claude Code: *"use element-author to make a turnaround for cecilia from that reference."* The skill authors `style-lock.yaml`, composes the detailed prompt (a real multi-angle turnaround, not a single figure), writes it to `sheets/turnaround/<slug>/prompt.md`, runs `pipeline verify`, and then:
+Look at the result. Not right? *"Try the turnaround again, but keep the jacket
+red"* — each take is a new version under the same slug. Once the look is locked,
+*"add a few pose sheets for art"* (Claude chains the turnaround as a reference so
+Art stays on-model).
+
+**2. Author the art1 shot (Art says a line).** Drop the voice recording into the
+project and ask:
+
+> *"Transcribe art1-line.wav, then make a shot art1 of Art saying it — start on the
+> three-quarter-front pose from the turnaround."*
+
+Claude transcribes the audio, then has shot-author build and generate a Seedance
+draft with the speech and the starting pose:
 
 ```bash
-pipeline element sheet --type characters --name cecilia --sheet turnaround --id default --model nano_banana \
-  --image elements/characters/cecilia/inputs/reference-images/ref.png
-# -> saved v001: .../sheets/turnaround/default/v001.png
+pipeline voice transcribe --audio references/audio/art1-line.wav   # -> exact transcript sidecar
+pipeline shot create --id art1 --description "Art delivers the opening line"
+pipeline shot generate --id art1 --version 1 --model seedance_2_5 --mode omni_reference \
+  --resolution 480p --speech-audio references/audio/art1-line.wav \
+  --image elements/characters/art/sheets/turnaround/default/v001.png
+# -> saved shots/art1/drafts/v001/
 ```
 
-Iterate (new version under the same slug) or start another instance (`--id summer-outfit`). Chain a finished sheet as an `--image` reference for pose sheets. Each render keeps its exact prompt in `vNNN.prompt.md`.
+Review the draft. *"The timing's off on the last word — regenerate it"* until the
+delivery lands, then *"promote v1 and upscale it for the final."* Claude promotes
+the keeper and upscales the 480p draft to a 1080p production final. Every render
+keeps its exact prompt in a `vNNN.prompt.md` sidecar, so results stay reproducible.
 
 ## Costs
 
