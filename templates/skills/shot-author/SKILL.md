@@ -136,6 +136,28 @@ never hand-write the Seedance prompt from scratch:
     the default and best preserves flat-2D line art; add `--resolution 2160p` for 4K,
     or `--model bytedance_video_upscale` for a cheaper (softer) pass. Needs `ffmpeg`.
     The upscaled file is the deliverable; the promoted 480p clip stays as the master.
+13. **Matte to alpha (optional — only if the shot will be composited over a new
+    background).** `pipeline shot matte` extracts an RGBA matte from a finished clip
+    (run it on the upscaled deliverable). It has two methods — **ask the user which one
+    fits this footage before running it**, because the right choice depends on how the
+    shot's background was made, not on a default:
+    - **`--method plate`** — for a shot generated on a **designed solid plate** (a chroma
+      key: a flat, saturated background colour chosen to be distinct from the character,
+      e.g. the keyable-background rerolls). It auto-detects the plate colour, needs no
+      model weights, and gives crisper, decontaminated edges plus correct interiors and
+      negative-space (e.g. the plate seen through an open mouth) on flat cel/2D art.
+      `--feather <px>` (default 1.2) tunes edge softness.
+    - **`--method ml`** (default) — the learned, background-agnostic segmenter
+      (isnet/birefnet). Use it when the background is **not** a clean distinct plate —
+      an arbitrary, textured, or content-coloured background, or any footage you can't
+      re-generate on a plate. `--quality fast|best` and `--threads` apply.
+
+    So: if the shot sits on a purpose-made chroma plate → offer **plate**; otherwise →
+    **ml**. Confirm the choice with the user, then:
+    `pipeline shot matte --id <id> --method <ml|plate> [--root episodes/<N>] [--format prores4444|webm|png] [--input <upscaled-file>]`
+    (If a shot needs a clean matte but was generated on a background that overlaps the
+    character's colours, the better fix is upstream: re-roll it on a distinct plate — see
+    the keyable-background approach — then use `--method plate`.)
 
 ## Batch generation (multiple shots at once)
 

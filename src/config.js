@@ -165,3 +165,26 @@ export function matteRunner() {
     prefixArgs: ['run', '--quiet', ...MATTE_DEPS.flatMap((d) => ['--with', d]), 'python'],
   };
 }
+
+// --- plate matte (--method plate) ------------------------------------------
+// A classical trimap + closed-form matte for footage shot on a DESIGNED solid
+// plate (chroma key), auto-detected per clip. Unlike the ML models above it needs
+// no weights; it trades background-agnosticism for crisp, decontaminated edges and
+// correct interiors/negative-space on flat cel/2D art. See python/plate_matte.py.
+export function plateMatteScriptPath(root = REPO_ROOT) {
+  return path.join(root, 'python', 'plate_matte.py');
+}
+
+// Python packages python/plate_matte.py imports (pymatting pulls numpy/scipy/numba).
+export const PLATE_MATTE_DEPS = ['pymatting', 'opencv-python-headless', 'scipy', 'numpy', 'numba'];
+
+// Same shape as matteRunner but with the plate deps. MATTE_PYTHON overrides the
+// interpreter for both methods (it must then have PLATE_MATTE_DEPS importable too).
+export function plateMatteRunner() {
+  const explicit = process.env.MATTE_PYTHON;
+  if (explicit) return { bin: explicit, prefixArgs: [] };
+  return {
+    bin: 'uv',
+    prefixArgs: ['run', '--quiet', ...PLATE_MATTE_DEPS.flatMap((d) => ['--with', d]), 'python'],
+  };
+}

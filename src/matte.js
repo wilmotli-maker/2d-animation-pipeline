@@ -5,8 +5,15 @@ import { constants } from 'node:fs';
 import {
   matteModelPath, matteRunner, matteScriptPath, matteModelUrl, matteThreads,
   MATTE_DEPS, MATTE_MODELS, MATTE_DEFAULT_QUALITY,
+  plateMatteScriptPath, plateMatteRunner, PLATE_MATTE_DEPS,
 } from './config.js';
 import { shotFinalDir, shotDraftDir, shotAlphaPath } from './paths.js';
+
+// Matte methods. 'ml' is the learned, background-agnostic segmenter (isnet/
+// birefnet, the historical default). 'plate' is the classical trimap+closed-form
+// matte for footage shot on a designed solid plate — see plateMatteEngine.
+export const MATTE_METHODS = ['ml', 'plate'];
+export const MATTE_DEFAULT_METHOD = 'ml';
 
 async function pathExists(p) {
   try { await access(p, constants.F_OK); return true; } catch { return false; }
@@ -124,6 +131,40 @@ export function matteEngine({
             `MATTE_PYTHON to a python with ${MATTE_DEPS.join(', ')} installed`);
         }
         throw new Error(`matte failed (exit ${code}): ${stderr.trim()}`);
+      }
+      return parseMatteReport(stdout);
+    },
+  };
+}
+
+// The plate matte engine (--method plate). Runs python/plate_matte.py, which
+// auto-detects the plate colour per clip and needs no model weights. Mirrors
+// matteEngine's run() contract (same {input, output, format, despill} and the
+// same JSON report on stdout) so matteShot is method-agnostic.
+export function plateMatteEngine({
+  runner = plateMatteRunner(),
+  script = plateMatteScriptPath(),
+  feather = null,
+  exec = streamingExec,
+} = {}) {
+  return {
+    async run({ input, output, format = 'prores4444', despill = true }) {
+      const args = [
+        ...runner.prefixArgs, script,
+        '--input', input, '--output', output, '--format', format,
+        // On plate, --despill toggles the generalized (dominant-channel) despill
+        // that decontaminates the edge colour; it is not the ML spill guard.
+        '--despill', despill ? 'true' : 'false',
+      ];
+      if (feather != null) args.push('--feather', String(feather));
+      const { code, stdout, stderr } = await exec(runner.bin, args);
+      if (code !== 0) {
+        if (/ENOENT|not found|no such file/i.test(stderr) && /spawn|uv|python/i.test(stderr)) {
+          throw new Error(
+            `"${runner.bin}" not found — install uv (\`brew install uv\`), or set ` +
+            `MATTE_PYTHON to a python with ${PLATE_MATTE_DEPS.join(', ')} importable`);
+        }
+        throw new Error(`plate matte failed (exit ${code}): ${stderr.trim()}`);
       }
       return parseMatteReport(stdout);
     },
