@@ -174,7 +174,11 @@ pipeline shot generate  --id <shotId> --version <n> --model <m> [--prompt-file <
 pipeline verify shot    --id <shotId> --version <n> [--model <m>]
 pipeline shot promote   --id <shotId> --version <n> --output <file>
 pipeline shot upscale   --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]
-pipeline shot matte     --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--input <file>]
+pipeline shot matte     --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--feather <px>] [--input <file>]
+#   --method ml (default): learned, background-agnostic segmenter (isnet/birefnet).
+#   --method plate: trimap + closed-form matte for clips shot on a designed solid
+#     plate (chroma key) — auto-detects the plate colour, needs no weights, and gives
+#     crisper edges + correct interiors/negative-space on flat 2D art. See docs/plans/shot-matte-alpha.md.
 pipeline voice transcribe --audio <wav> [--out <file>] | --dir <folder> [--force]
 pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]
 pipeline image upscale  --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]

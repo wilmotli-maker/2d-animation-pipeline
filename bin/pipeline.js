@@ -10,7 +10,10 @@ import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { syncSkills } from '../src/sync-skills.js';
 import { validateElementSheet, validateShotGenerate } from '../src/validate.js';
 import { initProject } from '../src/init.js';
-import { matteShot, matteEngine, MATTE_QUALITIES } from '../src/matte.js';
+import {
+  matteShot, matteEngine, plateMatteEngine,
+  MATTE_QUALITIES, MATTE_METHODS, MATTE_DEFAULT_METHOD,
+} from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
@@ -225,34 +228,53 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
-      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>] [--root <dir>]');
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--input <file>] [--model-file <path>] [--root <dir>]');
+    }
+    const method = f.method || MATTE_DEFAULT_METHOD;
+    if (!MATTE_METHODS.includes(method)) {
+      fail(`shot matte: --method must be one of ${MATTE_METHODS.join(', ')}`);
     }
     if (f.despill != null && f.despill !== 'true' && f.despill !== 'false') {
       fail('shot matte: --despill must be true or false');
-    }
-    const quality = f.quality || MATTE_DEFAULT_QUALITY;
-    if (!MATTE_QUALITIES.includes(quality)) {
-      fail(`shot matte: --quality must be one of ${MATTE_QUALITIES.join(', ')}`);
-    }
-    if (f.threads != null && !(Number.isInteger(Number(f.threads)) && Number(f.threads) > 0)) {
-      fail('shot matte: --threads must be a positive integer');
     }
     const version = f.version == null || f.version === 'final' ? null : Number(f.version);
     if (version != null && (!Number.isInteger(version) || version < 1)) {
       fail('shot matte: --version must be a positive integer or "final"');
     }
-    const res = await matteShot(projectRoot(f.root), {
-      shotId: f.id, version, format: f.format || 'prores4444', input: f.input,
-      despill: f.despill !== 'false',
-    }, {
-      engine: matteEngine({
+
+    let engine;
+    if (method === 'plate') {
+      // Plate matte ignores the ML-only knobs (quality/model-file/threads).
+      for (const k of ['quality', 'model-file', 'threads']) {
+        if (f[k] != null) fail(`shot matte --method plate: --${k} does not apply (that is an ML-method flag)`);
+      }
+      if (f.feather != null && !(Number(f.feather) >= 0)) {
+        fail('shot matte: --feather must be a non-negative number');
+      }
+      engine = plateMatteEngine({ feather: f.feather != null ? Number(f.feather) : null });
+    } else {
+      if (f.feather != null) fail('shot matte --method ml: --feather does not apply (that is a plate-method flag)');
+      const quality = f.quality || MATTE_DEFAULT_QUALITY;
+      if (!MATTE_QUALITIES.includes(quality)) {
+        fail(`shot matte: --quality must be one of ${MATTE_QUALITIES.join(', ')}`);
+      }
+      if (f.threads != null && !(Number.isInteger(Number(f.threads)) && Number(f.threads) > 0)) {
+        fail('shot matte: --threads must be a positive integer');
+      }
+      engine = matteEngine({
         quality,
         model: f['model-file'] || matteModelPath(null, quality),
         threads: matteThreads(f.threads),
-      }),
-    });
+      });
+    }
+
+    const res = await matteShot(projectRoot(f.root), {
+      shotId: f.id, version, format: f.format || 'prores4444', input: f.input,
+      despill: f.despill !== 'false',
+    }, { engine });
     console.log(`matted ${res.frames} frames from ${res.source}`);
-    console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, quality ${res.quality}, coverage ${res.meanCoverage})`);
+    const tag = method === 'plate' ? `plate, key ${res.key}` : `quality ${res.quality}`;
+    console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, ${tag}, coverage ${res.meanCoverage})`);
     if (res.edgeGreenBefore != null) {
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  despill: edge spill ${pct(res.edgeGreenBefore)} -> ${pct(res.edgeGreenAfter)}`);
@@ -429,7 +451,8 @@ async function main() {
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
       '  pipeline shot promote --id <shotId> --version <n> --output <file> [--root <dir>]',
-      '  pipeline shot matte --id <shotId> [--version <n|final>] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '  pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--input <file>] [--model-file <path>]  # RGBA from a finalized clip',
+      '        --method ml (default) is the learned, background-agnostic segmenter (--quality/--threads/--model-file apply). --method plate is a trimap+closed-form matte for clips shot on a designed solid plate (chroma key): auto-detects the plate colour, no weights, crisper edges + correct interiors on flat 2D art (--feather applies, default 1.2).',
       '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
       '  pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]  # enlarge a sheet (panel-aware for turnaround/pose)',
       '  pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]  # enlarge any single image',

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   MATTE_FORMATS, MATTE_QUALITIES, resolveSourceClip, parseMatteReport,
-  matteEngine, matteShot, streamingExec,
+  matteEngine, plateMatteEngine, matteShot, streamingExec,
+  MATTE_METHODS, MATTE_DEFAULT_METHOD,
 } from '../src/matte.js';
 import { matteModelPath, matteModelUrl, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 
@@ -172,6 +173,62 @@ test('matteEngine despills by default and can be turned off', async () => {
     await engine.run({ input: '/in.mp4', output: '/out.mov', despill: false });
     assert.equal(flagValue(calls[1].args, '--despill'), 'false');
   });
+});
+
+// --- plateMatteEngine (--method plate) -----------------------------------
+
+test('plateMatteEngine passes input/output/format/despill and needs no model', async () => {
+  const { calls, exec } = fakeExec();
+  const engine = plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: ['run', 'python'] },
+    script: '/repo/python/plate_matte.py', exec,
+  });
+  const report = await engine.run({ input: '/in.mp4', output: '/out.mov', format: 'prores4444' });
+
+  assert.deepEqual(report, OK_REPORT);
+  assert.deepEqual(calls[0].args, [
+    'run', 'python', '/repo/python/plate_matte.py',
+    '--input', '/in.mp4', '--output', '/out.mov', '--format', 'prores4444', '--despill', 'true',
+  ]);
+  // No ML-only flags leak into the plate sidecar.
+  for (const flag of ['--model', '--quality', '--threads']) {
+    assert.equal(calls[0].args.includes(flag), false, `${flag} should not be passed`);
+  }
+});
+
+test('plateMatteEngine omits --feather unless set, and forwards it when set', async () => {
+  const { calls, exec } = fakeExec();
+  const base = { runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec };
+
+  await plateMatteEngine(base).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(calls[0].args.includes('--feather'), false);
+
+  await plateMatteEngine({ ...base, feather: 1.4 }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(flagValue(calls[1].args, '--feather'), '1.4');
+});
+
+test('plateMatteEngine despills by default and can be turned off', async () => {
+  const { calls, exec } = fakeExec();
+  const engine = plateMatteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec });
+
+  await engine.run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(flagValue(calls[0].args, '--despill'), 'true');
+
+  await engine.run({ input: '/in.mp4', output: '/out.mov', despill: false });
+  assert.equal(flagValue(calls[1].args, '--despill'), 'false');
+});
+
+test('plateMatteEngine surfaces a matchable error on a missing runner', async () => {
+  const { exec } = fakeExec({ code: 127, stdout: '', stderr: 'spawn uv ENOENT' });
+  const engine = plateMatteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec });
+  await assert.rejects(
+    engine.run({ input: '/in.mp4', output: '/out.mov' }),
+    /uv.*not found|install uv/);
+});
+
+test('matte methods expose ml as the default', () => {
+  assert.deepEqual(MATTE_METHODS, ['ml', 'plate']);
+  assert.equal(MATTE_DEFAULT_METHOD, 'ml');
 });
 
 // --- quality + threads ---------------------------------------------------
