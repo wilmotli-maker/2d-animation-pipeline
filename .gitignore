@@ -1,4 +1,7 @@
+# Private API keys — see .env.example for the template (which IS committed).
 .env
+.env.local
+!.env.example
 node_modules/
 
 # User project data — created by running the pipeline, not part of the tooling.

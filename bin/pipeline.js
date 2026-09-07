@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadEnv } from '../src/env.js';
 import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
@@ -18,6 +19,10 @@ import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upsca
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 import { buildReviewPage, parseReviewArgs } from '../src/review-page.js';
+
+// Load private API keys from a gitignored .env (shell env still wins) so every
+// command sees provider credentials without a manual export. See .env.example.
+loadEnv();
 
 const [, , cmd, sub, ...rest] = process.argv;
 
