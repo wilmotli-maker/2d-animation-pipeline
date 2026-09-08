@@ -15,6 +15,13 @@ import { shotFinalDir, shotDraftDir, shotAlphaPath } from './paths.js';
 export const MATTE_METHODS = ['ml', 'plate'];
 export const MATTE_DEFAULT_METHOD = 'ml';
 
+// Keying cores under --method plate. 'trimap' is the classical trimap +
+// closed-form matte (default, unchanged). 'keylight' is the pure per-pixel
+// colour-difference keyer modelled on After Effects' Keylight — see
+// docs/superpowers/specs/2026-09-07-keylight-matte-design.md.
+export const MATTE_KEY_ENGINES = ['trimap', 'keylight'];
+export const MATTE_DEFAULT_KEY_ENGINE = 'trimap';
+
 async function pathExists(p) {
   try { await access(p, constants.F_OK); return true; } catch { return false; }
 }
@@ -145,8 +152,22 @@ export function plateMatteEngine({
   runner = plateMatteRunner(),
   script = plateMatteScriptPath(),
   feather = null,
+  // Keying core and its Keylight-only options. keyEngine defaults to 'trimap',
+  // for which every keylight option below is left unset so no keylight flag ever
+  // reaches the trimap path. `keylight` is a bag of the Keylight controls the CLI
+  // has already validated (screenColour, screenBalance, clipBlack, clipWhite,
+  // screenGain, screenPreBlur, despillBias, insideMask, outsideMask).
+  keyEngine = MATTE_DEFAULT_KEY_ENGINE,
+  keylight = {},
   exec = streamingExec,
 } = {}) {
+  // Map camelCase option names to their --kebab-case sidecar flags.
+  const KEYLIGHT_FLAGS = {
+    screenColour: '--screen-colour', screenBalance: '--screen-balance',
+    clipBlack: '--clip-black', clipWhite: '--clip-white', screenGain: '--screen-gain',
+    screenPreBlur: '--screen-pre-blur', despillBias: '--despill-bias',
+    insideMask: '--inside-mask', outsideMask: '--outside-mask',
+  };
   return {
     async run({ input, output, format = 'prores4444', despill = true }) {
       const args = [
@@ -157,6 +178,12 @@ export function plateMatteEngine({
         '--despill', despill ? 'true' : 'false',
       ];
       if (feather != null) args.push('--feather', String(feather));
+      if (keyEngine !== MATTE_DEFAULT_KEY_ENGINE) args.push('--key-engine', keyEngine);
+      if (keyEngine === 'keylight') {
+        for (const [k, flag] of Object.entries(KEYLIGHT_FLAGS)) {
+          if (keylight[k] != null) args.push(flag, String(keylight[k]));
+        }
+      }
       const { code, stdout, stderr } = await exec(runner.bin, args);
       if (code !== 0) {
         if (/ENOENT|not found|no such file/i.test(stderr) && /spawn|uv|python/i.test(stderr)) {

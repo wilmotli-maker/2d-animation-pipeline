@@ -7,6 +7,7 @@ import {
   MATTE_FORMATS, MATTE_QUALITIES, resolveSourceClip, parseMatteReport,
   matteEngine, plateMatteEngine, matteShot, streamingExec,
   MATTE_METHODS, MATTE_DEFAULT_METHOD,
+  MATTE_KEY_ENGINES, MATTE_DEFAULT_KEY_ENGINE,
 } from '../src/matte.js';
 import { matteModelPath, matteModelUrl, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 
@@ -229,6 +230,77 @@ test('plateMatteEngine surfaces a matchable error on a missing runner', async ()
 test('matte methods expose ml as the default', () => {
   assert.deepEqual(MATTE_METHODS, ['ml', 'plate']);
   assert.equal(MATTE_DEFAULT_METHOD, 'ml');
+});
+
+// --- plate keying cores (--key-engine) -----------------------------------
+
+test('plate key engines expose trimap as the default', () => {
+  assert.deepEqual(MATTE_KEY_ENGINES, ['trimap', 'keylight']);
+  assert.equal(MATTE_DEFAULT_KEY_ENGINE, 'trimap');
+});
+
+test('plateMatteEngine defaults to trimap and passes no --key-engine or keylight flags', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec })
+    .run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(calls[0].args.includes('--key-engine'), false);
+  for (const flag of ['--screen-colour', '--screen-balance', '--clip-black', '--inside-mask']) {
+    assert.equal(calls[0].args.includes(flag), false, `${flag} should not leak into trimap`);
+  }
+});
+
+test('plateMatteEngine forwards --key-engine keylight and its options', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    keyEngine: 'keylight',
+    keylight: {
+      screenColour: '#3ba35f', screenBalance: 0.5, clipBlack: 0.1, clipWhite: 0.6,
+      screenGain: 1.2, screenPreBlur: 1, despillBias: 'auto',
+      insideMask: '/in.png', outsideMask: '/out',
+    },
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+
+  const a = calls[0].args;
+  assert.equal(flagValue(a, '--key-engine'), 'keylight');
+  assert.equal(flagValue(a, '--screen-colour'), '#3ba35f');
+  assert.equal(flagValue(a, '--screen-balance'), '0.5');
+  assert.equal(flagValue(a, '--clip-black'), '0.1');
+  assert.equal(flagValue(a, '--clip-white'), '0.6');
+  assert.equal(flagValue(a, '--screen-gain'), '1.2');
+  assert.equal(flagValue(a, '--screen-pre-blur'), '1');
+  assert.equal(flagValue(a, '--despill-bias'), 'auto');
+  assert.equal(flagValue(a, '--inside-mask'), '/in.png');
+  assert.equal(flagValue(a, '--outside-mask'), '/out');
+});
+
+test('plateMatteEngine drops keylight options when the engine is trimap', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    keyEngine: 'trimap', keylight: { screenBalance: 0.9 },
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(calls[0].args.includes('--screen-balance'), false);
+});
+
+test('plateMatteEngine only forwards the keylight options that are set', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    keyEngine: 'keylight', keylight: { screenBalance: 0.5 },
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(flagValue(calls[0].args, '--screen-balance'), '0.5');
+  assert.equal(calls[0].args.includes('--clip-black'), false);
+});
+
+// The Node default and the sidecar argparse default must agree — same reasoning
+// as the --quality default test below.
+test('the plate sidecar --key-engine default matches MATTE_DEFAULT_KEY_ENGINE', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../python/plate_matte.py', import.meta.url), 'utf8');
+  const m = /--key-engine',[\s\S]*?default='([a-z]+)'/.exec(src);
+  assert.ok(m, 'could not find the --key-engine default in python/plate_matte.py');
+  assert.equal(m[1], MATTE_DEFAULT_KEY_ENGINE);
 });
 
 // --- quality + threads ---------------------------------------------------

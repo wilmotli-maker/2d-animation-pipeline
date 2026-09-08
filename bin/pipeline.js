@@ -6,6 +6,7 @@ import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
 import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { backfillPanels } from '../src/split-panels.js';
 import { getTranscriber, transcribeInputs } from '../src/transcribe.js';
 import { syncSkills } from '../src/sync-skills.js';
@@ -14,6 +15,7 @@ import { initProject } from '../src/init.js';
 import {
   matteShot, matteEngine, plateMatteEngine,
   MATTE_QUALITIES, MATTE_METHODS, MATTE_DEFAULT_METHOD,
+  MATTE_KEY_ENGINES, MATTE_DEFAULT_KEY_ENGINE,
 } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
@@ -233,7 +235,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
-      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--input <file>] [--model-file <path>] [--root <dir>]');
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--key-engine trimap|keylight] [--screen-colour <#rrggbb|auto>] [--screen-balance <0..1>] [--clip-black <0..1>] [--clip-white <0..1>] [--screen-gain <n>] [--screen-pre-blur <px>] [--despill-bias <#rrggbb|auto>] [--inside-mask <file|dir>] [--outside-mask <file|dir>] [--input <file>] [--model-file <path>] [--root <dir>]');
     }
     const method = f.method || MATTE_DEFAULT_METHOD;
     if (!MATTE_METHODS.includes(method)) {
@@ -247,6 +249,12 @@ async function main() {
       fail('shot matte: --version must be a positive integer or "final"');
     }
 
+    // Keylight-only flags (valid only with --method plate --key-engine keylight).
+    const KEYLIGHT_FLAGS = ['screen-colour', 'screen-balance', 'clip-black', 'clip-white',
+      'screen-gain', 'screen-pre-blur', 'despill-bias', 'inside-mask', 'outside-mask'];
+    const isColour = (v) => v === 'auto' || /^#?[0-9a-fA-F]{6}$/.test(v);
+    const inRange = (v) => Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 1;
+
     let engine;
     if (method === 'plate') {
       // Plate matte ignores the ML-only knobs (quality/model-file/threads).
@@ -256,9 +264,56 @@ async function main() {
       if (f.feather != null && !(Number(f.feather) >= 0)) {
         fail('shot matte: --feather must be a non-negative number');
       }
-      engine = plateMatteEngine({ feather: f.feather != null ? Number(f.feather) : null });
+      const keyEngine = f['key-engine'] || MATTE_DEFAULT_KEY_ENGINE;
+      if (!MATTE_KEY_ENGINES.includes(keyEngine)) {
+        fail(`shot matte: --key-engine must be one of ${MATTE_KEY_ENGINES.join(', ')}`);
+      }
+      const keylight = {};
+      if (keyEngine === 'keylight') {
+        if (f['screen-colour'] != null) {
+          if (!isColour(f['screen-colour'])) fail('shot matte: --screen-colour must be #rrggbb or "auto"');
+          keylight.screenColour = f['screen-colour'].startsWith('#') || f['screen-colour'] === 'auto'
+            ? f['screen-colour'] : `#${f['screen-colour']}`;
+        }
+        if (f['despill-bias'] != null) {
+          if (!isColour(f['despill-bias'])) fail('shot matte: --despill-bias must be #rrggbb or "auto"');
+          keylight.despillBias = f['despill-bias'].startsWith('#') || f['despill-bias'] === 'auto'
+            ? f['despill-bias'] : `#${f['despill-bias']}`;
+        }
+        for (const [flag, key] of [['screen-balance', 'screenBalance'],
+          ['clip-black', 'clipBlack'], ['clip-white', 'clipWhite']]) {
+          if (f[flag] != null) {
+            if (!inRange(f[flag])) fail(`shot matte: --${flag} must be a number in [0,1]`);
+            keylight[key] = Number(f[flag]);
+          }
+        }
+        for (const [flag, key] of [['screen-gain', 'screenGain'], ['screen-pre-blur', 'screenPreBlur']]) {
+          if (f[flag] != null) {
+            if (!(Number(f[flag]) >= 0)) fail(`shot matte: --${flag} must be a non-negative number`);
+            keylight[key] = Number(f[flag]);
+          }
+        }
+        for (const [flag, key] of [['inside-mask', 'insideMask'], ['outside-mask', 'outsideMask']]) {
+          if (f[flag] != null) {
+            if (!existsSync(f[flag])) fail(`shot matte: --${flag} not found: ${f[flag]}`);
+            keylight[key] = f[flag];
+          }
+        }
+      } else {
+        // trimap: the Keylight controls are meaningless — refuse them rather than
+        // silently ignore, so a misremembered command fails loudly.
+        for (const k of KEYLIGHT_FLAGS) {
+          if (f[k] != null) fail(`shot matte --key-engine trimap: --${k} only applies to --key-engine keylight`);
+        }
+      }
+      engine = plateMatteEngine({
+        feather: f.feather != null ? Number(f.feather) : null, keyEngine, keylight,
+      });
     } else {
       if (f.feather != null) fail('shot matte --method ml: --feather does not apply (that is a plate-method flag)');
+      for (const k of ['key-engine', ...KEYLIGHT_FLAGS]) {
+        if (f[k] != null) fail(`shot matte --method ml: --${k} does not apply (that is a plate-method flag)`);
+      }
       const quality = f.quality || MATTE_DEFAULT_QUALITY;
       if (!MATTE_QUALITIES.includes(quality)) {
         fail(`shot matte: --quality must be one of ${MATTE_QUALITIES.join(', ')}`);
@@ -278,11 +333,16 @@ async function main() {
       despill: f.despill !== 'false',
     }, { engine });
     console.log(`matted ${res.frames} frames from ${res.source}`);
-    const tag = method === 'plate' ? `plate, key ${res.key}` : `quality ${res.quality}`;
+    const tag = method === 'plate'
+      ? `plate/${res.keyEngine || 'trimap'}, key ${res.key}`
+      : `quality ${res.quality}`;
     console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, ${tag}, coverage ${res.meanCoverage})`);
-    if (res.edgeGreenBefore != null) {
+    // ml despill reports edgeGreen{Before,After}; keylight reports edgeSpill{Before,After}.
+    const spillBefore = res.edgeGreenBefore ?? res.edgeSpillBefore;
+    const spillAfter = res.edgeGreenAfter ?? res.edgeSpillAfter;
+    if (spillBefore != null) {
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
-      console.log(`  despill: edge spill ${pct(res.edgeGreenBefore)} -> ${pct(res.edgeGreenAfter)}`);
+      console.log(`  despill: edge spill ${pct(spillBefore)} -> ${pct(spillAfter)}`);
     }
   } else if (cmd === 'shot' && sub === 'upscale') {
     const f = parseFlags(rest);
