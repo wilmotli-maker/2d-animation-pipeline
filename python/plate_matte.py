@@ -12,14 +12,16 @@ Priors that make it strong on flat cel/2D art: a dark ink outline marks the
 boundary, interiors are opaque, and plate-hued negative space (e.g. an open mouth)
 is background even when shadowed. The core trimap + closed-form matte is general.
 """
-import argparse, json, os, subprocess, sys, tempfile, time
+import argparse, json, os, subprocess
 import numpy as np, cv2
+from matte_io import log, probe, run_stream, reject
 # pymatting (and the numba/scipy stack it drags in) is imported lazily inside
 # matte(): only the trimap engine needs it. The keylight engine is pure
 # numpy+opencv, so it must not pay that import cost or require those wheels.
+# Streaming ffmpeg I/O, temp-then-replace, and the degenerate-output guard live
+# in matte_io, shared with python/matte.py.
 
 
-def log(msg): print(msg, file=sys.stderr, flush=True)
 def _k(n): return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (n, n))
 
 
@@ -208,33 +210,7 @@ def edge_mask_alpha(alpha):
     return (cv2.dilate(soft, _k(5)).astype(bool)) & (alpha > 0.02)
 
 
-# --- ffmpeg I/O (mirrors python/matte.py) -----------------------------------
-def probe(path):
-    out = subprocess.run(
-        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-count_frames',
-         '-show_entries', 'stream=width,height,avg_frame_rate,nb_read_frames',
-         '-of', 'json', path], capture_output=True, text=True, check=True)
-    s = json.loads(out.stdout)['streams'][0]
-    num, den = (s['avg_frame_rate'].split('/') + ['1'])[:2]
-    fps = float(num)/float(den) if float(den) else 24.0
-    return int(s['width']), int(s['height']), fps, int(s.get('nb_read_frames') or 0)
-
-
-def encoder_args(fmt, w, h, fps, output, source):
-    common = ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgba',
-              '-s', f'{w}x{h}', '-r', f'{fps}', '-i', 'pipe:0',
-              '-i', source, '-map', '0:v:0', '-map', '1:a:0?', '-c:a', 'copy']
-    if fmt == 'prores4444':
-        return common + ['-c:v', 'prores_ks', '-profile:v', '4444',
-                         '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', output]
-    if fmt == 'webm':
-        return common + ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', output]
-    if fmt == 'png':
-        return ['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgba',
-                '-s', f'{w}x{h}', '-r', f'{fps}', '-i', 'pipe:0', os.path.join(output, '%05d.png')]
-    raise SystemExit(f'unknown format: {fmt}')
-
-
+# --- ffmpeg I/O: probe / encoder_args / streaming loop now live in matte_io ---
 def detect_key(path, w, h, n):
     """One plate colour for the whole clip, from edges of frames sampled across it."""
     idxs = np.linspace(0, max(n-1, 0), num=min(9, max(n, 1)), dtype=int)
@@ -258,17 +234,6 @@ def _hex_to_bgr(s):
 def _bgr_to_hex(bgr):
     r, g, b = (int(round(float(c) * 255)) for c in bgr[::-1])
     return '#%02x%02x%02x' % (r, g, b)
-
-
-def _remove(p):
-    import shutil
-    if os.path.isdir(p):
-        shutil.rmtree(p, ignore_errors=True)
-    elif os.path.exists(p):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
 
 
 def main():
@@ -313,22 +278,11 @@ def main():
             f'clip=[{args.clip_black},{args.clip_white}] {w}x{h}@{fps:.3f} frames={n}')
     else:
         log(f'plate matte: key={keyhex} spread={spread:.3f} {w}x{h}@{fps:.3f} frames={n}')
-    if args.format == 'png':
-        os.makedirs(args.output, exist_ok=True)
-
-    out_tmp = args.output if args.format == 'png' else args.output + '.tmp' + \
-        os.path.splitext(args.output)[1]
     kmax = int(np.argmax(key))
-    dec = subprocess.Popen(['ffmpeg', '-v', 'error', '-i', args.input, '-f', 'rawvideo',
-                            '-pix_fmt', 'rgb24', 'pipe:1'], stdout=subprocess.PIPE)
-    enc = subprocess.Popen(encoder_args(args.format, w, h, fps, out_tmp, args.input),
-                           stdin=subprocess.PIPE)
-    fsz = w*h*3; i = 0; cov = 0.0; t0 = time.time()
     spill_before, spill_after = [], []
-    while True:
-        buf = dec.stdout.read(fsz)
-        if len(buf) < fsz: break
-        bgr = np.frombuffer(buf, np.uint8).reshape(h, w, 3)[..., ::-1].astype(np.float32)/255.0
+
+    def process(bgr, i):
+        """One frame -> (F_rgb, alpha), plus per-frame spill accounting for keylight."""
         if keylight:
             alpha, F = keylight_alpha(
                 bgr, key, balance=args.screen_balance, gain=args.screen_gain,
@@ -346,30 +300,22 @@ def main():
                 spill_after.append(key_fraction(F[..., ::-1], edge, kmax))  # F is RGB
         else:
             alpha, F = matte(bgr, key, spread, feath=args.feather, despill=despill)
-        rgba = np.dstack([F*255, np.clip(alpha, 0, 1)*255]).astype(np.uint8)  # F is RGB
-        enc.stdin.write(rgba.tobytes())
-        cov += float(alpha.mean()); i += 1
-        if i % 20 == 0: log(f'  {i}/{n} frames')
-    enc.stdin.close(); dec.wait(); rc = enc.wait()
-    if rc != 0:
-        _remove(out_tmp)
-        raise SystemExit(f'ffmpeg encode failed (exit {rc})')
+        return F, alpha  # F is RGB
 
-    mean_cov = cov / max(i, 1)
-    # Never leave a plausible-but-wrong file on disk (mirrors python/matte.py).
-    # A keyer that crushed everything to background or passed everything as
-    # foreground has failed, whatever the exit code.
-    if keylight and (mean_cov < 0.001 or mean_cov > 0.999):
-        _remove(out_tmp)
-        raise SystemExit(
-            f'degenerate keylight matte: mean coverage {mean_cov:.4f} — the key '
-            'collapsed to all-background or all-foreground (check --screen-colour '
-            'and --clip-black/--clip-white)')
-    if args.format != 'png':
-        os.replace(out_tmp, args.output)
+    def guard(frames, mean_cov, tmp):
+        # Never leave a plausible-but-wrong file on disk (mirrors python/matte.py).
+        # A keyer that crushed everything to background or passed everything as
+        # foreground has failed, whatever the exit code.
+        if keylight and (mean_cov < 0.001 or mean_cov > 0.999):
+            reject(tmp, f'degenerate keylight matte: mean coverage {mean_cov:.4f} — the key '
+                        'collapsed to all-background or all-foreground (check --screen-colour '
+                        'and --clip-black/--clip-white)')
 
-    spf = (time.time()-t0)/max(i, 1)
-    report = {'frames': i, 'secondsPerFrame': round(spf, 3),
+    frames, mean_cov, elapsed = run_stream(
+        args.input, args.output, args.format, w, h, fps, n, process, on_done=guard)
+
+    spf = elapsed / max(frames, 1)
+    report = {'frames': frames, 'secondsPerFrame': round(spf, 3),
               'meanCoverage': round(mean_cov, 4), 'method': 'plate',
               'keyEngine': args.key_engine, 'key': keyhex}
     if keylight:
