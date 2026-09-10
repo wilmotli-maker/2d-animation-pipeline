@@ -8,7 +8,8 @@ import {
   matteEngine, plateMatteEngine, matteShot, streamingExec,
   MATTE_METHODS, MATTE_DEFAULT_METHOD,
   MATTE_KEY_ENGINES, MATTE_CORES, MATTE_REFINES,
-  MATTE_DEFAULT_CORE, MATTE_DEFAULT_REFINE, keyEngineToComposition,
+  MATTE_DEFAULT_CORE, MATTE_DEFAULT_REFINE,
+  MATTE_REFINE_TRIMAPS, MATTE_DEFAULT_REFINE_TRIMAP, keyEngineToComposition,
 } from '../src/matte.js';
 import { matteModelPath, matteModelUrl, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 
@@ -294,6 +295,31 @@ test('plateMatteEngine forwards --refine closed-form on a keylight core', async 
   assert.equal(flagValue(calls[0].args, '--matte'), 'keylight');
   assert.equal(flagValue(calls[0].args, '--refine'), 'closed-form');
   assert.equal(flagValue(calls[0].args, '--screen-balance'), '0.9');
+});
+
+test('plateMatteEngine forwards --refine-trimap plate + --plate-spread', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    core: 'keylight', refine: 'closed-form', refineTrimap: 'plate', plateSpread: 0.012,
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(flagValue(calls[0].args, '--refine-trimap'), 'plate');
+  assert.equal(flagValue(calls[0].args, '--plate-spread'), '0.012');
+});
+
+test('plateMatteEngine omits --refine-trimap at the default (alpha)', () => {
+  assert.deepEqual(MATTE_REFINE_TRIMAPS, ['alpha', 'plate']);
+  assert.equal(MATTE_DEFAULT_REFINE_TRIMAP, 'alpha');
+});
+
+test('plateMatteEngine does not forward --refine-trimap on a chroma core', async () => {
+  const { calls, exec } = fakeExec();
+  // refineTrimap has no meaning without a keylight closed-form solve.
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    core: 'chroma', refine: 'closed-form', refineTrimap: 'plate',
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(calls[0].args.includes('--refine-trimap'), false);
 });
 
 test('plateMatteEngine drops keylight options when the core is chroma', async () => {

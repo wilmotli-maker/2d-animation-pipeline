@@ -303,6 +303,15 @@ def main():
                     choices=['chroma', 'keylight'])
     ap.add_argument('--refine', dest='refine', default=None,
                     choices=['none', 'closed-form'])
+    # How the closed-form refiner seeds its trimap on a keylight core. 'alpha'
+    # (default) derives it from the keylight alpha (trimap_from_alpha); 'plate'
+    # borrows chroma_alpha's ink-aware trimap + fg_lock, keeping keylight's colour
+    # while placing the edge like the chroma core (no pale outline rim).
+    ap.add_argument('--refine-trimap', dest='refine_trimap', default='alpha',
+                    choices=['alpha', 'plate'])
+    # Manual plate spread override for chroma_alpha's thresholds (used by the
+    # chroma core and by --refine-trimap plate). Default: auto-detected.
+    ap.add_argument('--plate-spread', dest='plate_spread', type=float, default=None)
     # Deprecated alias, kept so existing commands and direct callers keep working:
     #   --key-engine trimap   == --matte chroma  --refine closed-form
     #   --key-engine keylight == --matte keylight --refine none
@@ -337,13 +346,20 @@ def main():
 
     keylight = core == 'keylight'
     despill = args.despill == 'true'
+    plate_trimap = keylight and refine == 'closed-form' and args.refine_trimap == 'plate'
+    if args.refine_trimap == 'plate' and not (keylight and refine == 'closed-form'):
+        raise SystemExit('--refine-trimap plate only applies to --matte keylight --refine closed-form')
     w, h, fps, n = probe(args.input)
 
     if keylight and args.screen_colour != 'auto':
         key = _hex_to_bgr(args.screen_colour)
-        spread = 0.0
+        # A pinned colour has no spread of its own, but chroma_alpha (used by
+        # --refine-trimap plate) needs a real one — detect it and keep the colour.
+        spread = detect_key(args.input, w, h, n)[1] if plate_trimap else 0.0
     else:
         key, spread = detect_key(args.input, w, h, n)
+    if args.plate_spread is not None:
+        spread = args.plate_spread
     keyhex = _bgr_to_hex(key)
     bias = None if not despill else (
         'auto' if args.despill_bias == 'auto' else _hex_to_bgr(args.despill_bias))
@@ -364,11 +380,18 @@ def main():
                 clip_black=args.clip_black, clip_white=args.clip_white,
                 pre_blur=args.screen_pre_blur, bias=bias, despill=despill)
             if refine == 'closed-form':
-                # Hand the keylight core to the shared closed-form refiner (trimap
-                # derived from the alpha, no plate priors). It owns the softening,
-                # so the keylight-stage Gaussian feather is skipped.
-                alpha, F = refine_edges(F.astype(np.float64), alpha=alpha.astype(np.float64),
-                                        feath=args.feather)
+                # Hand the keylight core to the shared closed-form refiner. It owns
+                # the softening, so the keylight-stage Gaussian feather is skipped.
+                if plate_trimap:
+                    # Borrow chroma's ink-aware trimap + fg_lock, but solve on
+                    # keylight's despilled colour (keeps its clean whites, drops
+                    # the pale outline rim the generic trimap leaves).
+                    c = chroma_alpha(bgr, key, spread, despill=despill)
+                    alpha, F = refine_edges(F.astype(np.float64), trimap=c['trimap'],
+                                            fg_lock=c['fg_lock'], feath=args.feather)
+                else:
+                    alpha, F = refine_edges(F.astype(np.float64), alpha=alpha.astype(np.float64),
+                                            feath=args.feather)
                 inside = load_mask(args.inside_mask, i, w, h)
                 outside = load_mask(args.outside_mask, i, w, h)
                 alpha = apply_masks(alpha, inside, outside)
@@ -406,6 +429,8 @@ def main():
     if keylight:
         report.update({'screenBalance': args.screen_balance,
                        'clipBlack': args.clip_black, 'clipWhite': args.clip_white})
+        if refine == 'closed-form':
+            report['refineTrimap'] = args.refine_trimap
         if spill_before:
             report['edgeSpillBefore'] = round(float(np.mean(spill_before)), 4)
             report['edgeSpillAfter'] = round(float(np.mean(spill_after)), 4)
