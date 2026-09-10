@@ -17,13 +17,17 @@ undone by a matte. Despill is a separate stage.
 import argparse
 import json
 import os
-import shutil
 import subprocess
-import sys
 import time
 
 import numpy as np
 from PIL import Image
+
+# Streaming ffmpeg helpers shared with python/plate_matte.py. This sidecar keeps
+# its own probe() (it reads the container's nb_frames rather than counting) and
+# its own per-frame loop (the ML despill + soft-fraction guards are specific to
+# it); only the byte-identical leaf helpers are shared.
+from matte_io import log, encoder_args, _remove, reject, finalize
 
 # Per-model recipes, keyed to --quality (mirrors MATTE_MODELS in src/config.js).
 # These are NOT interchangeable and must match each model exactly — see the note
@@ -35,10 +39,6 @@ MODELS = {
     # isnet-general-use: mean 0.5 / std 1.0, output used directly (no sigmoid).
     'fast': dict(mean=(0.5, 0.5, 0.5), std=(1.0, 1.0, 1.0), sigmoid=False),
 }
-
-
-def log(msg):
-    print(msg, file=sys.stderr, flush=True)
 
 
 def probe(path):
@@ -55,38 +55,6 @@ def probe(path):
     except (TypeError, ValueError):
         frames = 0  # some containers omit it; progress just goes unbounded
     return int(s['width']), int(s['height']), fps, frames
-
-
-def encoder_args(fmt, width, height, fps, output, source):
-    """ffmpeg args to turn a raw RGBA stream into the requested container."""
-    common = [
-        'ffmpeg', '-v', 'error', '-y',
-        '-f', 'rawvideo', '-pix_fmt', 'rgba',
-        '-s', f'{width}x{height}', '-r', f'{fps}', '-i', 'pipe:0',
-        # Second input carries the source's audio, if it has any. Seedance shots
-        # often do, and losing it here would force a re-mux downstream.
-        '-i', source, '-map', '0:v:0', '-map', '1:a:0?', '-c:a', 'copy',
-    ]
-    if fmt == 'prores4444':
-        # 4444 keeps a full-resolution alpha plane; -alpha_bits 16 keeps it from
-        # being quantized to where soft edges band. Note prores_ks promotes the
-        # result to yuva444p12le regardless of the 10le request — more alpha
-        # precision than asked for, which is harmless, but the probed pix_fmt
-        # will not match this flag.
-        return common + ['-c:v', 'prores_ks', '-profile:v', '4444',
-                         '-pix_fmt', 'yuva444p10le', '-alpha_bits', '16', output]
-    if fmt == 'webm':
-        return common + ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p',
-                         '-auto-alt-ref', '0', output]
-    if fmt == 'png':
-        # A sequence has no audio track; drop the second input entirely.
-        return [
-            'ffmpeg', '-v', 'error', '-y',
-            '-f', 'rawvideo', '-pix_fmt', 'rgba',
-            '-s', f'{width}x{height}', '-r', f'{fps}', '-i', 'pipe:0',
-            os.path.join(output, '%05d.png'),
-        ]
-    raise SystemExit(f'unknown format: {fmt}')
 
 
 def make_session(model, providers, threads=4):
@@ -224,34 +192,6 @@ def edge_mask(alpha):
     from scipy import ndimage as ndi
     soft = (alpha > 0.05) & (alpha < 0.95)
     return ndi.binary_dilation(soft, iterations=2) & (alpha > 0.02)
-
-
-def _remove(p):
-    if os.path.isdir(p):
-        shutil.rmtree(p, ignore_errors=True)
-    elif os.path.exists(p):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
-
-
-def reject(tmp, msg):
-    """Fail loudly AND leave nothing behind.
-
-    Encoding finishes before the output can be checked, so a rejected matte has
-    already been written. Discarding the partial is what makes the invariants
-    meaningful: without it a failed run still leaves a plausible file on disk
-    that a later step — or a person — could pick up as if it were good.
-    """
-    _remove(tmp)
-    raise SystemExit(msg)
-
-
-def finalize(tmp, dest):
-    """Move the validated artifact into place, replacing any previous one."""
-    _remove(dest)
-    os.replace(tmp, dest)
 
 
 def main():
