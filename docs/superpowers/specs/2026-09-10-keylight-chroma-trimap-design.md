@@ -1,7 +1,7 @@
 # Keylight core with the chroma ink-aware trimap — design
 
 **Date:** 2026-09-10
-**Status:** draft for review, pre-implementation
+**Status:** approved, pre-implementation (Part 5 resolved 2026-09-10; prototype-verified)
 **Ships as:** one confirmed PR (small; per project convention for pipeline changes)
 **Depends on:** the matte consolidation (PRs #86, #87, #88 — `--matte`/`--refine`, `chroma_alpha`, `refine_edges`, `trimap_from_alpha`)
 
@@ -75,6 +75,12 @@ pipeline shot matte --method plate --matte keylight --refine closed-form \
 - No alias change. `--key-engine` keeps mapping to `keylight+none` / `chroma+
   closed-form`; neither uses this knob.
 
+`--refine-trimap plate` needs a real plate `spread` for `chroma_alpha`. It is
+auto-detected via `detect_key` (which returns `(key, spread)`) even when
+`--screen-colour` pins the colour — the override replaces only the *colour*, not
+the spread. A `--plate-spread <n>` escape hatch lets the user pin the spread by
+hand when auto-detection misjudges it (resolves Q1).
+
 Report gains `refineTrimap` alongside `matte`/`refine`.
 
 ## Part 4 — Cost and defaults
@@ -88,20 +94,24 @@ Report gains `refineTrimap` alongside `matte`/`refine`.
 - Validate on monster-2 against the `blue-matte-final` baseline: `plate` should
   keep keylight's whites while dropping the outline rim toward chroma+closed-form.
 
-## Part 5 — Open questions for review
+## Part 5 — Resolved (2026-09-10)
 
-1. **Spread when the screen colour is pinned.** `chroma_alpha` needs `spread`
-   (drives its thresholds). With `--screen-colour #hex`, keylight sets `spread=0`,
-   which would degenerate chroma's trimap. Options: force auto key-detection to run
-   for `--refine-trimap plate` (so `spread` is real) even when the colour is pinned,
-   or estimate `spread` separately. Leaning: still run `detect_key` for `spread` and
-   only override the *colour*.
-2. **Despill consistency.** The solve runs on keylight's `F0` (balance-weighted
-   dominant-channel despill) while the trimap came from chroma's own despilled
-   analysis. Both are dominant-channel despills, so they should agree; confirm no
-   edge inconsistency where chroma expected a different foreground colour.
-3. **Naming.** `--refine-trimap alpha|plate` vs folding it into `--refine`
-   (e.g. `--refine closed-form-plate`). The separate knob keeps `--refine` about
-   *whether* to solve and this about *how* to seed it; confirm the split reads well.
-4. **fg_lock strength.** chroma's `fg_lock` was tuned for the chroma alpha; verify it
-   doesn't over-lock when paired with keylight's (often cleaner) core alpha.
+1. **Spread when the screen colour is pinned — RESOLVED.** `--refine-trimap plate`
+   still runs `detect_key` for the `spread`; `--screen-colour` overrides only the
+   colour. A `--plate-spread <n>` escape hatch lets the user pin it by hand. See §3.
+2. **Despill consistency — RESOLVED (prototype-measured).** The solve runs on
+   keylight's `F0`; the trimap is pure geometry, so there is one consistent image
+   and nothing to disagree on colour-wise. In the actual unknown/edge band on
+   monster-2 frame 0, keylight `F0` vs chroma's despilled rgb: mean |Δ| = **0.005**,
+   p95 = **0.015** (both dominant-channel despills). No edge inconsistency.
+3. **Naming — RESOLVED.** Keep the separate `--refine-trimap alpha|plate` knob:
+   `--refine` says *whether* to solve, `--refine-trimap` says *how* to seed it.
+4. **fg_lock strength — RESOLVED (prototype-measured).** chroma's `fg_lock` is a
+   deep-interior core (eroded r=17, ~19% of frame). On monster-2 frame 0, **0** of
+   its pixels are ones keylight calls background, and keylight's mean alpha there is
+   **0.994** — the cores agree. The lock sits far from the edges, so it cannot
+   cause the rim; no over-lock observed.
+
+**Prototype result:** keylight core + chroma trimap gave edge ring **51,539 px**
+≈ chroma+closed-form's **51,588** (rim gone) while keeping keylight's cleaner
+whites — the intended best-of-both, confirmed before implementation.
