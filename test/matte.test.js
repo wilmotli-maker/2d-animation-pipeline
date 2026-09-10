@@ -303,6 +303,22 @@ test('the plate sidecar --key-engine default matches MATTE_DEFAULT_KEY_ENGINE', 
   assert.equal(m[1], MATTE_DEFAULT_KEY_ENGINE);
 });
 
+// The trimap method is split into a chroma-key core and a reusable closed-form
+// edge refinement (matte consolidation PR2). The refinement takes an arbitrary
+// core alpha, so it can run on keylight too. Guard the API + the wrapper so the
+// split is not silently collapsed back.
+test('plate_matte.py exposes the split core/refine API', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../python/plate_matte.py', import.meta.url), 'utf8');
+  for (const fn of ['def chroma_alpha(', 'def trimap_from_alpha(', 'def refine_edges(']) {
+    assert.ok(src.includes(fn), `expected ${fn} in plate_matte.py`);
+  }
+  // matte() must stay a thin wrapper composing the two, not a re-fused copy.
+  assert.match(src, /def matte\([\s\S]*?chroma_alpha\([\s\S]*?refine_edges\(/);
+  // refine_edges must accept a plain alpha (the method-agnostic path).
+  assert.match(src, /def refine_edges\([^)]*alpha=None/);
+});
+
 // --- quality + threads ---------------------------------------------------
 
 test('matteEngine defaults to quality=fast and 4 threads', async () => {

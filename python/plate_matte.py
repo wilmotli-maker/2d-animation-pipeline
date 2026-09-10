@@ -42,10 +42,19 @@ def detect_key_from_bands(ab):
     return key.astype(np.float32), max(float(np.percentile(d, 84)), 0.008)
 
 
-def matte(img, key, spread, tdark=0.34, ringpx=7, clight=0.42, cbias=1.3,
-          feath=1.1, kcarve=0.22, kencl=0.32, despill=True):
-    """img BGR float [0,1] -> (alpha HxW, F RGB HxW)."""
-    from pymatting import estimate_alpha_cf, estimate_foreground_ml
+def chroma_alpha(img, key, spread, tdark=0.34, clight=0.42, cbias=1.3, ringpx=7,
+                 kcarve=0.22, kencl=0.32, despill=True):
+    """Chroma-key core. img BGR float [0,1] -> priors for the edge solver:
+
+      { rgb:     despilled RGB float64 (what the closed-form solve runs on),
+        trimap:  0/0.5/1 trimap float64 built from the plate-colour priors,
+        fg_lock: bool mask of definite-foreground pixels to hold opaque }
+
+    The plate-specific reasoning that makes this strong on flat cel/2D art lives
+    here: a dark ink outline marks the boundary, interiors are opaque, and
+    plate-hued negative space (an open mouth) is background. `refine_edges`
+    consumes these priors — or, for other basic mattes, works from a plain alpha.
+    """
     d_key = np.linalg.norm(img-key, axis=2)
     kc = key-key.mean(); kc = kc/(np.linalg.norm(kc)+1e-6)
     keyn = ((img-img.mean(axis=2, keepdims=True))*kc).sum(axis=2)
@@ -87,14 +96,50 @@ def matte(img, key, spread, tdark=0.34, ringpx=7, clight=0.42, cbias=1.3,
     tri[ring] = 0.5
 
     rgb = bgr[..., ::-1].copy().astype(np.float64)
-    alpha = estimate_alpha_cf(rgb, tri.astype(np.float64))
-    alpha = np.maximum(alpha, (FG_def == 1).astype(np.float64))
+    return {'rgb': rgb, 'trimap': tri.astype(np.float64), 'fg_lock': FG_def == 1}
+
+
+def trimap_from_alpha(alpha, hi=0.9, lo=0.1, erode=9):
+    """Method-agnostic trimap from any core alpha: eroded core = definite FG,
+    eroded background = definite BG, the band between = unknown. Used by
+    refine_edges when no plate-specific trimap is supplied (e.g. keylight)."""
+    fg = cv2.erode((alpha > hi).astype(np.uint8), _k(erode))
+    bg = cv2.erode((alpha < lo).astype(np.uint8), _k(erode))
+    tri = np.full(alpha.shape, 0.5, np.float32)
+    tri[bg == 1] = 0.0
+    tri[fg == 1] = 1.0
+    return tri.astype(np.float64)
+
+
+def refine_edges(rgb, *, trimap=None, alpha=None, fg_lock=None, feath=1.1):
+    """Closed-form edge refinement. rgb is RGB float64. Either pass a `trimap`
+    (from chroma_alpha) or an `alpha` core to derive one via trimap_from_alpha.
+    fg_lock holds definite-FG pixels opaque through the solve and feather.
+    Returns (alpha HxW, F RGB HxW). This is the only stage needing pymatting."""
+    from pymatting import estimate_alpha_cf, estimate_foreground_ml
+    if trimap is None:
+        if alpha is None:
+            raise ValueError('refine_edges needs a trimap or an alpha')
+        trimap = trimap_from_alpha(alpha)
+    alpha = estimate_alpha_cf(rgb, trimap)
+    if fg_lock is not None:
+        alpha = np.maximum(alpha, fg_lock.astype(np.float64))
     if feath > 0:
         alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), feath).astype(np.float64)
-        alpha = np.maximum(alpha, cv2.erode((FG_def == 1).astype(np.uint8), _k(5)).astype(np.float64))
+        if fg_lock is not None:
+            alpha = np.maximum(alpha, cv2.erode(fg_lock.astype(np.uint8), _k(5)).astype(np.float64))
     alpha = np.clip(alpha, 0, 1)
     F = estimate_foreground_ml(rgb, alpha)
     return alpha, F
+
+
+def matte(img, key, spread, tdark=0.34, ringpx=7, clight=0.42, cbias=1.3,
+          feath=1.1, kcarve=0.22, kencl=0.32, despill=True):
+    """Trimap chroma matte = chroma_alpha core + closed-form refine. Thin wrapper
+    kept so callers (and the byte-identical golden path) are unchanged."""
+    core = chroma_alpha(img, key, spread, tdark=tdark, clight=clight, cbias=cbias,
+                        ringpx=ringpx, kcarve=kcarve, kencl=kencl, despill=despill)
+    return refine_edges(core['rgb'], trimap=core['trimap'], fg_lock=core['fg_lock'], feath=feath)
 
 
 # --- keylight engine (--key-engine keylight) --------------------------------
