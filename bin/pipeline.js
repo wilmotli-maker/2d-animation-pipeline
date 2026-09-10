@@ -15,7 +15,8 @@ import { initProject } from '../src/init.js';
 import {
   matteShot, matteEngine, plateMatteEngine,
   MATTE_QUALITIES, MATTE_METHODS, MATTE_DEFAULT_METHOD,
-  MATTE_KEY_ENGINES, MATTE_DEFAULT_KEY_ENGINE,
+  MATTE_KEY_ENGINES, MATTE_CORES, MATTE_REFINES,
+  MATTE_DEFAULT_CORE, MATTE_DEFAULT_REFINE, keyEngineToComposition,
 } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
@@ -235,7 +236,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'matte') {
     const f = parseFlags(rest);
     if (!f.id) {
-      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--key-engine trimap|keylight] [--screen-colour <#rrggbb|auto>] [--screen-balance <0..1>] [--clip-black <0..1>] [--clip-white <0..1>] [--screen-gain <n>] [--screen-pre-blur <px>] [--despill-bias <#rrggbb|auto>] [--inside-mask <file|dir>] [--outside-mask <file|dir>] [--input <file>] [--model-file <path>] [--root <dir>]');
+      fail('usage: pipeline shot matte --id <shotId> [--version <n|final>] [--method ml|plate] [--quality fast|best] [--format prores4444|webm|png] [--despill <true|false>] [--threads <n>] [--feather <px>] [--matte chroma|keylight] [--refine none|closed-form] [--screen-colour <#rrggbb|auto>] [--screen-balance <0..1>] [--clip-black <0..1>] [--clip-white <0..1>] [--screen-gain <n>] [--screen-pre-blur <px>] [--despill-bias <#rrggbb|auto>] [--inside-mask <file|dir>] [--outside-mask <file|dir>] [--input <file>] [--model-file <path>] [--root <dir>]  (--key-engine trimap|keylight is a deprecated alias for --matte/--refine)');
     }
     const method = f.method || MATTE_DEFAULT_METHOD;
     if (!MATTE_METHODS.includes(method)) {
@@ -264,12 +265,34 @@ async function main() {
       if (f.feather != null && !(Number(f.feather) >= 0)) {
         fail('shot matte: --feather must be a non-negative number');
       }
-      const keyEngine = f['key-engine'] || MATTE_DEFAULT_KEY_ENGINE;
-      if (!MATTE_KEY_ENGINES.includes(keyEngine)) {
-        fail(`shot matte: --key-engine must be one of ${MATTE_KEY_ENGINES.join(', ')}`);
+      // Resolve the matte core + refine from --matte/--refine, or the deprecated
+      // --key-engine alias. Mixing the two is refused.
+      const usingNew = f.matte != null || f.refine != null;
+      const usingAlias = f['key-engine'] != null;
+      if (usingNew && usingAlias) {
+        fail('shot matte: use --matte/--refine or the deprecated --key-engine, not both');
+      }
+      let core, refine;
+      if (usingAlias) {
+        if (!MATTE_KEY_ENGINES.includes(f['key-engine'])) {
+          fail(`shot matte: --key-engine must be one of ${MATTE_KEY_ENGINES.join(', ')}`);
+        }
+        ({ core, refine } = keyEngineToComposition(f['key-engine']));
+      } else {
+        core = f.matte || MATTE_DEFAULT_CORE;
+        refine = f.refine || (core === 'keylight' ? 'none' : MATTE_DEFAULT_REFINE);
+        if (!MATTE_CORES.includes(core)) {
+          fail(`shot matte: --matte must be one of ${MATTE_CORES.join(', ')}`);
+        }
+        if (!MATTE_REFINES.includes(refine)) {
+          fail(`shot matte: --refine must be one of ${MATTE_REFINES.join(', ')}`);
+        }
+        if (core === 'chroma' && refine !== 'closed-form') {
+          fail('shot matte: --matte chroma requires --refine closed-form (it has no final alpha of its own)');
+        }
       }
       const keylight = {};
-      if (keyEngine === 'keylight') {
+      if (core === 'keylight') {
         if (f['screen-colour'] != null) {
           if (!isColour(f['screen-colour'])) fail('shot matte: --screen-colour must be #rrggbb or "auto"');
           keylight.screenColour = f['screen-colour'].startsWith('#') || f['screen-colour'] === 'auto'
@@ -300,18 +323,18 @@ async function main() {
           }
         }
       } else {
-        // trimap: the Keylight controls are meaningless — refuse them rather than
+        // chroma: the Keylight controls are meaningless — refuse them rather than
         // silently ignore, so a misremembered command fails loudly.
         for (const k of KEYLIGHT_FLAGS) {
-          if (f[k] != null) fail(`shot matte --key-engine trimap: --${k} only applies to --key-engine keylight`);
+          if (f[k] != null) fail(`shot matte --matte chroma: --${k} only applies to --matte keylight`);
         }
       }
       engine = plateMatteEngine({
-        feather: f.feather != null ? Number(f.feather) : null, keyEngine, keylight,
+        feather: f.feather != null ? Number(f.feather) : null, core, refine, keylight,
       });
     } else {
       if (f.feather != null) fail('shot matte --method ml: --feather does not apply (that is a plate-method flag)');
-      for (const k of ['key-engine', ...KEYLIGHT_FLAGS]) {
+      for (const k of ['key-engine', 'matte', 'refine', ...KEYLIGHT_FLAGS]) {
         if (f[k] != null) fail(`shot matte --method ml: --${k} does not apply (that is a plate-method flag)`);
       }
       const quality = f.quality || MATTE_DEFAULT_QUALITY;
@@ -334,7 +357,7 @@ async function main() {
     }, { engine });
     console.log(`matted ${res.frames} frames from ${res.source}`);
     const tag = method === 'plate'
-      ? `plate/${res.keyEngine || 'trimap'}, key ${res.key}`
+      ? `plate ${res.matte}+${res.refine}, key ${res.key}`
       : `quality ${res.quality}`;
     console.log(`  -> ${res.output} (${res.secondsPerFrame}s/frame, ${tag}, coverage ${res.meanCoverage})`);
     // ml despill reports edgeGreen{Before,After}; keylight reports edgeSpill{Before,After}.

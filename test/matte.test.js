@@ -7,7 +7,8 @@ import {
   MATTE_FORMATS, MATTE_QUALITIES, resolveSourceClip, parseMatteReport,
   matteEngine, plateMatteEngine, matteShot, streamingExec,
   MATTE_METHODS, MATTE_DEFAULT_METHOD,
-  MATTE_KEY_ENGINES, MATTE_DEFAULT_KEY_ENGINE,
+  MATTE_KEY_ENGINES, MATTE_CORES, MATTE_REFINES,
+  MATTE_DEFAULT_CORE, MATTE_DEFAULT_REFINE, keyEngineToComposition,
 } from '../src/matte.js';
 import { matteModelPath, matteModelUrl, matteThreads, MATTE_DEFAULT_QUALITY } from '../src/config.js';
 
@@ -190,6 +191,8 @@ test('plateMatteEngine passes input/output/format/despill and needs no model', a
   assert.deepEqual(calls[0].args, [
     'run', 'python', '/repo/python/plate_matte.py',
     '--input', '/in.mp4', '--output', '/out.mov', '--format', 'prores4444', '--despill', 'true',
+    // Default composition: chroma core + closed-form refine (== the old trimap).
+    '--matte', 'chroma', '--refine', 'closed-form',
   ]);
   // No ML-only flags leak into the plate sidecar.
   for (const flag of ['--model', '--quality', '--threads']) {
@@ -232,28 +235,35 @@ test('matte methods expose ml as the default', () => {
   assert.equal(MATTE_DEFAULT_METHOD, 'ml');
 });
 
-// --- plate keying cores (--key-engine) -----------------------------------
+// --- plate composition: --matte core x --refine stage --------------------
 
-test('plate key engines expose trimap as the default', () => {
+test('plate cores/refines expose the composed defaults and the deprecated alias', () => {
+  assert.deepEqual(MATTE_CORES, ['chroma', 'keylight']);
+  assert.deepEqual(MATTE_REFINES, ['none', 'closed-form']);
+  assert.equal(MATTE_DEFAULT_CORE, 'chroma');
+  assert.equal(MATTE_DEFAULT_REFINE, 'closed-form');
+  // Alias mapping retained for back-compat.
   assert.deepEqual(MATTE_KEY_ENGINES, ['trimap', 'keylight']);
-  assert.equal(MATTE_DEFAULT_KEY_ENGINE, 'trimap');
+  assert.deepEqual(keyEngineToComposition('trimap'), { core: 'chroma', refine: 'closed-form' });
+  assert.deepEqual(keyEngineToComposition('keylight'), { core: 'keylight', refine: 'none' });
 });
 
-test('plateMatteEngine defaults to trimap and passes no --key-engine or keylight flags', async () => {
+test('plateMatteEngine defaults to chroma+closed-form and passes no keylight flags', async () => {
   const { calls, exec } = fakeExec();
   await plateMatteEngine({ runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec })
     .run({ input: '/in.mp4', output: '/out.mov' });
-  assert.equal(calls[0].args.includes('--key-engine'), false);
+  assert.equal(flagValue(calls[0].args, '--matte'), 'chroma');
+  assert.equal(flagValue(calls[0].args, '--refine'), 'closed-form');
   for (const flag of ['--screen-colour', '--screen-balance', '--clip-black', '--inside-mask']) {
-    assert.equal(calls[0].args.includes(flag), false, `${flag} should not leak into trimap`);
+    assert.equal(calls[0].args.includes(flag), false, `${flag} should not leak into chroma`);
   }
 });
 
-test('plateMatteEngine forwards --key-engine keylight and its options', async () => {
+test('plateMatteEngine forwards a keylight core and its options', async () => {
   const { calls, exec } = fakeExec();
   await plateMatteEngine({
     runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
-    keyEngine: 'keylight',
+    core: 'keylight', refine: 'none',
     keylight: {
       screenColour: '#3ba35f', screenBalance: 0.5, clipBlack: 0.1, clipWhite: 0.6,
       screenGain: 1.2, screenPreBlur: 1, despillBias: 'auto',
@@ -262,7 +272,8 @@ test('plateMatteEngine forwards --key-engine keylight and its options', async ()
   }).run({ input: '/in.mp4', output: '/out.mov' });
 
   const a = calls[0].args;
-  assert.equal(flagValue(a, '--key-engine'), 'keylight');
+  assert.equal(flagValue(a, '--matte'), 'keylight');
+  assert.equal(flagValue(a, '--refine'), 'none');
   assert.equal(flagValue(a, '--screen-colour'), '#3ba35f');
   assert.equal(flagValue(a, '--screen-balance'), '0.5');
   assert.equal(flagValue(a, '--clip-black'), '0.1');
@@ -274,11 +285,22 @@ test('plateMatteEngine forwards --key-engine keylight and its options', async ()
   assert.equal(flagValue(a, '--outside-mask'), '/out');
 });
 
-test('plateMatteEngine drops keylight options when the engine is trimap', async () => {
+test('plateMatteEngine forwards --refine closed-form on a keylight core', async () => {
   const { calls, exec } = fakeExec();
   await plateMatteEngine({
     runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
-    keyEngine: 'trimap', keylight: { screenBalance: 0.9 },
+    core: 'keylight', refine: 'closed-form', keylight: { screenBalance: 0.9 },
+  }).run({ input: '/in.mp4', output: '/out.mov' });
+  assert.equal(flagValue(calls[0].args, '--matte'), 'keylight');
+  assert.equal(flagValue(calls[0].args, '--refine'), 'closed-form');
+  assert.equal(flagValue(calls[0].args, '--screen-balance'), '0.9');
+});
+
+test('plateMatteEngine drops keylight options when the core is chroma', async () => {
+  const { calls, exec } = fakeExec();
+  await plateMatteEngine({
+    runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
+    core: 'chroma', keylight: { screenBalance: 0.9 },
   }).run({ input: '/in.mp4', output: '/out.mov' });
   assert.equal(calls[0].args.includes('--screen-balance'), false);
 });
@@ -287,20 +309,23 @@ test('plateMatteEngine only forwards the keylight options that are set', async (
   const { calls, exec } = fakeExec();
   await plateMatteEngine({
     runner: { bin: 'uv', prefixArgs: [] }, script: '/s.py', exec,
-    keyEngine: 'keylight', keylight: { screenBalance: 0.5 },
+    core: 'keylight', refine: 'none', keylight: { screenBalance: 0.5 },
   }).run({ input: '/in.mp4', output: '/out.mov' });
   assert.equal(flagValue(calls[0].args, '--screen-balance'), '0.5');
   assert.equal(calls[0].args.includes('--clip-black'), false);
 });
 
-// The Node default and the sidecar argparse default must agree — same reasoning
-// as the --quality default test below.
-test('the plate sidecar --key-engine default matches MATTE_DEFAULT_KEY_ENGINE', async () => {
+// The Node default and the sidecar's resolved default must agree: the CLI always
+// passes --matte/--refine explicitly, but a direct sidecar call with neither flag
+// nor the alias falls back to this line, and a silent disagreement would mean the
+// two paths produce different mattes.
+test('the plate sidecar default composition matches the Node defaults', async () => {
   const { readFile } = await import('node:fs/promises');
   const src = await readFile(new URL('../python/plate_matte.py', import.meta.url), 'utf8');
-  const m = /--key-engine',[\s\S]*?default='([a-z]+)'/.exec(src);
-  assert.ok(m, 'could not find the --key-engine default in python/plate_matte.py');
-  assert.equal(m[1], MATTE_DEFAULT_KEY_ENGINE);
+  const m = /core,\s*refine\s*=\s*'([a-z]+)',\s*'([a-z-]+)'\s*#\s*historical default/.exec(src);
+  assert.ok(m, 'could not find the default composition in python/plate_matte.py');
+  assert.equal(m[1], MATTE_DEFAULT_CORE);
+  assert.equal(m[2], MATTE_DEFAULT_REFINE);
 });
 
 // The trimap method is split into a chroma-key core and a reusable closed-form

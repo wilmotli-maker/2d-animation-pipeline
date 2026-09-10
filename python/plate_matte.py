@@ -99,10 +99,17 @@ def chroma_alpha(img, key, spread, tdark=0.34, clight=0.42, cbias=1.3, ringpx=7,
     return {'rgb': rgb, 'trimap': tri.astype(np.float64), 'fg_lock': FG_def == 1}
 
 
-def trimap_from_alpha(alpha, hi=0.9, lo=0.1, erode=9):
+def trimap_from_alpha(alpha, hi=0.7, lo=0.3, erode=3):
     """Method-agnostic trimap from any core alpha: eroded core = definite FG,
     eroded background = definite BG, the band between = unknown. Used by
-    refine_edges when no plate-specific trimap is supplied (e.g. keylight)."""
+    refine_edges when no plate-specific trimap is supplied (e.g. keylight).
+
+    The bands are deliberately tight (small erode, confident hi/lo). A loose
+    unknown band lets the closed-form solve ramp alpha gradually AND estimate a
+    light foreground colour borrowed from the interior, which shows as a pale rim
+    on dark outlines when composited. Tight bands keep the unknown region hugging
+    the true edge. It still cannot place the band as well as chroma_alpha's
+    ink-aware trimap — it has only the alpha to work from."""
     fg = cv2.erode((alpha > hi).astype(np.uint8), _k(erode))
     bg = cv2.erode((alpha < lo).astype(np.uint8), _k(erode))
     tri = np.full(alpha.shape, 0.5, np.float32)
@@ -288,9 +295,18 @@ def main():
     ap.add_argument('--format', default='prores4444', choices=['prores4444', 'webm', 'png'])
     ap.add_argument('--despill', default='true', choices=['true', 'false'])
     ap.add_argument('--feather', type=float, default=1.2)
-    # Keying core. 'trimap' is the classical trimap + closed-form matte (default,
-    # unchanged). 'keylight' is the pure per-pixel colour-difference keyer.
-    ap.add_argument('--key-engine', dest='key_engine', default='trimap',
+    # Composable surface: a basic matte core (--matte) plus an optional edge
+    # refinement (--refine). 'chroma' is the colour-distance key; it has no final
+    # alpha of its own, so it requires closed-form refinement. 'keylight' is the
+    # per-pixel keyer and can run raw (refine none) or refined.
+    ap.add_argument('--matte', dest='matte_core', default=None,
+                    choices=['chroma', 'keylight'])
+    ap.add_argument('--refine', dest='refine', default=None,
+                    choices=['none', 'closed-form'])
+    # Deprecated alias, kept so existing commands and direct callers keep working:
+    #   --key-engine trimap   == --matte chroma  --refine closed-form
+    #   --key-engine keylight == --matte keylight --refine none
+    ap.add_argument('--key-engine', dest='key_engine', default=None,
                     choices=['trimap', 'keylight'])
     # Keylight-only controls (ignored by the trimap engine; the Node/CLI layer
     # refuses to pass them there). 'auto' reuses the plate auto-detect / per-frame
@@ -306,7 +322,20 @@ def main():
     ap.add_argument('--outside-mask', dest='outside_mask', default=None)
     args = ap.parse_args()
 
-    keylight = args.key_engine == 'keylight'
+    # Resolve core + refine from the new flags, the deprecated alias, or defaults.
+    if args.matte_core is not None or args.refine is not None:
+        core = args.matte_core or 'chroma'
+        refine = args.refine or ('none' if core == 'keylight' else 'closed-form')
+    elif args.key_engine is not None:
+        core, refine = ('keylight', 'none') if args.key_engine == 'keylight' \
+            else ('chroma', 'closed-form')
+    else:
+        core, refine = 'chroma', 'closed-form'  # historical default (== trimap)
+    if core == 'chroma' and refine != 'closed-form':
+        raise SystemExit('--matte chroma has no final alpha of its own — it requires '
+                         '--refine closed-form')
+
+    keylight = core == 'keylight'
     despill = args.despill == 'true'
     w, h, fps, n = probe(args.input)
 
@@ -318,11 +347,12 @@ def main():
     keyhex = _bgr_to_hex(key)
     bias = None if not despill else (
         'auto' if args.despill_bias == 'auto' else _hex_to_bgr(args.despill_bias))
+    tag = f'{core}+{refine}'
     if keylight:
-        log(f'keylight matte: key={keyhex} balance={args.screen_balance} '
+        log(f'{tag} matte: key={keyhex} balance={args.screen_balance} '
             f'clip=[{args.clip_black},{args.clip_white}] {w}x{h}@{fps:.3f} frames={n}')
     else:
-        log(f'plate matte: key={keyhex} spread={spread:.3f} {w}x{h}@{fps:.3f} frames={n}')
+        log(f'{tag} matte: key={keyhex} spread={spread:.3f} {w}x{h}@{fps:.3f} frames={n}')
     kmax = int(np.argmax(key))
     spill_before, spill_after = [], []
 
@@ -333,12 +363,22 @@ def main():
                 bgr, key, balance=args.screen_balance, gain=args.screen_gain,
                 clip_black=args.clip_black, clip_white=args.clip_white,
                 pre_blur=args.screen_pre_blur, bias=bias, despill=despill)
-            inside = load_mask(args.inside_mask, i, w, h)
-            outside = load_mask(args.outside_mask, i, w, h)
-            alpha = apply_masks(alpha, inside, outside)
-            if args.feather > 0:
-                alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), args.feather)
-                alpha = apply_masks(alpha, inside, outside)  # masks stay authoritative
+            if refine == 'closed-form':
+                # Hand the keylight core to the shared closed-form refiner (trimap
+                # derived from the alpha, no plate priors). It owns the softening,
+                # so the keylight-stage Gaussian feather is skipped.
+                alpha, F = refine_edges(F.astype(np.float64), alpha=alpha.astype(np.float64),
+                                        feath=args.feather)
+                inside = load_mask(args.inside_mask, i, w, h)
+                outside = load_mask(args.outside_mask, i, w, h)
+                alpha = apply_masks(alpha, inside, outside)
+            else:
+                inside = load_mask(args.inside_mask, i, w, h)
+                outside = load_mask(args.outside_mask, i, w, h)
+                alpha = apply_masks(alpha, inside, outside)
+                if args.feather > 0:
+                    alpha = cv2.GaussianBlur(alpha.astype(np.float32), (0, 0), args.feather)
+                    alpha = apply_masks(alpha, inside, outside)  # masks stay authoritative
             if despill:
                 edge = edge_mask_alpha(alpha)
                 spill_before.append(key_fraction(bgr, edge, kmax))
@@ -362,7 +402,7 @@ def main():
     spf = elapsed / max(frames, 1)
     report = {'frames': frames, 'secondsPerFrame': round(spf, 3),
               'meanCoverage': round(mean_cov, 4), 'method': 'plate',
-              'keyEngine': args.key_engine, 'key': keyhex}
+              'matte': core, 'refine': refine, 'key': keyhex}
     if keylight:
         report.update({'screenBalance': args.screen_balance,
                        'clipBlack': args.clip_black, 'clipWhite': args.clip_white})

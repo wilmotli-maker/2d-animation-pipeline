@@ -15,12 +15,26 @@ import { shotFinalDir, shotDraftDir, shotAlphaPath } from './paths.js';
 export const MATTE_METHODS = ['ml', 'plate'];
 export const MATTE_DEFAULT_METHOD = 'ml';
 
-// Keying cores under --method plate. 'trimap' is the classical trimap +
-// closed-form matte (default, unchanged). 'keylight' is the pure per-pixel
-// colour-difference keyer modelled on After Effects' Keylight — see
-// docs/superpowers/specs/2026-09-07-keylight-matte-design.md.
+// Under --method plate the matte is composed of a basic core (--matte) and an
+// optional edge refinement (--refine). 'chroma' is the colour-distance key (it
+// has no final alpha of its own, so it requires closed-form refinement);
+// 'keylight' is the per-pixel keyer, runnable raw or refined. See
+// docs/superpowers/specs/2026-09-08-matte-consolidation-design.md.
+export const MATTE_CORES = ['chroma', 'keylight'];
+export const MATTE_REFINES = ['none', 'closed-form'];
+export const MATTE_DEFAULT_CORE = 'chroma';
+export const MATTE_DEFAULT_REFINE = 'closed-form';
+
+// Deprecated alias, retained so existing commands keep working:
+//   --key-engine trimap   == --matte chroma  --refine closed-form
+//   --key-engine keylight == --matte keylight --refine none
 export const MATTE_KEY_ENGINES = ['trimap', 'keylight'];
 export const MATTE_DEFAULT_KEY_ENGINE = 'trimap';
+export function keyEngineToComposition(keyEngine) {
+  return keyEngine === 'keylight'
+    ? { core: 'keylight', refine: 'none' }
+    : { core: 'chroma', refine: 'closed-form' };
+}
 
 async function pathExists(p) {
   try { await access(p, constants.F_OK); return true; } catch { return false; }
@@ -152,12 +166,12 @@ export function plateMatteEngine({
   runner = plateMatteRunner(),
   script = plateMatteScriptPath(),
   feather = null,
-  // Keying core and its Keylight-only options. keyEngine defaults to 'trimap',
-  // for which every keylight option below is left unset so no keylight flag ever
-  // reaches the trimap path. `keylight` is a bag of the Keylight controls the CLI
-  // has already validated (screenColour, screenBalance, clipBlack, clipWhite,
-  // screenGain, screenPreBlur, despillBias, insideMask, outsideMask).
-  keyEngine = MATTE_DEFAULT_KEY_ENGINE,
+  // Composed matte: `core` (--matte) + `refine` (--refine). `keylight` is a bag
+  // of the Keylight-only controls the CLI has already validated (screenColour,
+  // screenBalance, clipBlack, clipWhite, screenGain, screenPreBlur, despillBias,
+  // insideMask, outsideMask); it is only forwarded when the core is 'keylight'.
+  core = MATTE_DEFAULT_CORE,
+  refine = MATTE_DEFAULT_REFINE,
   keylight = {},
   exec = streamingExec,
 } = {}) {
@@ -176,10 +190,10 @@ export function plateMatteEngine({
         // On plate, --despill toggles the generalized (dominant-channel) despill
         // that decontaminates the edge colour; it is not the ML spill guard.
         '--despill', despill ? 'true' : 'false',
+        '--matte', core, '--refine', refine,
       ];
       if (feather != null) args.push('--feather', String(feather));
-      if (keyEngine !== MATTE_DEFAULT_KEY_ENGINE) args.push('--key-engine', keyEngine);
-      if (keyEngine === 'keylight') {
+      if (core === 'keylight') {
         for (const [k, flag] of Object.entries(KEYLIGHT_FLAGS)) {
           if (keylight[k] != null) args.push(flag, String(keylight[k]));
         }
