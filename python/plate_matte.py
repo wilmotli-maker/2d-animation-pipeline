@@ -99,10 +99,17 @@ def chroma_alpha(img, key, spread, tdark=0.34, clight=0.42, cbias=1.3, ringpx=7,
     return {'rgb': rgb, 'trimap': tri.astype(np.float64), 'fg_lock': FG_def == 1}
 
 
-def trimap_from_alpha(alpha, hi=0.9, lo=0.1, erode=9):
+def trimap_from_alpha(alpha, hi=0.7, lo=0.3, erode=3):
     """Method-agnostic trimap from any core alpha: eroded core = definite FG,
     eroded background = definite BG, the band between = unknown. Used by
-    refine_edges when no plate-specific trimap is supplied (e.g. keylight)."""
+    refine_edges when no plate-specific trimap is supplied (e.g. keylight).
+
+    The bands are deliberately tight (small erode, confident hi/lo). A loose
+    unknown band lets the closed-form solve ramp alpha gradually AND estimate a
+    light foreground colour borrowed from the interior, which shows as a pale rim
+    on dark outlines when composited. Tight bands keep the unknown region hugging
+    the true edge. It still cannot place the band as well as chroma_alpha's
+    ink-aware trimap — it has only the alpha to work from."""
     fg = cv2.erode((alpha > hi).astype(np.uint8), _k(erode))
     bg = cv2.erode((alpha < lo).astype(np.uint8), _k(erode))
     tri = np.full(alpha.shape, 0.5, np.float32)
