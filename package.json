@@ -14,6 +14,7 @@
     "check-auth": "bash scripts/check-auth.sh",
     "sanity:free": "bash scripts/sanity-checks/run-free-checks.sh",
     "test": "node --test",
+    "test:py": "uv run --quiet --with numpy python python/test_matte_io.py",
     "pipeline": "node bin/pipeline.js",
     "web:index": "node scripts/update-web-index.js",
     "web:index:check": "node scripts/update-web-index.js --check"

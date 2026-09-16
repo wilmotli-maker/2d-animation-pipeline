@@ -348,6 +348,9 @@ async function main() {
       const pct = (v) => `${(v * 100).toFixed(1)}%`;
       console.log(`  despill: edge spill ${pct(spillBefore)} -> ${pct(spillAfter)}`);
     }
+    // Method-agnostic quality warnings (suspicious coverage / soft-pixel fraction).
+    // The matte was still written; these are advisory, not failures.
+    for (const w of res.warnings || []) console.warn(`  ⚠ ${w}`);
   } else if (cmd === 'shot' && sub === 'upscale') {
     const f = parseFlags(rest);
     if (!f.id) {

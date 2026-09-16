@@ -354,8 +354,11 @@ lever on cost.
 ## Development
 
 ```bash
-npm test        # runs the unit suite (node --test); no credits, no network
+npm test        # runs the JS unit suite (node --test); no credits, no network
+npm run test:py # runs the Python matte-sidecar tests (uv resolves numpy); no network
 ```
+
+Both run in CI (`.github/workflows/ci.yml`) on every push to `main` and every PR.
 
 The pipeline is layered: a thin wrapper over the Higgsfield CLI (`src/cli.js`),
 an async submit-all/poll-all batch engine (`src/batch.js`, exploiting the

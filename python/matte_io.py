@@ -21,6 +21,62 @@ def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
+# --- method-agnostic quality warnings ---------------------------------------
+# Two statistics flag a suspicious matte regardless of how it was generated (ml,
+# chroma, or keylight): the whole-clip mean coverage (average alpha) and the mean
+# soft-pixel fraction (share of partially-transparent pixels). Unlike the despill
+# invariants in python/matte.py, neither can *prove* a matte is wrong — a subject
+# entering/leaving frame legitimately drives coverage toward 0, one filling the
+# frame drives it toward 1, and a genuinely translucent subject raises the soft
+# fraction. So these WARN (the file is still written) rather than reject.
+#
+# Defaults are derived from the accepted matte corpus (evaluation/, measured
+# 2026-09-16):
+#   ml (26 known-good clips)  meanCoverage 0.24-0.27   meanSoftFraction 0.008-0.016
+#   plate chroma+closed-form  meanCoverage 0.26-0.27   meanSoftFraction 0.03-0.04
+#   plate keylight (raw)      meanCoverage 0.25-0.43   meanSoftFraction 0.20-0.22
+# Coverage: the good clips cluster near 0.25 but that is one genre (centred
+# subject); legit shots run wider (robot keylight measured meanCoverage 0.43). The
+# two bounds are deliberately ASYMMETRIC. Low is very forgiving (0.02): a subject
+# entering/leaving frame drives coverage toward 0, so near-empty clips are common
+# and usually legitimate. High is tighter (0.85, ~2x the observed good envelope):
+# "almost nothing was keyed out" is a strong smell — a wrong --screen-colour on the
+# bluescreen clip measured 0.87 here — though a subject that truly fills the frame
+# can also reach it, which is why it warns rather than rejects.
+# Soft: raw keylight is INHERENTLY soft (~0.22 — its edge is partial coverage, no
+# hard trimap), so the bound must clear that with margin; 0.40 sits above every
+# good clip yet below the ~0.5 "alpha is a gradient, not a mask" failure regime.
+COVERAGE_WARN_LO = 0.02
+COVERAGE_WARN_HI = 0.85
+SOFT_WARN_HI = 0.40
+
+
+def coverage_warnings(mean_cov, mean_soft, *,
+                      cov_lo=COVERAGE_WARN_LO, cov_hi=COVERAGE_WARN_HI,
+                      soft_hi=SOFT_WARN_HI):
+    """Build human-readable warnings for a finished matte's whole-clip stats.
+
+    Returns a list of strings (empty when nothing is suspect). Pure and
+    side-effect-free so both sidecars share one definition and it is unit-testable.
+    """
+    warns = []
+    if mean_cov < cov_lo:
+        warns.append(
+            f'low coverage: only {mean_cov:.1%} of the average frame is opaque — the '
+            'subject may be keyed out (check the plate colour / clip levels). This is '
+            'expected if the subject is absent from most frames.')
+    elif mean_cov > cov_hi:
+        warns.append(
+            f'high coverage: {mean_cov:.1%} of the average frame is opaque — little was '
+            'keyed out. This is expected if the subject fills the frame.')
+    if mean_soft > soft_hi:
+        warns.append(
+            f'high soft-pixel fraction: {mean_soft:.1%} of pixels are partially '
+            'transparent (good mattes are a few percent). The edge may be too soft, or '
+            'the alpha a gradient rather than a mask — unless the subject is translucent.')
+    return warns
+
+
 def probe(path, count_frames=True):
     """Width, height, fps, frame count. count_frames counts exactly (accurate but
     slower); the ml sidecar historically read the container's nb_frames instead."""
@@ -99,7 +155,8 @@ def run_stream(input, output, fmt, w, h, fps, n, process,
     on_done(frames, mean_cov, tmp): optional guard, called before the file is moved
         into place; it may call reject(tmp, ...) to discard a degenerate result.
 
-    Returns (frames, mean_cov, elapsed_seconds).
+    Returns (frames, mean_cov, mean_soft, elapsed_seconds), where mean_soft is the
+    whole-clip mean fraction of partially-transparent (0.05 < alpha < 0.95) pixels.
     """
     tmp = temp_path(output, fmt)
     if fmt == 'png':
@@ -110,6 +167,7 @@ def run_stream(input, output, fmt, w, h, fps, n, process,
     fsz = w * h * 3
     i = 0
     cov = 0.0
+    soft = 0.0
     t0 = time.time()
     try:
         while True:
@@ -125,7 +183,9 @@ def run_stream(input, output, fmt, w, h, fps, n, process,
                 enc.wait()
                 reject(tmp, f'ffmpeg encoder exited early (code {enc.returncode}) after '
                             f'{i} frames — see its error above')
-            cov += float(alpha.mean())
+            ca = np.clip(alpha, 0, 1)
+            cov += float(ca.mean())
+            soft += float(((ca > 0.05) & (ca < 0.95)).mean())
             if on_frame is not None:
                 on_frame(i, alpha)
             i += 1
@@ -145,8 +205,9 @@ def run_stream(input, output, fmt, w, h, fps, n, process,
         reject(tmp, f'ffmpeg encode failed (exit {enc.returncode})')
 
     mean_cov = cov / max(i, 1)
+    mean_soft = soft / max(i, 1)
     if on_done is not None:
         on_done(i, mean_cov, tmp)
     if fmt != 'png':
         os.replace(tmp, output)
-    return i, mean_cov, time.time() - t0
+    return i, mean_cov, mean_soft, time.time() - t0

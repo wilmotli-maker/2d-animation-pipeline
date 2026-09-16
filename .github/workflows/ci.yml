@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # The postinstall hook (scripts/fetch-models.js) would otherwise pull ~1.3 GB
+      # of ML weights; none of the tests need them (the JS suite mocks the sidecar,
+      # the Python test only exercises the pure coverage_warnings function).
+      SKIP_MODEL_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: JS unit tests
+        run: npm test
+
+      # uv runs the Python matte sidecar's tests, resolving numpy per-run with no
+      # committed venv — the same way the sidecar itself is invoked at runtime.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # No committed uv.lock / requirements — deps are resolved per-run, so
+          # there is nothing to key a cache on (avoids setup-uv's cache warning).
+          enable-cache: false
+
+      - name: Python matte tests
+        run: npm run test:py
