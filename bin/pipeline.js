@@ -22,6 +22,7 @@ import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upsca
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 import { buildReviewPage, parseReviewArgs } from '../src/review-page.js';
+import { parseFlags, collectFlag } from '../src/args.js';
 
 // Load private API keys from a gitignored .env (shell env still wins) so every
 // command sees provider credentials without a manual export. See .env.example.
@@ -42,26 +43,6 @@ function printChecklist(result) {
   }
   console.log(result.ok ? 'OK — inputs are valid.' : 'FAILED — fix the ✗ items above.');
   return result.ok;
-}
-
-// Minimal --key value parser for the leaf commands below.
-function parseFlags(args) {
-  const out = {};
-  for (let i = 0; i < args.length; i += 2) {
-    if (!args[i].startsWith('--')) fail(`expected --flag, got "${args[i]}"`);
-    out[args[i].slice(2)] = args[i + 1];
-  }
-  return out;
-}
-
-// Collect every value for a repeatable flag (e.g. --image a --image b -> [a, b]).
-function collectFlag(args, key) {
-  const flag = `--${key}`;
-  const vals = [];
-  for (let i = 0; i < args.length; i += 2) {
-    if (args[i] === flag && args[i + 1] != null) vals.push(args[i + 1]);
-  }
-  return vals;
 }
 
 // Load a batch manifest: a JSON array of per-item specs, or an object

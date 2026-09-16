@@ -13,7 +13,38 @@ export const REPO_ROOT = path.resolve(here, '..');
 // Defaulting to CWD means a user runs `pipeline` from inside their project and
 // the data lands there, the way git or npm behave — one install, many projects.
 export function projectRoot(explicit) {
+  // Catch the classic caller bug where a wrapper interpolates an unset variable
+  // and passes the literal string "undefined"/"null" (or an empty flag value) as
+  // --root. Left unchecked, path.resolve() would turn that into a real directory
+  // named "undefined" under the CWD and silently write the whole project tree
+  // there. Omitting --root (explicit == null) still falls back to CWD as before.
+  if (explicit != null) {
+    const t = String(explicit).trim();
+    if (t === '' || t === 'undefined' || t === 'null') {
+      throw new Error(
+        `--root received an invalid value ${JSON.stringify(explicit)} — omit it to use ` +
+        'the current directory, or pass a real path');
+    }
+  }
   return path.resolve(explicit || process.env.ANIMATION_PIPELINE_ROOT || process.cwd());
+}
+
+// Guard a single user-supplied path segment (an element name or a shot id) before
+// it is joined into the project tree. Rejects the values that silently corrupt it:
+// an unset value stringified to "undefined"/"null", an empty/blank string, a path
+// separator, a NUL, or a "."/".." traversal token. The sheet-instance slug has its
+// own stricter SLUG_RE (src/validate.js); this is the permissive floor that only
+// blocks the clearly-broken and the clearly-dangerous. Returns the value unchanged
+// on success so callers can use it inline.
+export function assertSegment(value, label) {
+  const s = value == null ? '' : String(value).trim();
+  if (s === '' || s === 'undefined' || s === 'null') {
+    throw new Error(`${label} is required (got ${value == null ? 'nothing' : JSON.stringify(value)})`);
+  }
+  if (s === '.' || s === '..' || /[/\\\0]/.test(s)) {
+    throw new Error(`${label} ${JSON.stringify(value)} is not a valid name — no path separators, NUL, "." or ".."`);
+  }
+  return value;
 }
 
 // The four element categories from the handoff doc. Any other value is rejected
