@@ -14,7 +14,7 @@ is background even when shadowed. The core trimap + closed-form matte is general
 """
 import argparse, json, os, subprocess
 import numpy as np, cv2
-from matte_io import log, probe, run_stream, reject
+from matte_io import log, probe, run_stream, coverage_warnings
 # pymatting (and the numba/scipy stack it drags in) is imported lazily inside
 # matte(): only the trimap engine needs it. The keylight engine is pure
 # numpy+opencv, so it must not pay that import cost or require those wheels.
@@ -387,22 +387,21 @@ def main():
             alpha, F = matte(bgr, key, spread, feath=args.feather, despill=despill)
         return F, alpha  # F is RGB
 
-    def guard(frames, mean_cov, tmp):
-        # Never leave a plausible-but-wrong file on disk (mirrors python/matte.py).
-        # A keyer that crushed everything to background or passed everything as
-        # foreground has failed, whatever the exit code.
-        if keylight and (mean_cov < 0.001 or mean_cov > 0.999):
-            reject(tmp, f'degenerate keylight matte: mean coverage {mean_cov:.4f} — the key '
-                        'collapsed to all-background or all-foreground (check --screen-colour '
-                        'and --clip-black/--clip-white)')
+    # Whole-clip coverage/soft stats can't prove a plate matte wrong (a subject can
+    # legitimately leave the frame, fill it, or be translucent), so they WARN rather
+    # than reject — method-agnostically, via matte_io.coverage_warnings, so chroma
+    # gets the same safety net keylight used to have alone.
+    frames, mean_cov, mean_soft, elapsed = run_stream(
+        args.input, args.output, args.format, w, h, fps, n, process)
 
-    frames, mean_cov, elapsed = run_stream(
-        args.input, args.output, args.format, w, h, fps, n, process, on_done=guard)
+    warnings = coverage_warnings(mean_cov, mean_soft)
+    for w_ in warnings:
+        log(f'WARNING: {w_}')
 
     spf = elapsed / max(frames, 1)
     report = {'frames': frames, 'secondsPerFrame': round(spf, 3),
-              'meanCoverage': round(mean_cov, 4), 'method': 'plate',
-              'matte': core, 'refine': refine, 'key': keyhex}
+              'meanCoverage': round(mean_cov, 4), 'meanSoftFraction': round(mean_soft, 4),
+              'method': 'plate', 'matte': core, 'refine': refine, 'key': keyhex}
     if keylight:
         report.update({'screenBalance': args.screen_balance,
                        'clipBlack': args.clip_black, 'clipWhite': args.clip_white})
@@ -411,6 +410,8 @@ def main():
             report['edgeSpillAfter'] = round(float(np.mean(spill_after)), 4)
     else:
         report['plateSpread'] = round(spread, 4)
+    if warnings:
+        report['warnings'] = warnings
     print(json.dumps(report))
 
 

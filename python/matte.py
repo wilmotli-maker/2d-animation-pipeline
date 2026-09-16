@@ -25,9 +25,10 @@ from PIL import Image
 
 # Streaming ffmpeg helpers shared with python/plate_matte.py. This sidecar keeps
 # its own probe() (it reads the container's nb_frames rather than counting) and
-# its own per-frame loop (the ML despill + soft-fraction guards are specific to
-# it); only the byte-identical leaf helpers are shared.
-from matte_io import log, encoder_args, _remove, reject, finalize
+# its own per-frame loop (the ML despill rejects are specific to it). The
+# coverage/soft-fraction quality warnings ARE shared, via coverage_warnings, so
+# every method flags a suspicious matte the same way.
+from matte_io import log, encoder_args, _remove, reject, finalize, coverage_warnings
 
 # Per-model recipes, keyed to --quality (mirrors MATTE_MODELS in src/config.js).
 # These are NOT interchangeable and must match each model exactly — see the note
@@ -301,16 +302,17 @@ def main():
         reject(out_tmp, f'ffmpeg encode failed (exit {enc.returncode})')
 
     # A correct matte is mostly decided: opaque subject, transparent plate, with
-    # soft pixels confined to the silhouette edge (~1% on the reference corpus).
-    # A mostly-soft result means the alpha is a gradient rather than a mask —
-    # the signature of a broken post-process, which otherwise writes a plausible
-    # multi-hundred-MB file and exits 0. Refuse to pass that off as success.
+    # soft pixels confined to the silhouette edge (~1% on the reference corpus). A
+    # mostly-soft result may mean the alpha is a gradient rather than a mask (a
+    # broken post-process that otherwise writes a plausible multi-hundred-MB file
+    # and exits 0) — but it can also be a legitimately translucent subject, so this
+    # WARNS rather than rejects. The coverage/soft bounds and message live in
+    # matte_io.coverage_warnings, shared method-agnostically with the plate sidecar.
     mean_soft = float(np.mean(soft))
-    if mean_soft > 0.5:
-        reject(out_tmp,
-               f'degenerate matte: {mean_soft:.1%} of pixels are partially transparent '
-               f'(expected well under 10%). The alpha is a gradient, not a mask — '
-               f'check the model post-process.')
+    mean_cov = float(np.mean(coverage))
+    warnings = coverage_warnings(mean_cov, mean_soft)
+    for w_ in warnings:
+        log(f'WARNING: {w_}')
 
     report = {
         'frames': count,
@@ -319,7 +321,7 @@ def main():
         'fps': round(fps, 3),
         'seconds': round(elapsed, 1),
         'secondsPerFrame': round(elapsed / count, 3),
-        'meanCoverage': round(float(np.mean(coverage)), 4),
+        'meanCoverage': round(mean_cov, 4),
         'minCoverage': round(float(np.min(coverage)), 4),
         'maxCoverage': round(float(np.max(coverage)), 4),
         'meanSoftFraction': round(mean_soft, 4),
@@ -327,6 +329,8 @@ def main():
         'quality': args.quality,
         'threads': args.threads,
     }
+    if warnings:
+        report['warnings'] = warnings
 
     if do_despill and green_before:
         before = float(np.mean(green_before))
