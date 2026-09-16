@@ -25,6 +25,12 @@ export const MATTE_REFINES = ['none', 'closed-form'];
 export const MATTE_DEFAULT_CORE = 'chroma';
 export const MATTE_DEFAULT_REFINE = 'closed-form';
 
+// How a keylight+closed-form solve seeds its trimap. 'alpha' derives it from the
+// keylight alpha; 'plate' borrows chroma_alpha's ink-aware trimap so keylight's
+// colour keeps its clean whites while the edge is placed like the chroma core.
+export const MATTE_REFINE_TRIMAPS = ['alpha', 'plate'];
+export const MATTE_DEFAULT_REFINE_TRIMAP = 'alpha';
+
 // Deprecated alias, retained so existing commands keep working:
 //   --key-engine trimap   == --matte chroma  --refine closed-form
 //   --key-engine keylight == --matte keylight --refine none
@@ -172,6 +178,11 @@ export function plateMatteEngine({
   // insideMask, outsideMask); it is only forwarded when the core is 'keylight'.
   core = MATTE_DEFAULT_CORE,
   refine = MATTE_DEFAULT_REFINE,
+  // How a keylight+closed-form solve seeds its trimap: 'alpha' (generic, default)
+  // or 'plate' (borrow chroma's ink-aware trimap). plateSpread manually overrides
+  // the auto-detected plate spread that chroma's trimap thresholds use.
+  refineTrimap = MATTE_DEFAULT_REFINE_TRIMAP,
+  plateSpread = null,
   keylight = {},
   exec = streamingExec,
 } = {}) {
@@ -193,7 +204,11 @@ export function plateMatteEngine({
         '--matte', core, '--refine', refine,
       ];
       if (feather != null) args.push('--feather', String(feather));
+      if (plateSpread != null) args.push('--plate-spread', String(plateSpread));
       if (core === 'keylight') {
+        if (refine === 'closed-form' && refineTrimap !== MATTE_DEFAULT_REFINE_TRIMAP) {
+          args.push('--refine-trimap', refineTrimap);
+        }
         for (const [k, flag] of Object.entries(KEYLIGHT_FLAGS)) {
           if (keylight[k] != null) args.push(flag, String(keylight[k]));
         }
