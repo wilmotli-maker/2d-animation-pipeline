@@ -31,6 +31,10 @@ jobs:
       # committed venv — the same way the sidecar itself is invoked at runtime.
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          # No committed uv.lock / requirements — deps are resolved per-run, so
+          # there is nothing to key a cache on (avoids setup-uv's cache warning).
+          enable-cache: false
 
       - name: Python matte tests
         run: npm run test:py
