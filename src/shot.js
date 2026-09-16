@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import {
   shotDir, shotYamlPath, shotDraftsDir, shotDraftDir, shotFinalDir, formatVersion,
 } from './paths.js';
+import { assertSegment } from './config.js';
 
 async function exists(p) {
   try {
@@ -16,6 +17,7 @@ async function exists(p) {
 }
 
 export async function createShot(root, { shotId, elements = [], duration = null, mode = null, description = '' }) {
+  assertSegment(shotId, 'shot id');
   const dir = shotDir(root, shotId);
   if (await exists(dir)) {
     throw new Error(`shot already exists: ${dir}`);
@@ -44,6 +46,7 @@ async function nextVersion(root, shotId) {
 }
 
 export async function newDraft(root, shotId) {
+  assertSegment(shotId, 'shot id');
   const version = await nextVersion(root, shotId);
   const dir = shotDraftDir(root, shotId, version);
   await mkdir(dir, { recursive: true });
@@ -55,6 +58,7 @@ export async function newDraft(root, shotId) {
 }
 
 export async function promoteDraft(root, shotId, version, outputFile) {
+  assertSegment(shotId, 'shot id');
   const ext = path.extname(outputFile) || '.out';
   // Name the final clip after the shot + promoted draft version (e.g.
   // art-talk-01-v006.mp4) so which draft is live is obvious from the filename.

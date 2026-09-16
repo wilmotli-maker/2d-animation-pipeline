@@ -69,3 +69,17 @@ test('promoteDraft copies a draft output into final/ and records its source', as
     assert.match(source.trim(), /v001/);
   });
 });
+
+test('createShot/newDraft/promoteDraft reject an unset/unsafe shot id', async () => {
+  await withTempRoot(async (root) => {
+    for (const bad of [undefined, 'undefined', '', 'a/b', '..']) {
+      await assert.rejects(createShot(root, { shotId: bad }),
+        `createShot should reject ${JSON.stringify(bad)}`);
+      await assert.rejects(newDraft(root, bad),
+        `newDraft should reject ${JSON.stringify(bad)}`);
+      await assert.rejects(promoteDraft(root, bad, 1, '/tmp/x.mp4'),
+        `promoteDraft should reject ${JSON.stringify(bad)}`);
+    }
+    await assert.rejects(stat(path.join(root, 'shots', 'undefined')));
+  });
+});

@@ -72,3 +72,15 @@ test('appendGeneration writes one JSON line per call with a timestamp', async ()
     assert.ok(typeof first.ts === 'string' && first.ts.length > 0);
   });
 });
+
+test('createElement rejects an unset/unsafe name instead of creating "undefined/"', async () => {
+  await withTempRoot(async (root) => {
+    for (const bad of [undefined, 'undefined', '', 'a/b', '..']) {
+      await assert.rejects(
+        createElement(root, { type: 'characters', name: bad }),
+        `expected name ${JSON.stringify(bad)} to be rejected`);
+    }
+    // Nothing should have been written for the rejected names.
+    await assert.rejects(stat(path.join(root, 'elements', 'characters', 'undefined')));
+  });
+});

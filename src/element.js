@@ -1,7 +1,7 @@
 import { mkdir, writeFile, readFile, appendFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import YAML from 'yaml';
-import { ELEMENT_TYPES } from './config.js';
+import { ELEMENT_TYPES, assertSegment } from './config.js';
 import { elementDir, elementInputsDir, styleLockPath, generationsLogPath, sheetDir } from './paths.js';
 
 const INPUT_SUBDIRS = ['reference-images', 'reference-videos', 'speech-samples'];
@@ -20,6 +20,7 @@ export async function createElement(root, { type, name }) {
   if (!ELEMENT_TYPES.includes(type)) {
     throw new Error(`unknown element type "${type}" (expected one of ${ELEMENT_TYPES.join(', ')})`);
   }
+  assertSegment(name, 'element name');
   const dir = elementDir(root, type, name);
   if (await exists(dir)) {
     throw new Error(`element already exists: ${dir}`);
