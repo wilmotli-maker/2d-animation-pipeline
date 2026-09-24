@@ -1,0 +1,100 @@
+{
+  "suite": "video-editing-eval",
+  "description": "Benchmark for AI video-editing models (Aleph is one adapter). 3 categories x 3 characters (ai=robot, art=artist, monster=dragon) from ArtAI episode 2. Each test edits a source clip and is scored for how well it makes the intended change while preserving everything else.",
+  "sourceBase": "/Users/wilmotli/Projects/Seedance Animation/ArtAI/episodes/2/shots/candidates",
+  "evalRoot": "evaluation/video-editing-eval",
+  "defaults": { "model": "aleph2", "ratio": "832:1104" },
+  "categories": {
+    "spatial": "Localized region change; the rest of the frame must be preserved.",
+    "global": "Whole-frame transformation (background, palette, shading/style); character identity/performance preserved.",
+    "temporal": "Change confined to a specific moment/beat; the performance before and after must be preserved."
+  },
+  "tests": [
+    {
+      "id": "ai-eyes-blue",
+      "category": "spatial",
+      "character": "ai",
+      "source": "ai-1-v003.mp4",
+      "prompt": "Change the robot's eyes to glowing blue. Change only the eyes; leave the face, body, background, lighting, and everything else exactly as in the source.",
+      "preserve": "Everything except the eyes.",
+      "status": "done",
+      "notes": "First Aleph run 2026-09-07 (140 credits). Eyes changed for the whole clip (temporal gating not attempted here)."
+    },
+    {
+      "id": "art-hands-2x",
+      "category": "spatial",
+      "character": "art",
+      "source": "art-1-v003.mp4",
+      "prompt": "Make Art's hands twice their normal size, keeping them anatomically consistent with his arms. Change only the size of the hands; preserve his face, hair, apron, pose, motion, and the background exactly.",
+      "preserve": "Everything except hand size.",
+      "status": "pending"
+    },
+    {
+      "id": "monster-sunglasses",
+      "category": "spatial",
+      "character": "monster",
+      "source": "monster-1-v006.mp4",
+      "prompt": "Add a pair of dark sunglasses onto the Monster's eyes, fitted naturally to his face and tracking his head. Add only the sunglasses; preserve his body, color, pose, motion, and the background exactly.",
+      "preserve": "Everything except the added sunglasses.",
+      "status": "pending"
+    },
+    {
+      "id": "ai-bg-blue",
+      "category": "global",
+      "character": "ai",
+      "source": "ai-1-v003.mp4",
+      "prompt": "Replace the plain grey background with a flat, evenly-lit bright chroma-key blue (studio blue screen), uniform across the whole frame. Keep the robot character exactly as in the source; change only the background.",
+      "preserve": "The robot character (only the background changes).",
+      "status": "done",
+      "notes": "Aleph run 2026-09-07 (140 credits). Clean figure/ground; blue had painterly texture, not perfectly flat."
+    },
+    {
+      "id": "art-flat-shaded",
+      "category": "global",
+      "character": "art",
+      "source": "art-4-v002.mp4",
+      "prompt": "Re-render Art in a flat-shaded style: each colored region becomes a single solid flat color with no painterly texture or gradient, and remove the dark ink outlines. Keep his exact shapes, proportions, pose, motion, and the background layout; change only the shading/rendering style.",
+      "preserve": "Shapes, proportions, pose, motion (only the rendering style changes).",
+      "status": "pending"
+    },
+    {
+      "id": "monster-turquoise",
+      "category": "global",
+      "character": "monster",
+      "source": "monster-5-v002.mp4",
+      "prompt": "Recolor the Monster from red to turquoise across his whole body, keeping his markings, shading, and green spines coherent with the new hue. Change only his color; preserve his shape, pose, motion, and the background exactly.",
+      "preserve": "Shape, pose, motion, background (only the body color changes).",
+      "status": "pending"
+    },
+    {
+      "id": "ai-embarrassed-gesture",
+      "category": "temporal",
+      "character": "ai",
+      "source": "ai-2-v006.mp4",
+      "moment": 6.5,
+      "prompt": "At about 6.5 seconds, replace the robot's bent-over, arms-curled-forward gesture with a different embarrassed gesture: claws raised on either side of the head, a sheepish grimace, and a slightly bowed head. Keep the character design and background unchanged, and preserve the rest of the performance before and after that moment.",
+      "preserve": "Performance before and after 6.5s; character design and background throughout.",
+      "status": "pending"
+    },
+    {
+      "id": "art-original-gesture",
+      "category": "temporal",
+      "character": "art",
+      "source": "art-2-v015.mp4",
+      "moment": 3.9,
+      "prompt": "At about 3.9 seconds, when Art says the word 'original', match just that word with a gesture: he extends both arms up and outwards and looks slightly upwards. Preserve the rest of the performance, especially everything after that moment, and keep his design and the background unchanged.",
+      "preserve": "The performance after 3.9s; design and background throughout.",
+      "status": "pending"
+    },
+    {
+      "id": "monster-script-point",
+      "category": "temporal",
+      "character": "monster",
+      "source": "monster-2-v006.mp4",
+      "moment": 1.8,
+      "prompt": "At about 1.8 seconds, when the Monster says 'my script', turn one of his claws into a pointing gesture with the index finger pointing upwards. Preserve the rest of the performance, especially everything after that moment, and keep his design and the background unchanged.",
+      "preserve": "The performance after 1.8s; design and background throughout.",
+      "status": "pending"
+    }
+  ]
+}
