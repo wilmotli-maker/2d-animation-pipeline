@@ -1,0 +1,3 @@
+[0:v]setpts=PTS-STARTPTS,format=yuv420p[s];
+[1:v]setpts=PTS-STARTPTS,format=yuv420p[e];
+[s][e]blend=all_expr='A*(1-min(max(min((T-2.14)/0.4,1),0),max(min((4.40-T)/0.4,1),0)))+B*min(max(min((T-2.14)/0.4,1),0),max(min((4.40-T)/0.4,1),0))':shortest=1[v]
