@@ -46,13 +46,20 @@ let tests = manifest.tests;
 if (flags.only) tests = tests.filter((t) => t.id === flags.only);
 if (flags.category) tests = tests.filter((t) => t.category === flags.category);
 
+// Prefer the local, self-contained copy of the input; fall back to the origin.
+async function resolveSource(t) {
+  const local = path.join(repoRoot, manifest.evalRoot, manifest.localSources, t.source);
+  if (await exists(local)) return local;
+  return path.join(manifest.sourceOrigin, t.source);
+}
+
 const plan = [];
 for (const t of tests) {
   const outDir = path.join(repoRoot, manifest.evalRoot, t.category, t.id, t.model || manifest.defaults.model);
   const outFile = path.join(outDir, 'output.mp4');
   const already = t.status === 'done' || await exists(outFile);
   if (already && !flags.force) continue;
-  plan.push({ t, outDir, outFile });
+  plan.push({ t, outDir, outFile, source: await resolveSource(t) });
 }
 
 if (!plan.length) {
@@ -64,13 +71,12 @@ console.log(`Will run ${plan.length} test(s):`);
 for (const p of plan) console.log(`  ${p.t.id.padEnd(24)} ${p.t.source}`);
 if (flags.list) { console.log('\n(--list: nothing submitted, no credits spent)'); process.exit(0); }
 
-for (const { t, outDir } of plan) {
+for (const { t, outDir, source } of plan) {
   const model = t.model || manifest.defaults.model;
   if (model !== 'aleph2' && model !== 'aleph') {
     console.error(`\n[${t.id}] no adapter for model "${model}" — skipping.`);
     continue;
   }
-  const source = path.join(manifest.sourceBase, t.source);
   await mkdir(outDir, { recursive: true });
 
   console.log(`\n=== ${t.id} (${model}) ===`);

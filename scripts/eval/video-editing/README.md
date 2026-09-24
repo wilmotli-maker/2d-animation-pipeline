@@ -37,12 +37,19 @@ run during the earlier Aleph spike and migrated in.
 ## Output layout (gitignored media)
 
 ```
-evaluation/video-editing-eval/<category>/<id>/
-  prompt.md                 # from tests.json
-  <model>/                  # e.g. aleph2/
-    output.mp4 compare.mp4 diff-heatmap.mp4 norm-out.mp4
-    summary.json task.json request.json ssim.log psnr.log
+evaluation/video-editing-eval/
+  sources/                  # input clips copied in by scaffold.js (self-contained)
+    ai-1-v003.mp4 ai-4-v013.mp4 art-4-v002.mp4 monster-1-v006.mp4
+  <category>/<id>/
+    prompt.md               # from tests.json; points at the local source copy
+    <model>/                # e.g. aleph2/
+      output.mp4 compare.mp4 diff-heatmap.mp4 norm-out.mp4
+      summary.json task.json request.json ssim.log psnr.log
 ```
+
+`scaffold.js` copies each input clip from `sourceOrigin` (in `tests.json`) into
+`sources/` once, so the suite runs without the external source drive. `run.js`
+uses the local copy and only falls back to the origin if a copy is missing.
 
 ## Usage
 

@@ -1,8 +1,9 @@
 {
   "suite": "video-editing-eval",
   "description": "Benchmark for AI video-editing models (Aleph is one adapter). 3 categories x 3 characters (ai=robot, art=artist, monster=dragon) from ArtAI episode 2. Each test edits a source clip and is scored for how well it makes the intended change while preserving everything else. To keep credit cost low, each character reuses one short clip across its edits (ai spatial/global were generated earlier on ai-1-v003 and are kept as-is).",
-  "sourceBase": "/Users/wilmotli/Projects/Seedance Animation/ArtAI/episodes/2/shots/candidates",
+  "sourceOrigin": "/Users/wilmotli/Projects/Seedance Animation/ArtAI/episodes/2/shots/candidates",
   "evalRoot": "evaluation/video-editing-eval",
+  "localSources": "sources",
   "defaults": { "model": "aleph2", "ratio": "832:1104" },
   "categories": {
     "spatial": "Localized region change; the rest of the frame must be preserved.",
