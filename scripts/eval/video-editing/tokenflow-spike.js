@@ -12,6 +12,23 @@
 // spike a's masking is the right tool. So point this at the `global` category
 // (flat-shaded, red→turquoise, bg swaps) and appearance-style prompts.
 //
+// !!! APPEARANCE-ONLY BY CONSTRUCTION — DO NOT RUN ON THE `temporal` CATEGORY.
+// TokenFlow inverts the SOURCE video, extracts its diffusion features, and computes
+// a FIXED inter-frame correspondence map (nearest-neighbour token fusion) from that
+// source motion. It edits a few keyframes with an image editor, then PROPAGATES the
+// edited tokens along that source correspondence field. Its only two ingredients are
+// appearance (from the keyframe image edit) and motion (from the source, and only the
+// source) — there is no path that synthesizes NEW inter-frame motion. So a temporal
+// edit (regenerate a section with a different gesture/pose) is impossible here: the
+// output can only ever do the ORIGINAL motion with a new texture smeared along the
+// wrong correspondences (ghosting/tearing), still performing the original gesture.
+// The claws->hands case works precisely because hands occupy the same place and move
+// the same way as claws — an appearance swap on a fixed motion field. Taxonomy:
+// spatial/global = "what it looks like" (TokenFlow's job); temporal = "where/when it
+// moves" (belongs to spike a's time-windowed mask, keyedit-spike, or splice-match).
+// Running temporal tests here just burns credits on a guaranteed failure. See memory
+// tokenflow-appearance-only.
+//
 // Hosting: TokenFlow is a research repo (SD-based, needs a GPU), so we drive a
 // hosted copy on Replicate rather than standing up CUDA locally. This mirrors how
 // wan-vace.js uses fal — submit → poll → download → analyze.js.
