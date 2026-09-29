@@ -51,34 +51,9 @@ const DEFAULT_PROMPT =
   'in lighting or rendering between the first and second halves so the animation reads ' +
   'as one continuous, uniformly-styled shot.';
 
-// --- Two-stage "previs restyle" prompts (the `previs` command) ------------------
-// Stage 1: collapse the source's (mismatched) rendering to a neutral greybox
-// blocking pass that carries ONLY motion/timing — the illustrated-character
-// adaptation of the live-action "video -> 3D previs" prompt. Killing all surface
-// detail makes both spliced halves render in one identical placeholder style.
-const PREVIS_PROMPT =
-  'VISUAL OVERRIDE — HIGHEST PRIORITY: completely discard all line art, colour, ' +
-  'shading, texture and character design from the reference video. The source drawing ' +
-  'is NOT the visual target. Use it only to recover body motion, performance timing, ' +
-  'pose, gesture and scene layout. Render the result as an ANIMATION BLOCKING PASS in ' +
-  'placeholder geometry: the character must become an obvious articulated animation ' +
-  'mannequin — sphere-like head, single-piece torso, simple pelvis, capsule arms, ' +
-  'capsule legs, block-like hands and feet — a rig-testing dummy, not a finished ' +
-  'character. Do not recreate clothing, face or costume; represent them only as slightly ' +
-  'enlarged primitive body volumes for silhouette. The environment must look like ' +
-  'greybox geometry (boxes, planes, cylinders), everything one flat matte grey. The ' +
-  'first impression of every frame must be "unfinished 3D animation previs." It must ' +
-  'never be mistaken for finished 2D artwork.';
-
-// Stage 2: repaint the neutral previs in the reference image's style. Because the
-// input is now uniform, the styling lands consistently across the whole clip.
-const STYLE_PROMPT =
-  'Repaint this grey greybox previs animation as a finished, hand-drawn 2D illustrated ' +
-  'character in the EXACT style of the reference image — its character design, colour ' +
-  'palette, line weight, shading and texture. Keep the body motion, pose, gesture and ' +
-  'timing from the video completely unchanged. Apply the reference look identically on ' +
-  'every frame so the whole clip reads as one continuous, uniformly-styled shot. Replace ' +
-  'the grey greybox environment with the reference image\'s background treatment.';
+// Two-stage previz→restyle prompts (the `previs` command) live in prompts.mjs so
+// experiment.js and the previz-blocking skill stay in sync.
+import { PREVIS_PROMPT, STYLE_PROMPT } from './prompts.mjs';
 
 // Seedance 2.5 caps at 720p; 480p is the cheap draft rate. The transition-pairs
 // clips are 560x752 (~3:4 portrait). Aleph's nearest allowed ratio is 832:1104.
