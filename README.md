@@ -107,7 +107,8 @@ directory. One install can serve many projects — run it from each project's fo
 ### A typical session
 
 Work from inside an initialized project so `CLAUDE.md` auto-loads the
-**element-author**, **build-element**, and **shot-author** skills. Two ways to
+**element-author**, **build-element**, **shot-author**, and **previz-blocking**
+skills. Two ways to
 start: `cd` into the project and run `claude` in the terminal, or open **Claude
 Desktop**, start a session, and select the project folder as the working folder.
 The Desktop app is often nicer here because it renders some generated results
