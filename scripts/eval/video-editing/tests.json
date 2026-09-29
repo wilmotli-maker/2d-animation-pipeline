@@ -18,6 +18,7 @@
       "source": "ai-1-v003.mp4",
       "prompt": "Change the robot's eyes to glowing blue. Change only the eyes; leave the face, body, background, lighting, and everything else exactly as in the source.",
       "preserve": "Everything except the eyes.",
+      "mask": { "box": [0.5, 0.3, 0.35, 0.15] },
       "status": "done",
       "notes": "Aleph run 2026-09-07 (140 credits). Kept on ai-1-v003; not regenerated on the shorter clip."
     },
@@ -28,6 +29,7 @@
       "source": "art-4-v002.mp4",
       "prompt": "Make Art's hands twice their normal size, keeping them anatomically consistent with his arms. Change only the size of the hands; preserve his face, hair, apron, pose, motion, and the background exactly.",
       "preserve": "Everything except hand size.",
+      "mask": { "box": [0.5, 0.6, 0.6, 0.5] },
       "status": "pending"
     },
     {
@@ -37,6 +39,7 @@
       "source": "monster-1-v006.mp4",
       "prompt": "Add a pair of dark sunglasses onto the Monster's eyes, fitted naturally to his face and tracking his head. Add only the sunglasses; preserve his body, color, pose, motion, and the background exactly.",
       "preserve": "Everything except the added sunglasses.",
+      "mask": { "box": [0.5, 0.32, 0.5, 0.28] },
       "status": "pending"
     },
     {

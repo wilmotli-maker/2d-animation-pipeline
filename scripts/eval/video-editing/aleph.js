@@ -71,11 +71,14 @@ const MIME = { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/w
 async function toDataUri(filePath) {
   const buf = await readFile(filePath);
   const mb = buf.length / (1024 * 1024);
-  if (mb > 15) {
-    console.warn(`warning: ${filePath} is ${mb.toFixed(1)}MB. Runway caps request size; ` +
-      `if submit fails with a size error, use a shorter/lower-res clip or --video-url.`);
+  const b64mb = (buf.length * 4 / 3) / (1024 * 1024);
+  if (b64mb > 5) {
+    console.warn(`warning: ${filePath} is ${b64mb.toFixed(1)}MB as a data URI; Runway caps data URIs ` +
+      `at 5MB. Use a shorter/lower-res clip or --video-url.`);
   }
-  const mime = MIME[path.extname(filePath).toLowerCase()] || 'video/mp4';
+  const mime = MIME[path.extname(filePath).toLowerCase()] ||
+    { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[path.extname(filePath).toLowerCase()] ||
+    'video/mp4';
   return `data:${mime};base64,${buf.toString('base64')}`;
 }
 
@@ -104,6 +107,18 @@ async function submit(args) {
   const body = { model, promptText: prompt, videoUri, ratio };
   if (args.seed && args.seed !== true) body.seed = Number(args.seed);
 
+  // --keyframes <json>: [{"path":"kf.png","seconds":1.2}, ...] (max 5). Aleph 2.0 native
+  // timed guidance images; `seconds` is relative to the submitted video.
+  if (args.keyframes && args.keyframes !== true) {
+    const list = JSON.parse(await readFile(String(args.keyframes), 'utf8'));
+    if (!Array.isArray(list) || !list.length || list.length > 5) {
+      console.error('error: --keyframes must be a JSON array of 1-5 {path, seconds}');
+      process.exit(2);
+    }
+    body.keyframes = [];
+    for (const k of list) body.keyframes.push({ uri: await toDataUri(k.path), seconds: k.seconds });
+  }
+
   const outDir = args.out && args.out !== true
     ? String(args.out)
     : path.join('evaluation', 'aleph-stability', `run-${Date.now()}`);
@@ -111,7 +126,11 @@ async function submit(args) {
 
   // request.json omits the (huge) data URI so it stays readable.
   await writeFile(path.join(outDir, 'request.json'),
-    JSON.stringify({ ...body, videoUri: videoUri.slice(0, 64) + '…(elided)' }, null, 2) + '\n');
+    JSON.stringify({
+      ...body,
+      videoUri: videoUri.slice(0, 64) + '…(elided)',
+      ...(body.keyframes && { keyframes: body.keyframes.map((k) => ({ ...k, uri: k.uri.slice(0, 48) + '…(elided)' })) }),
+    }, null, 2) + '\n');
 
   if (args['dry-run']) {
     console.log(`[dry-run] POST ${BASE}/video_to_video  model=${model} ratio=${ratio}`);
