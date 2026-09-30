@@ -179,6 +179,34 @@ async function runClip(clip, go) {
   }
 }
 
+// Prompt-iteration harness: regenerate ONLY the previz for the three known failure
+// cases with the current PREVIS_PROMPT, into <clip>/previz-test.mp4 (the original
+// previz.mp4 is left untouched for comparison). --go spends credits (~15 cr each).
+const PREVIZ_TEST_CLIPS = [
+  'ai-6-v002__to__ai-9-v002__v1',        // was: humanised head, wrong proportions
+  'art-10-v002__to__art-9-v003__v1',     // was: kept source colours/costume (+ hair-colour leak)
+  'monster-4-v002__to__monster-1-v006__v1', // was: generic wooden human mannequin
+  'ai-2-v003__to__ai-8-v006__v1',        // was: missing mouth / facial features
+  'art-3-v002__to__art-7-v002__v1',      // was: missing mouth / facial features
+];
+async function previztest() {
+  const go = has('go');
+  const only = arg('only');
+  let ids = PREVIZ_TEST_CLIPS;
+  if (only && only !== true) ids = ids.filter((id) => id === String(only));
+  if (!go) { console.log(`DRY RUN — ${ids.length} previz regenerations ≈ ${ids.length * CREDITS_PER_GEN} cr. Add --go.`); return; }
+  for (const id of ids) {
+    const work = path.join(expRoot, id);
+    const source = path.join(work, 'source.mp4');
+    if (!(await exists(source))) { console.error(`  missing source: ${id}`); continue; }
+    console.log(`\n=== ${id} ===`);
+    const out = await seedanceGen({ work, shotId: 'previz-test', video: source, images: [], prompt: PREVIS_PROMPT, label: 'previz-test' });
+    await copyFile(out, path.join(work, 'previz-test.mp4'));
+    console.log(`  -> ${id}/previz-test.mp4`);
+  }
+  console.log('\nprevz-test complete. Compare previz.mp4 (old) vs previz-test.mp4 (new).');
+}
+
 async function run() {
   const go = has('go');
   const only = arg('only');
@@ -283,6 +311,6 @@ function list() {
   console.log(`\ntotal ${CLIPS.length} clips × (1 previz + ${VARIANTS.length} styled) = ${CLIPS.length * (1 + VARIANTS.length)} generations ≈ ${CLIPS.length * (1 + VARIANTS.length) * CREDITS_PER_GEN} credits`);
 }
 
-const main = { list, run, report, review }[cmd];
+const main = { list, run, report, review, previztest }[cmd];
 if (typeof main === 'function') Promise.resolve(main()).catch((e) => { console.error(e.stack || String(e)); process.exit(1); });
 else { console.log('usage: node experiment.js <list|run|report|review> [--go] [--only <clipId>] [--limit N]'); process.exit(cmd ? 2 : 0); }
