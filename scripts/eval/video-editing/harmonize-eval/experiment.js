@@ -253,8 +253,27 @@ async function review() {
     }
   }
   console.log(`staged ${staged} clips into ${path.relative(repoRoot, srcDir)}`);
-  console.log('version legend: v1 source · v2 previz · v3 styled-1ref · v4 styled-2ref · v5 styled-3ref\n');
-  await exec('node', [pipeline, 'review', 'shots', '--folder', srcDir, '--slug', 'harmonize-experiment', '--layout', 'side-by-side']);
+  const legend = 'Versions:  v001 source  ·  v002 previz  ·  v003 styled (1 ref)  ·  v004 styled (2 refs)  ·  v005 styled (3 refs)';
+  console.log(legend + '\n');
+  const out = await exec('node', [pipeline, 'review', 'shots', '--folder', srcDir,
+    '--slug', 'harmonize-experiment', '--layout', 'side-by-side', '--update'], { capture: true });
+  process.stdout.write(out);
+
+  // The pipeline page has no legend field, so inject one under the subtitle. Path
+  // comes from the "review page: <dir>" line it printed.
+  const m = /review page:\s*(\S+)/.exec(out);
+  const indexPath = m ? path.join(m[1], 'index.html') : null;
+  if (indexPath && (await exists(indexPath))) {
+    let html = await readFile(indexPath, 'utf8');
+    if (!html.includes('class="legend"')) {
+      html = html.replace(/(<p class="sub">[\s\S]*?<\/p>)/,
+        `$1\n        <p class="legend" style="margin:.25rem 0 0;font-size:.85rem;opacity:.8">${legend}</p>`);
+      await writeFile(indexPath, html);
+      console.log('injected version legend into the review page');
+    }
+  } else {
+    console.warn('could not locate index.html to inject the legend');
+  }
 }
 
 function list() {
