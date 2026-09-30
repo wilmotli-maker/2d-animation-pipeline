@@ -97,10 +97,15 @@ To turn the neutral previz back into a finished look, generate again with
 (`--image <ref> …`, repeatable) and a repaint prompt that (a) keeps motion/timing
 unchanged, (b) applies the reference look identically on every frame, and (c)
 **preserves the exact framing head-to-feet — never crops below the feet/knees or
-zooms in**. Because the previz is uniform, one reference style lands consistently
-across the whole clip; a single first frame is usually enough. The grey face's
-sculpted expression gives the restyle its mouth/eyes to paint. `shot-author`'s
-worldbuilder director can compose the repaint prompt from the reference image.
+zooms in**. Because the previz is uniform, a reference style lands consistently across
+the whole clip. **How many reference frames to pass is a deliberate knob** for how
+closely the restyle should follow the source's own appearance: a single first frame
+gives a looser, more uniform restyle; adding a pre-transition (~mid) frame and/or an
+end frame (2–3 refs) pulls the result closer to the source's look across the clip
+(useful when the two halves of a splice differ and you want each half's appearance
+honoured). Choose per shot. The grey face's sculpted expression gives the restyle its
+mouth/eyes to paint. `shot-author`'s worldbuilder director can compose the repaint
+prompt from the reference image.
 
 ## Gotchas
 
