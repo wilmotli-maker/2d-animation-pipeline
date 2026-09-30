@@ -233,6 +233,30 @@ async function report() {
   console.log(`\n${made.length} sheets. index -> ${path.relative(repoRoot, path.join(expRoot, 'index.json'))}`);
 }
 
+// Stage a flat folder the pipeline's `review shots --folder` understands (files
+// named "<shotId>-vNNN.ext") and build the review page. Each experiment clip is one
+// "shot"; its five stages become versions v001..v005:
+//   v001 source · v002 previz · v003 styled-v1 (1 ref) · v004 styled-v2 (2 refs) · v005 styled-v3 (3 refs)
+const STAGES = [
+  ['source.mp4', 'v001'], ['previz.mp4', 'v002'],
+  ['styled-v1.mp4', 'v003'], ['styled-v2.mp4', 'v004'], ['styled-v3.mp4', 'v005'],
+];
+async function review() {
+  const srcDir = path.join(expRoot, 'review-src');
+  await rm(srcDir, { recursive: true, force: true });
+  await mkdir(srcDir, { recursive: true });
+  let staged = 0;
+  for (const clip of CLIPS) {
+    for (const [file, ver] of STAGES) {
+      const from = path.join(expRoot, clip.id, file);
+      if (await exists(from)) { await copyFile(from, path.join(srcDir, `${clip.id}-${ver}.mp4`)); staged++; }
+    }
+  }
+  console.log(`staged ${staged} clips into ${path.relative(repoRoot, srcDir)}`);
+  console.log('version legend: v1 source · v2 previz · v3 styled-1ref · v4 styled-2ref · v5 styled-3ref\n');
+  await exec('node', [pipeline, 'review', 'shots', '--folder', srcDir, '--slug', 'harmonize-experiment', '--layout', 'side-by-side']);
+}
+
 function list() {
   const byChar = {};
   for (const c of CLIPS) { const ch = c.id.split('-')[0]; (byChar[ch] ||= []).push(c.id); }
@@ -240,6 +264,6 @@ function list() {
   console.log(`\ntotal ${CLIPS.length} clips × (1 previz + ${VARIANTS.length} styled) = ${CLIPS.length * (1 + VARIANTS.length)} generations ≈ ${CLIPS.length * (1 + VARIANTS.length) * CREDITS_PER_GEN} credits`);
 }
 
-const main = { list, run, report }[cmd];
+const main = { list, run, report, review }[cmd];
 if (typeof main === 'function') Promise.resolve(main()).catch((e) => { console.error(e.stack || String(e)); process.exit(1); });
-else { console.log('usage: node experiment.js <list|run|report> [--go] [--only <clipId>] [--limit N]'); process.exit(cmd ? 2 : 0); }
+else { console.log('usage: node experiment.js <list|run|report|review> [--go] [--only <clipId>] [--limit N]'); process.exit(cmd ? 2 : 0); }
