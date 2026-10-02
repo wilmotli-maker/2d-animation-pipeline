@@ -47,9 +47,13 @@ test('buildPreviewArgs: checker uses geq; solid uses drawbox color; webm forces 
   assert.throws(() => buildPreviewArgs('/p/a.mov', '/o.mp4', 'plaid'), /unknown bg/);
 });
 
+test('previewRelPath keeps the source extension so alpha.mov / alpha.webm do not collide', () => {
+  assert.notEqual(previewRelPath('a/alpha.mov', 'checker'), previewRelPath('a/alpha.webm', 'checker'));
+});
+
 test('previewRelPath mirrors the source under .pipeline/studio/previews', () => {
   assert.equal(previewRelPath('shots/a/drafts/v001/alpha.mov', 'checker'),
-    path.join('.pipeline', 'studio', 'previews', 'shots', 'a', 'drafts', 'v001', 'alpha.checker.mp4'));
+    path.join('.pipeline', 'studio', 'previews', 'shots', 'a', 'drafts', 'v001', 'alpha.mov.checker.mp4'));
 });
 
 test('previewer: pending -> dedupes in-flight -> ready; re-renders when source is newer', async () => {
@@ -64,7 +68,7 @@ test('previewer: pending -> dedupes in-flight -> ready; re-renders when source i
     assert.equal(f.calls.length, 1);
     const ready = await pv.request(rel, 'checker');
     assert.equal(ready.state, 'ready');
-    assert.equal(ready.url, '/media/.pipeline/studio/previews/shots/a/drafts/v001/alpha.checker.mp4');
+    assert.equal(ready.url, '/media/.pipeline/studio/previews/shots/a/drafts/v001/alpha.mov.checker.mp4');
     assert.ok((await stat(path.join(root, previewRelPath(rel, 'checker')))).isFile());
     // Re-pulled matte: source mtime moves past the preview's.
     const future = new Date(Date.now() + 60_000);

@@ -13,7 +13,7 @@ export const PREVIEW_BGS = {
 const PREVIEW_DIR = path.join('.pipeline', 'studio', 'previews');
 
 export function previewRelPath(srcRel, bg) {
-  return path.join(PREVIEW_DIR, `${srcRel.replace(/\.[^./\\]+$/, '')}.${bg}.mp4`);
+  return path.join(PREVIEW_DIR, `${srcRel}.${bg}.mp4`);
 }
 
 // The background is derived from the matte stream itself ([b]), so it always
