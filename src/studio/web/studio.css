@@ -40,6 +40,8 @@
 .rail .fcount:empty { display:none; }
 .rail .rlist h3 { margin-top:1.2rem; }
 .rail .empty { color:var(--dim); font-size:.8rem; padding:.1rem .4rem; }
+.fbanner { color:var(--dim); font-size:.82rem; margin:0 0 .8rem; }
+.fbanner .clearf { padding:.1rem .45rem; font-size:.75rem; }
 .toolbar .seg { display:inline-flex; }
 .toolbar .seg button { border-radius:0; }
 .toolbar .seg button:first-child { border-radius:6px 0 0 6px; }
