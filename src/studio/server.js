@@ -41,9 +41,16 @@ async function handle({ root, previewer }, req, res) {
 
   // Any web page can fire requests at 127.0.0.1 (<img>, fetch no-cors); refuse
   // anything the browser marks as cross-site so they can't trigger renders or reads.
+  // Exception: following a link from another site is a cross-site top-level
+  // navigation; the shell page at `/` has no side effects, so let only that through.
+  const pathOnly = (req.url || '').split('?')[0];
+  const topLevelNav = (req.method === 'GET' || req.method === 'HEAD') && pathOnly === '/'
+    && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
   const site = req.headers['sec-fetch-site'];
-  if (site && site !== 'same-origin' && site !== 'none') return sendJson(res, 403, { error: 'cross-site request' });
-  if (req.headers.origin) {
+  if (!topLevelNav && site && site !== 'same-origin' && site !== 'none') {
+    return sendJson(res, 403, { error: 'cross-site request' });
+  }
+  if (!topLevelNav && req.headers.origin) {
     let originHost = null;
     try { originHost = new URL(req.headers.origin).host; } catch { /* malformed -> reject */ }
     if (originHost !== req.headers.host) return sendJson(res, 403, { error: 'cross-origin request' });

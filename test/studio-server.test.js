@@ -162,6 +162,11 @@ test('rejects cross-site requests (Sec-Fetch-Site / Origin)', async () => {
   assert.equal(await rawGet('/api/tree', { Origin: 'not a url' }), 403);
   assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'same-origin' }), 200);
   assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'none' }), 200);
+  // Following a link from another site is a cross-site top-level navigation: allow only the shell page.
+  const nav = { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
+  assert.equal(await rawGet('/', nav), 200);
+  assert.equal(await rawGet('/api/tree', nav), 403);
+  assert.equal(await rawGet('/', { 'Sec-Fetch-Site': 'cross-site' }), 403);
   const u = new URL(base);
   assert.equal(await rawGet('/api/tree', { Origin: `http://${u.host}` }), 200);
 });
