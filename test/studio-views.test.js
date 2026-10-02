@@ -304,8 +304,9 @@ test('railShellHTML: stable combobox filter boxes (no datalist), chip on the lef
   const { railShellHTML } = await import('../src/studio/web/views.js');
   const h = railShellHTML(FT, { shots: { text: '^a"<', chip: { label: 'a<"', value: '^a"<' } }, elements: { text: '', chip: null } });
   assert.doesNotMatch(h, /datalist|list="/);
-  assert.match(h, /<div class="ffield" data-field="shots"><span class="chip" title="a&lt;&quot;">a&lt;&quot;<\/span><input type="text" class="filter" data-filter="shots" role="combobox" aria-expanded="false" aria-controls="sug-shots" aria-autocomplete="list" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
+  assert.match(h, /<div class="ffield" data-field="shots"><span class="chip" title="a&lt;&quot;">a&lt;&quot;<\/span><input type="text" class="filter" data-filter="shots" role="combobox" aria-expanded="false" aria-controls="sug-shots" aria-autocomplete="list" aria-label="Filter shots and folders" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
   assert.match(h, /<button type="button" class="fclear" data-clear="shots" title="Clear filter" aria-label="Clear filter">×<\/button><ul class="sug" id="sug-shots" role="listbox" hidden><\/ul>/);
+  assert.match(h, /data-filter="elements"[^>]*aria-label="Filter elements"/);
   // Empty box: no chip, clear button hidden.
   assert.match(h, /<div class="ffield" data-field="elements"><input [^>]*data-filter="elements"[^>]*value=""[^>]*>/);
   assert.match(h, /data-clear="elements" [^>]*hidden>×/);

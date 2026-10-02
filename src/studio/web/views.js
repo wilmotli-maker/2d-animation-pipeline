@@ -249,11 +249,12 @@ export function shotsListHTML(tree, current) {
 
 // One filter box: [chip] input [×] in a bordered field, with a combobox dropdown
 // (app.js fills and shows the <ul>). `f` is `{ text, chip }`.
+const FILTER_LABEL = { elements: 'Filter elements', shots: 'Filter shots and folders' };
 function filterBox(kind, f) {
   const text = f?.text || '', chip = f?.chip || null;
   return `<div class="fbox"><div class="ffield" data-field="${kind}">${chipHTML(chip)}`
     + `<input type="text" class="filter" data-filter="${kind}" role="combobox" aria-expanded="false"`
-    + ` aria-controls="sug-${kind}" aria-autocomplete="list" placeholder="filter — character or regex"`
+    + ` aria-controls="sug-${kind}" aria-autocomplete="list" aria-label="${FILTER_LABEL[kind]}" placeholder="filter — character or regex"`
     + ` value="${esc(text)}" autocomplete="off" spellcheck="false">`
     + `<button type="button" class="fclear" data-clear="${kind}" title="Clear filter" aria-label="Clear filter"`
     + `${text || chip ? '' : ' hidden'}>×</button>`
