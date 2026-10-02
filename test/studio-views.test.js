@@ -357,6 +357,11 @@ test('gridFilterBannerHTML: shown only when rows are hidden; label escaped; clea
     '<p class="fbanner">Filtered by “ai”: 8 of 25 shots · <button class="clearf">clear filter</button></p>');
   assert.equal(gridFilterBannerHTML({ label: '<b>', shown: 0, total: 3 }),
     '<p class="fbanner">No shots match “&lt;b&gt;” in this view · <button class="clearf">clear filter</button></p>');
+  // Folder views: rows are clip groups.
+  assert.equal(gridFilterBannerHTML({ label: 'ai', shown: 2, total: 6, unit: 'clip groups' }),
+    '<p class="fbanner">Filtered by “ai”: 2 of 6 clip groups · <button class="clearf">clear filter</button></p>');
+  assert.equal(gridFilterBannerHTML({ label: 'x', shown: 0, total: 6, unit: 'clip groups' }),
+    '<p class="fbanner">No clip groups match “x” in this view · <button class="clearf">clear filter</button></p>');
 });
 
 test('homeHTML: folders card only when folders exist; shots count excludes folders', () => {
