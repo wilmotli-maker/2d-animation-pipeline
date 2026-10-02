@@ -15,8 +15,8 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 const MAX_BODY = 64 * 1024;
 
-function sendJson(res, status, obj) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+function sendJson(res, status, obj, extra = {}) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra });
   res.end(JSON.stringify(obj));
 }
 
@@ -25,12 +25,12 @@ function safeDecode(s) { try { return decodeURIComponent(s); } catch { return nu
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
-    req.on('data', (c) => {
-      size += c.length;
-      if (size > MAX_BODY) { reject(Object.assign(new Error('body too large'), { status: 413 })); req.destroy(); }
-      else chunks.push(c);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    // Past the cap: stop buffering but keep draining, so the 413 can actually be
+    // delivered (destroying the socket mid-upload surfaces as a connection reset).
+    req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
+    req.on('end', () => (size > MAX_BODY
+      ? reject(Object.assign(new Error('body too large'), { status: 413 }))
+      : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
 }
@@ -109,7 +109,8 @@ async function handle({ root, previewer }, req, res) {
       }
       let body;
       try { body = JSON.parse(await readBody(req)); } catch (err) {
-        return sendJson(res, err.status || 400, { error: err.message });
+        return sendJson(res, err.status || 400, { error: err.message },
+          err.status === 413 ? { Connection: 'close' } : {});
       }
       try {
         return sendJson(res, 200, await setSelection(root, body && body.key, body && body.versions));

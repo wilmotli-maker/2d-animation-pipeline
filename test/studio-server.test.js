@@ -100,6 +100,14 @@ test('PUT /api/selections round-trips; requires JSON content type', async () => 
   assert.equal(invalid.status, 400);
 });
 
+test('PUT /api/selections: oversized body -> 413 reaches the client', async () => {
+  const r = await fetch(base + 'api/selections', { method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'a', versions: [], pad: 'x'.repeat(100 * 1024) }) });
+  assert.equal(r.status, 413);
+  assert.equal(r.headers.get('connection'), 'close');
+});
+
 test('GET /api/matte-preview validates src/bg and delegates to the previewer', async () => {
   const q = (src, bg) => fetch(`${base}api/matte-preview?src=${encodeURIComponent(src)}${bg ? `&bg=${bg}` : ''}`);
   const ok = await q('episodes/1/shots/ai-1/drafts/v001/alpha.mov');
