@@ -169,7 +169,7 @@ rail.addEventListener('focusout', (e) => { const kind = e.target.dataset?.filter
 
 rail.addEventListener('keydown', (e) => {
   const kind = e.target.dataset?.filter;
-  if (!kind) return;
+  if (!kind || e.isComposing) return;   // IME: Enter/arrows belong to the composition
   const c = combo[kind];
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
