@@ -123,7 +123,8 @@ function characterRegex(c, all) {
 
 export function filterSuggestions(tree) {
   const shots = allShots(tree);
-  const chars = [...new Set(shots.map((s) => shotCharacter(s.shotId)).filter(Boolean))];
+  // Lowercased: filters match case-insensitively, so AI-03 and ai-03 are one character.
+  const chars = [...new Set(shots.map((s) => shotCharacter(s.shotId)).filter(Boolean).map((c) => c.toLowerCase()))];
   const names = new Map();
   for (const e of tree.elements) names.set(e.name, [...(names.get(e.name) || []), e.type]);
   const ci = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });

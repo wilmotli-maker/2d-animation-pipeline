@@ -211,6 +211,17 @@ test('filterSuggestions: label pluralizes and counts matching folders', async ()
   assert.equal(filterSuggestions(one).shots.find((x) => x.value === '^solo-').label, 'solo (2 shots, 1 folder)');
 });
 
+test('filterSuggestions: characters are case-insensitive (one suggestion, lowercase, lookahead covers other cases)', async () => {
+  const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
+  const t = { project: 'p', elements: [], folders: [], episodes: [{ id: '1', folders: [], shots:
+    ['AI-03', 'ai-03', 'ai-1', 'AI-ALT1-talk-01', 'Ai-Alt1-idle'].map((shotId) => ({ shotId, versions: 1 })) }], shots: [] };
+  const s = filterSuggestions(t).shots;
+  assert.deepEqual(s.map((x) => x.label), ['ai (3 shots)', 'ai-alt1 (2 shots)']);
+  assert.equal(s[0].value, '^ai-(?!alt1(?:-|$))');
+  assert.deepEqual(matchedIds(filterTree, t, s[0].value), ['AI-03', 'ai-03', 'ai-1']);
+  assert.deepEqual(matchedIds(filterTree, t, s[1].value), ['AI-ALT1-talk-01', 'Ai-Alt1-idle']);
+});
+
 test('filterSuggestions: regex metachars in characters and their extensions are escaped', async () => {
   const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
   const t = { project: 'p', elements: [], folders: [], episodes: [{ id: '1', folders: [], shots:
