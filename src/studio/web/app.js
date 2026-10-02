@@ -63,10 +63,21 @@ function versionsFor(key) {
   return [...state.selected].filter((k) => k.startsWith(p)).map((k) => k.slice(p.length));
 }
 
-async function saveKey(key) {
-  const r = await fetch('/api/selections', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key, versions: versionsFor(key) }) });
-  if (!r.ok) throw new Error((await r.json()).error || r.status);
+// Saves are chained per key so PUTs land in click order, and each sends the list
+// as of send time; otherwise a stale full list from an earlier click could win.
+const saveChains = new Map();
+function saveKey(key) {
+  const send = async () => {
+    const r = await fetch('/api/selections', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, versions: versionsFor(key) }) });
+    if (!r.ok) {
+      const body = await r.json().catch(() => null);
+      throw new Error(body?.error || `HTTP ${r.status}`);
+    }
+  };
+  const p = (saveChains.get(key) || Promise.resolve()).catch(() => {}).then(send);
+  saveChains.set(key, p);
+  return p;
 }
 
 function flash(msg) { const e = document.getElementById('err'); if (e) e.textContent = msg; }
