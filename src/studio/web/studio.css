@@ -9,6 +9,14 @@
 .rail a.node .meta { color:var(--dim); font-size:.72rem; font-family:ui-monospace,Menlo,monospace; }
 .rail .nested a.node { padding-left:1.1rem; font-family:ui-monospace,Menlo,monospace; font-size:.8rem; }
 .rail a.node.folder > span:first-child::before { content:"▤ "; color:var(--dim); }
+.rail .fbox { margin:0 0 .4rem; }
+.rail input.filter { display:block; width:100%; box-sizing:border-box; margin:0; padding:.25rem .45rem;
+  font-size:.8rem; color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:5px; }
+.rail input.filter:focus { outline:none; border-color:var(--accent); }
+.rail input.filter.invalid { border-color:var(--warn); }
+.rail .fcount { color:var(--dim); font-size:.72rem; padding:.15rem .1rem 0; }
+.rail .fcount:empty { display:none; }
+.rail .rlist h3 { margin-top:1.2rem; }
 .rail .empty { color:var(--dim); font-size:.8rem; padding:.1rem .4rem; }
 .toolbar .seg { display:inline-flex; }
 .toolbar .seg button { border-radius:0; }

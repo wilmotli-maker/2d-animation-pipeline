@@ -64,6 +64,117 @@ test('shotRowItems: keyPrefix namespaces folder rows', async () => {
   assert.equal(shotRowItems([s], { keyPrefix: 'folder:2/candidates/' })[0].key, 'folder:2/candidates/x');
 });
 
+test('shotCharacter: name prefix up to the first number/kind token', async () => {
+  const { shotCharacter } = await import('../src/studio/web/views.js');
+  const cases = {
+    'art-talk-03': 'art', 'ai-alt2-idle': 'ai-alt2', 'ai-alt1-talk-02b': 'ai-alt1', 'ai-talk-01': 'ai',
+    'ai-1': 'ai', 'monster-4': 'monster', 'art-idle': 'art', TEST2: null, '01-art-talk': null, art: null,
+    'Mira-TALK-1': 'Mira', 'ai-alt-2': 'ai-alt', 'x-y': null,
+  };
+  for (const [id, want] of Object.entries(cases)) assert.equal(shotCharacter(id), want, id);
+});
+
+const FT = {
+  project: 'demo',
+  elements: [
+    { type: 'characters', name: 'Mira', sheets: 1, versions: 1 }, { type: 'characters', name: 'a.b', sheets: 0, versions: 0 },
+    { type: 'props', name: 'lamp', sheets: 0, versions: 0 },
+  ],
+  episodes: [
+    { id: '1', shots: [{ shotId: 'art-talk-01', versions: 1 }, { shotId: 'art-idle', versions: 1 }, { shotId: 'ai-1', versions: 2 }],
+      folders: [{ path: 'candidates', clips: 4 }] },
+    { id: '2', shots: [{ shotId: 'monster-4', versions: 1 }, { shotId: 'a.b-1', versions: 1 }], folders: [] },
+  ],
+  shots: [{ shotId: 'ai-9', versions: 1 }], folders: [],
+};
+
+test('filterTree: regex over shot ids/folder paths; hides empty episodes; matched/total counts', async () => {
+  const { filterTree, treeHTML: th } = await import('../src/studio/web/views.js');
+  const f = filterTree(FT, { shots: '^ART-' });
+  assert.deepEqual(f.episodes.map((e) => e.id), ['1']);
+  assert.deepEqual(f.episodes[0].shots.map((s) => s.shotId), ['art-talk-01', 'art-idle']);
+  assert.deepEqual(f.episodes[0].folders, []);
+  assert.equal(f.episodes[0].totalShots, 3);
+  assert.deepEqual(f.shots, []);
+  assert.deepEqual(f.filter.shots, { active: true, invalid: false, matched: 2, total: 6 });
+  assert.equal(f.elements.length, 3);                               // other box untouched
+  assert.equal(f.filter.elements.active, false);
+  const h = th(f, '#/');
+  assert.match(h, /Episode 1<\/span><span class="meta">2\/3</);
+  assert.doesNotMatch(h, /Episode 2/);
+  // A folder match alone keeps its episode visible.
+  const g = filterTree(FT, { shots: 'cand' });
+  assert.deepEqual(g.episodes.map((e) => [e.id, e.shots.length, e.folders.length]), [['1', 0, 1]]);
+  // Empty box = no filtering, no counts in meta.
+  const n = filterTree(FT, { shots: '', elements: '' });
+  assert.equal(n.episodes.length, 2);
+  assert.equal(n.episodes[0].totalShots, undefined);
+  assert.equal(n.filter.shots.active, false);
+  assert.match(th(n, '#/'), /Episode 1<\/span><span class="meta">3</);
+});
+
+test('filterTree: invalid regex falls back to case-insensitive substring and flags it', async () => {
+  const { filterTree } = await import('../src/studio/web/views.js');
+  const f = filterTree(FT, { shots: 'A.B-(', elements: '[' });
+  assert.equal(f.filter.shots.invalid, true);
+  assert.deepEqual(f.episodes.flatMap((e) => e.shots.map((s) => s.shotId)), []);   // literal "a.b-(" matches nothing
+  const g = filterTree(FT, { shots: 'A.B-1(' });
+  assert.equal(g.filter.shots.invalid, true);
+  const h = filterTree(FT, { shots: 'A.B-1[' });
+  assert.equal(h.filter.shots.invalid, true);
+  assert.equal(filterTree(FT, { shots: 'a.b-1' }).filter.shots.invalid, false);
+  const sub = filterTree({ ...FT, episodes: [{ id: '1', shots: [{ shotId: 'x(1', versions: 1 }], folders: [] }] }, { shots: 'X(' });
+  assert.deepEqual(sub.episodes[0].shots.map((s) => s.shotId), ['x(1']);
+  assert.equal(f.filter.elements.invalid, true);
+  assert.equal(f.elements.length, 0);
+});
+
+test('filterTree: elements by name; type groups with no matches disappear', async () => {
+  const { filterTree, treeHTML: th } = await import('../src/studio/web/views.js');
+  const f = filterTree(FT, { elements: 'mira' });
+  assert.deepEqual(f.elements.map((e) => e.name), ['Mira']);
+  assert.deepEqual(f.filter.elements, { active: true, invalid: false, matched: 1, total: 3 });
+  const h = th(f, '#/');
+  assert.match(h, /<div class="grp">characters<\/div>/);
+  assert.doesNotMatch(h, /<div class="grp">props<\/div>/);
+  assert.match(th(filterTree(FT, { elements: 'zzz' }), '#/'), /no matches/);
+  assert.match(th(filterTree(FT, { shots: 'zzz' }), '#/'), /no matches/);
+});
+
+test('filterSuggestions: characters with escaped regex values; elements sorted case-insensitively', async () => {
+  const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
+  const s = filterSuggestions(FT);
+  assert.deepEqual(s.shots, [
+    { value: '^a\\.b-', label: 'a.b (1 shots)' },
+    { value: '^ai-', label: 'ai (2 shots)' },
+    { value: '^art-', label: 'art (2 shots)' },
+    { value: '^monster-', label: 'monster (1 shots)' },
+  ]);
+  assert.deepEqual(s.elements, [
+    { value: '^a\\.b$', label: 'a.b (characters)' },
+    { value: '^lamp$', label: 'lamp (props)' },
+    { value: '^Mira$', label: 'Mira (characters)' },
+  ]);
+  // A suggestion, used as the filter, selects exactly that character.
+  const f = filterTree(FT, { shots: s.shots[0].value });
+  assert.deepEqual(f.episodes.flatMap((e) => e.shots.map((x) => x.shotId)), ['a.b-1']);
+});
+
+test('railShellHTML: stable filter inputs + datalists, persisted values escaped', async () => {
+  const { railShellHTML, filterSuggestions } = await import('../src/studio/web/views.js');
+  const h = railShellHTML(FT, filterSuggestions(FT), { shots: '^a"<', elements: '' });
+  assert.match(h, /<input type="search" class="filter" data-filter="shots" list="sug-shots" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
+  assert.match(h, /<datalist id="sug-shots"><option value="\^a\\\.b-" label="a\.b \(1 shots\)">/);
+  assert.match(h, /data-filter="elements" list="sug-elements"/);
+  assert.match(h, /<h3>Episodes<\/h3>/);
+  assert.match(h, /id="rail-proj"/);
+  assert.match(h, /id="rail-elements"/);
+  assert.match(h, /id="rail-shots"/);
+  // No episodes/flat shots at all -> no shots filter.
+  const bare = railShellHTML({ ...FT, episodes: [], shots: [], folders: [] }, filterSuggestions(FT), {});
+  assert.doesNotMatch(bare, /data-filter="shots"/);
+});
+
 test('homeHTML: folders card only when folders exist; shots count excludes folders', () => {
   assert.doesNotMatch(homeHTML(TREE), /folders/);
   const t = { ...TREE, episodes: [{ ...TREE.episodes[0], folders: [{ path: 'c', clips: 9 }] }], folders: [{ path: 'a', clips: 1 }] };

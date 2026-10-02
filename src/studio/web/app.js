@@ -1,6 +1,7 @@
 // src/studio/web/app.js
 import {
-  esc, parseRoute, treeHTML, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
+  esc, parseRoute, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
+  filterTree, filterSuggestions, railShellHTML, projectNodeHTML, elementsListHTML, shotsListHTML,
 } from './views.js';
 import { createSelectionSync } from './selection-sync.js';
 
@@ -16,6 +17,7 @@ const sync = createSelectionSync({ fetchJson: getJson, putJson });
 const state = {
   tree: null, route: { view: 'home' }, items: [], byKey: {},
   selected: sync.selected, hidden: new Set(), mode: 'clips', bg: loadBg(), onlySelected: false,
+  filters: { shots: loadFilter('shots'), elements: loadFilter('elements') },
 };
 
 // Matte background is a per-viewer convenience, so localStorage is enough.
@@ -23,6 +25,56 @@ function loadBg() {
   try { const b = localStorage.getItem('studio:bg'); return MATTE_BGS.includes(b) ? b : 'checker'; } catch { return 'checker'; }
 }
 function saveBg() { try { localStorage.setItem('studio:bg', state.bg); } catch {} }
+
+// Rail filter text, also per viewer.
+function loadFilter(kind) { try { return localStorage.getItem(`studio:filter:${kind}`) || ''; } catch { return ''; } }
+function saveFilter(kind) { try { localStorage.setItem(`studio:filter:${kind}`, state.filters[kind]); } catch {} }
+
+// The rail shell (filter inputs + datalists) is built once per boot/rescan; only
+// the list containers inside it are re-rendered, so a focused input keeps its caret.
+function buildRail() {
+  rail.innerHTML = railShellHTML(state.tree, filterSuggestions(state.tree), state.filters);
+}
+
+function renderRail() {
+  const current = location.hash || '#/';
+  const ft = filterTree(state.tree, state.filters);
+  const fill = (id, html) => { const el = rail.querySelector(`#${id}`); if (el) el.innerHTML = html; };
+  fill('rail-proj', projectNodeHTML(ft, current));
+  fill('rail-elements', elementsListHTML(ft, current));
+  fill('rail-shots', shotsListHTML(ft, current));
+  for (const kind of ['shots', 'elements']) {
+    const f = ft.filter[kind];
+    const input = rail.querySelector(`input[data-filter="${kind}"]`);
+    if (input) {
+      input.classList.toggle('invalid', f.invalid);
+      if (f.invalid) input.title = 'invalid regex — matching as text'; else input.removeAttribute('title');
+    }
+    const cnt = rail.querySelector(`[data-count="${kind}"]`);
+    if (cnt) cnt.textContent = f.active ? `${f.matched} of ${f.total} ${kind}` : '';
+  }
+}
+
+// Bring the active node into the rail's viewport. Set scrollTop directly (not
+// scrollIntoView) so only the rail scrolls, never the window.
+function revealActiveNode() {
+  const on = rail.querySelector('a.node.on');
+  if (on) {
+    const rr = rail.getBoundingClientRect(), nr = on.getBoundingClientRect();
+    if (nr.top < rr.top) rail.scrollTop += nr.top - rr.top;
+    else if (nr.bottom > rr.bottom) rail.scrollTop += nr.bottom - rr.bottom;
+  }
+}
+
+let filterTimer = null;
+rail.addEventListener('input', (e) => {
+  const kind = e.target.dataset?.filter;
+  if (!kind) return;
+  state.filters[kind] = e.target.value;
+  saveFilter(kind);
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(renderRail, 80);
+});
 
 // Swap each .mpv placeholder for its composite <video>. The server renders on
 // demand (max 2 at once), so poll pending ones; a placeholder that leaves the
@@ -125,15 +177,9 @@ async function route() {
   const my = ++routeSeq;
   state.route = parseRoute(location.hash);
   state.hidden.clear();
-  rail.innerHTML = treeHTML(state.tree, location.hash || '#/');
-  // Bring the active node into the rail's viewport. Set scrollTop directly (not
-  // scrollIntoView) so only the rail scrolls, never the window.
-  const on = rail.querySelector('a.node.on');
-  if (on) {
-    const rr = rail.getBoundingClientRect(), nr = on.getBoundingClientRect();
-    if (nr.top < rr.top) rail.scrollTop += nr.top - rr.top;
-    else if (nr.bottom > rr.bottom) rail.scrollTop += nr.bottom - rr.bottom;
-  }
+  clearTimeout(filterTimer);   // this render already reflects the latest filter text
+  renderRail();
+  revealActiveNode();
   const r = state.route;
   try {
     if (r.view === 'element') {
@@ -178,6 +224,7 @@ async function route() {
 async function boot() {
   let sel;
   [state.tree, sel] = await Promise.all([getJson('/api/tree'), sync.load()]);
+  buildRail();
   await route();
   if (sel.warnings.length) flash(sel.warnings[0]);   // e.g. a corrupt selections.json was ignored
 }
