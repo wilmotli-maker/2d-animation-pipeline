@@ -153,21 +153,23 @@ function mapVariants(projectRoot, v) {
   };
 }
 
+// A folder under shots/ is a shot only if it has a shot.yaml or a drafts/ dir;
+// anything else (candidates/, assembled/, …) is a working folder, not a shot.
+export async function isShotDir(dir) {
+  return (await fileExists(path.join(dir, 'shot.yaml'))) || (await isDir(path.join(dir, 'drafts')));
+}
+
 export async function scanShots(projectRoot, { episodes } = {}) {
   const roots = await discoverShotRoots(projectRoot);
   const shots = [];
   for (const { root: shotRoot, episode } of roots) {
     if (episodes && episodes.length && (episode == null || !episodes.includes(episode))) continue;
     for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort(naturalCompare)) {
+      if (!(await isShotDir(path.join(shotRoot, 'shots', id)))) continue;
       shots.push(await scanOneShot(projectRoot, shotRoot, episode, id));
     }
   }
   return { generatedAt: new Date().toISOString(), type: 'shots', shots };
-}
-
-function pushVersion(map, key, entry) {
-  if (!map.has(key)) map.set(key, []);
-  map.get(key).push(entry);
 }
 
 async function readGenerationsLog(elDir) {
@@ -180,66 +182,109 @@ async function readGenerationsLog(elDir) {
   }
 }
 
-// Walk sheets/<sheetType>/(<slug>/)?vNNN.<img> for elements without a usable log.
-async function walkSheets(projectRoot, elDir) {
-  const sheetsDir = path.join(elDir, 'sheets');
-  const found = new Map(); // `${sheetType}\u0000${slug}` -> [{version, images}]
-  for (const sheetType of await listDirs(sheetsDir)) {
-    const typeDir = path.join(sheetsDir, sheetType);
-    const direct = (await listFiles(typeDir)).filter((n) => /^v\d+\.(png|jpe?g|webp)$/i.test(n));
-    for (const f of direct) {
-      pushVersion(found, `${sheetType}\u0000`, {
-        version: f.replace(/\.[^.]+$/, ''),
-        images: [relTo(projectRoot, path.join(typeDir, f))], upscaled: [], meta: {},
-      });
+const IMG_RE = /\.(png|jpe?g|webp)$/i;
+const sortNatural = (names) => [...names].sort(naturalCompare);
+
+// Versions found directly in one directory (a slug dir, or a sheetType dir for the
+// slug-less layout). Disk is the source of truth, so this never consults the log.
+//   vNNN.<img> and/or vNNN/<images>   -> a version (per-panel images win over the composite)
+//   vNNN.upscaled-*.<img>             -> that version's `upscaled`, never a version itself
+//   no vNNN at all, only loose images -> a candidates folder: one version per image
+async function readSheetVersions(projectRoot, dir) {
+  const files = (await listFiles(dir)).filter((n) => !n.startsWith('.'));
+  const images = files.filter((n) => IMG_RE.test(n));
+  const rel = (name) => relTo(projectRoot, path.join(dir, name));
+
+  const byV = new Map(); // 'v001' -> { composite, panels, extras, upscaled }
+  const norm = (n) => formatVersion(Number(n)); // V001 / v1 / v001 all -> v001
+  const slot = (n) => {
+    const v = norm(n);
+    if (!byV.has(v)) byV.set(v, { composite: null, panels: [], extras: [], upscaled: [] });
+    return byV.get(v);
+  };
+  for (const f of sortNatural(images)) {
+    const up = /^v(\d+)\.upscaled-.+\.[^.]+$/i.exec(f);
+    if (up) { slot(up[1]).upscaled.push(f); continue; }
+    const m = /^v(\d+)\.[^.]+$/i.exec(f);
+    if (m) {
+      const sl = slot(m[1]);
+      sl.composite ??= f; // duplicate composites (V001.PNG + v1.png): first by natural order wins
+      continue;
     }
-    for (const slug of await listDirs(typeDir)) {
-      const slugDir = path.join(typeDir, slug);
-      const imgs = (await listFiles(slugDir)).filter((n) => /\.(png|jpe?g|webp)$/i.test(n));
-      const byV = new Map();
-      for (const f of imgs) {
-        const m = /^(v\d+)/.exec(f);
-        const v = m ? m[1] : 'v001';
-        if (!byV.has(v)) byV.set(v, []);
-        byV.get(v).push(relTo(projectRoot, path.join(slugDir, f)));
-      }
-      for (const [v, images] of byV) {
-        pushVersion(found, `${sheetType}\u0000${slug}`, { version: v, images, upscaled: [], meta: {} });
-      }
-    }
+    const ex = /^v(\d+)[-_].+\.[^.]+$/i.exec(f); // v001-alt.png: another image of that version
+    if (ex) slot(ex[1]).extras.push(f);
   }
-  return found;
+  for (const d of await listDirs(dir)) {
+    const m = /^v(\d+)$/i.exec(d); // also skips vNNN.upscaled-*/ panel dirs
+    if (!m) continue;
+    const panels = sortNatural((await listFiles(path.join(dir, d))).filter((n) => IMG_RE.test(n)));
+    if (panels.length) slot(m[1]).panels = panels.map((n) => path.join(d, n));
+  }
+
+  const versions = [...byV.entries()]
+    .filter(([, v]) => v.composite || v.panels.length)
+    .sort(([a], [b]) => naturalCompare(a, b))
+    .map(([version, v]) => ({
+      version,
+      images: [...(v.panels.length ? v.panels.map(rel) : [rel(v.composite)]), ...v.extras.map(rel)],
+      upscaled: sortNatural(v.upscaled).map(rel),
+      meta: {},
+    }));
+  if (versions.length) return versions;
+
+  // Candidates folder: loose, unversioned images are alternatives to review.
+  // <stem>.upscaled-<tag>.<img> files belong to the candidate <stem>.<ext>.
+  const loose = images.filter((n) => !/^v\d+([._-]|$)/i.test(n));
+  const upRe = /^(.+?)\.upscaled-.+\.[^.]+$/i;
+  const cands = sortNatural(loose.filter((n) => !upRe.test(n)));
+  const stemOf = (n) => n.slice(0, n.lastIndexOf('.'));
+  return cands.map((n) => ({
+    // Version id = file name: stable when siblings are added/removed (selections key on it).
+    version: n, images: [rel(n)],
+    upscaled: sortNatural(loose.filter((u) => { const m = upRe.exec(u); return m && m[1] === stemOf(n); })).map(rel),
+    meta: { label: n },
+  }));
 }
 
-function sheetEntriesFromMap(map) {
-  const sheets = [];
-  for (const [key, versions] of map) {
-    const [sheetType, slug] = key.split('\u0000');
-    versions.sort((a, b) => Number(a.version.slice(1)) - Number(b.version.slice(1)));
-    sheets.push({ sheetType, slug, versions });
+async function walkSheets(projectRoot, elDir) {
+  const sheetsDir = path.join(elDir, 'sheets');
+  const found = []; // [{ sheetType, slug, versions }]
+  for (const sheetType of await listDirs(sheetsDir)) {
+    const typeDir = path.join(sheetsDir, sheetType);
+    const slugs = ['']; // '' = images directly in the sheetType dir; kept as candidates so real reference images surface
+    // Slug dirs only: not hidden, not vNNN panel dirs or vNNN.upscaled-*/ dirs.
+    for (const d of await listDirs(typeDir)) if (!/^\./.test(d) && !/^v\d+(\.|$)/i.test(d)) slugs.push(d);
+    for (const slug of slugs) {
+      const versions = await readSheetVersions(projectRoot, slug ? path.join(typeDir, slug) : typeDir);
+      if (versions.length) found.push({ sheetType, slug, versions });
+    }
   }
-  return sheets.sort((a, b) => (a.sheetType + a.slug).localeCompare(b.sheetType + b.slug));
+  return found.sort((a, b) => (a.sheetType + a.slug).localeCompare(b.sheetType + b.slug));
+}
+
+// Log metadata keyed by sheetType/slug/version; the last entry wins so a
+// regeneration of the same version shows its latest model/prompt.
+function logMetaMap(log) {
+  const map = new Map();
+  for (const e of log || []) {
+    if (!e.sheetType) continue;
+    const vm = /^v(\d+)$/i.exec(e.version ?? 'v001');
+    const version = vm ? formatVersion(Number(vm[1])) : e.version;
+    map.set(`${e.sheetType}\u0000${e.sheetId ?? ''}\u0000${version}`,
+      { model: e.model, prompt: e.prompt, ts: e.ts });
+  }
+  return map;
 }
 
 async function scanOneElement(projectRoot, type, name, elDir) {
-  const log = await readGenerationsLog(elDir);
-  const map = new Map();
-  if (log && log.some((e) => e.sheetType)) {
-    for (const e of log) {
-      if (!e.sheetType) continue;
-      const slug = e.sheetId ?? '';
-      const images = e.panels && e.panels.length
-        ? e.panels.map((p) => relTo(projectRoot, path.isAbsolute(p) ? p : path.join(projectRoot, p)))
-        : (e.output ? [relTo(projectRoot, path.isAbsolute(e.output) ? e.output : path.join(projectRoot, e.output))] : []);
-      pushVersion(map, `${e.sheetType}\u0000${slug}`, {
-        version: e.version ?? 'v001', images, upscaled: [],
-        meta: { model: e.model, prompt: e.prompt, ts: e.ts },
-      });
+  const meta = logMetaMap(await readGenerationsLog(elDir));
+  const sheets = await walkSheets(projectRoot, elDir);
+  for (const s of sheets) {
+    for (const v of s.versions) {
+      v.meta = { ...v.meta, ...meta.get(`${s.sheetType}\u0000${s.slug}\u0000${v.version}`) };
     }
-  } else {
-    for (const [k, v] of await walkSheets(projectRoot, elDir)) map.set(k, v);
   }
-  return { type, name, sheets: sheetEntriesFromMap(map) };
+  return { type, name, sheets };
 }
 
 export async function scanImages(projectRoot) {

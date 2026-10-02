@@ -113,7 +113,7 @@ function saveSelected(){ try { localStorage.setItem(LSKEY, JSON.stringify([...st
 function selectedObject(){
   const out = {};
   for (const k of state.selected){ const i = k.lastIndexOf('::'); const key = k.slice(0, i), v = k.slice(i + 2); (out[key] = out[key] || []).push(v); }
-  for (const key in out) out[key].sort(function(a, b){ return (parseInt(a.slice(1), 10) || 0) - (parseInt(b.slice(1), 10) || 0); });
+  for (const key in out) out[key].sort(function(a, b){ return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
   return out;
 }
 function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
