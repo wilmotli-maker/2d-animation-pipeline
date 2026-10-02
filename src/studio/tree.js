@@ -5,16 +5,58 @@
 // the tree reflects everything the user has created, not only what has output.
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { scanShots, scanImages, discoverShotRoots } from '../review-scan.js';
+import { scanShots, scanImages, discoverShotRoots, isShotDir } from '../review-scan.js';
 
-async function listDirs(p) {
+async function listEntries(p) {
   try {
-    return (await readdir(p, { withFileTypes: true }))
-      .filter((e) => e.isDirectory()).map((e) => e.name);
+    return await readdir(p, { withFileTypes: true });
   } catch (err) {
-    if (err.code === 'ENOENT') return [];
+    if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return [];
     throw err;
   }
+}
+
+async function listDirs(p) {
+  return (await listEntries(p)).filter((e) => e.isDirectory()).map((e) => e.name);
+}
+
+// Same extensions scanFolder reviews.
+const VIDEO_RE = /\.(mp4|mov|webm|m4v)$/i;
+export const FOLDER_DEPTH = 4;   // levels below shots/
+
+// Whether `relPath` (below shots/) is a place scanWorkingFolders may list: no hidden
+// segments, at most FOLDER_DEPTH segments, and no shot dir at or above it (shot
+// dirs are never entered). Shared with the server so "tree lists it <=> API opens it".
+export async function isWorkingFolderPath(shotsDir, relPath) {
+  const segs = String(relPath ?? '').split(/[\\/]+/).filter(Boolean);
+  if (!segs.length || segs.length > FOLDER_DEPTH || segs.some((x) => x.startsWith('.'))) return false;
+  for (let i = 1; i <= segs.length; i++) {
+    if (await isShotDir(path.join(shotsDir, ...segs.slice(0, i)))) return false;
+  }
+  return true;
+}
+
+// Working folders under <shotRoot>/shots/ (candidates/, assembled/, …): any non-shot
+// dir that directly holds videos, found recursively up to FOLDER_DEPTH. Shot dirs are
+// never entered; a non-shot dir without videos is not listed but is still walked.
+async function scanWorkingFolders(shotsDir) {
+  const out = [];
+  const walk = async (rel, depth) => {
+    const ents = await listEntries(rel ? path.join(shotsDir, rel) : shotsDir);
+    if (rel) {
+      const clips = ents.filter((e) => e.isFile() && VIDEO_RE.test(e.name)).length;
+      if (clips) out.push({ path: rel, clips });
+    }
+    if (depth >= FOLDER_DEPTH) return;
+    for (const e of ents) {
+      if (!e.isDirectory() || e.name.startsWith('.')) continue;
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (await isShotDir(path.join(shotsDir, childRel))) continue;
+      await walk(childRel, depth + 1);
+    }
+  };
+  await walk('', 0);
+  return out.sort((a, b) => naturalCompare(a.path, b.path));
 }
 
 function naturalCompare(a, b) {
@@ -55,10 +97,19 @@ export async function scanProjectTree(root) {
     else episodes.get(s.episode).push(summarize(s));
   }
 
+  const foldersByEp = new Map();
+  let folders = [];
+  for (const r of shotRoots) {
+    const found = await scanWorkingFolders(path.join(r.root, 'shots'));
+    if (r.episode == null) folders = found; else foldersByEp.set(r.episode, found);
+  }
+
   return {
     project: path.basename(root),
     elements,
-    episodes: [...episodes.keys()].sort(naturalCompare).map((id) => ({ id, shots: episodes.get(id) })),
+    episodes: [...episodes.keys()].sort(naturalCompare)
+      .map((id) => ({ id, shots: episodes.get(id), folders: foldersByEp.get(id) || [] })),
     shots,
+    folders,
   };
 }

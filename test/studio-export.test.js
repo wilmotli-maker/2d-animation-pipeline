@@ -53,6 +53,7 @@ test('selectionExportDoc: static-compatible `selected` plus lossless `studioSele
   assert.deepEqual(doc, {
     format: 'studio-selection/1', project: 'demo', exportedAt: 'T',
     selected: { 'ai-1': ['v001', 'v002'], 'mira/pose/wave': ['v004'] },
+    folderSelected: {},
     studioSelected: { '1/ai-1': ['v001', 'v002'], 'characters/mira/pose/wave': ['v004'] },
   });
 });
@@ -85,4 +86,23 @@ test('export tolerates keys named like Object.prototype members', () => {
   });
   assert.deepEqual(doc.selected, { constructor: ['v001', 'v002'], toString: ['v001', 'v002'], __defineGetter__: ['v001', 'v002'] });
   assert.deepEqual(toStaticSelection({ toString: ['v001'], '2/toString': ['v002'] }), { toString: ['v001', 'v002'] });
+});
+
+test('export: folder-view keys never merge into static `selected`; they go to `folderSelected`', () => {
+  const sel = new Set(['1/ai-1::v002', 'folder:1/candidates/x/ai-1::v005', 'folder:1/candidates/x/ai-1::v003',
+    'folder:1/a/b/c/ai-2::v001', 'folder:_/assembled/TEST2::v001']);
+  const doc = selectionExportDoc({ project: 'p', selected: sel, exportedAt: 'T' });
+  assert.deepEqual(doc.selected, { 'ai-1': ['v002'] });
+  assert.deepEqual(doc.folderSelected, {
+    '1/candidates/x': { 'ai-1': ['v003', 'v005'] },
+    '1/a/b/c': { 'ai-2': ['v001'] },
+    '_/assembled': { TEST2: ['v001'] },
+  });
+  assert.deepEqual(Object.keys(doc.studioSelected).sort(), [
+    '1/ai-1', 'folder:1/a/b/c/ai-2', 'folder:1/candidates/x/ai-1', 'folder:_/assembled/TEST2']);
+});
+
+test('export: no folder selection -> empty folderSelected', () => {
+  const doc = selectionExportDoc({ project: 'p', selected: new Set(['flat-1::v001']), exportedAt: 'T' });
+  assert.deepEqual(doc.folderSelected, {});
 });

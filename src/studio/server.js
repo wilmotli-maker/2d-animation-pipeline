@@ -4,9 +4,10 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scanShots, scanImages } from '../review-scan.js';
+import { stat } from 'node:fs/promises';
+import { scanShots, scanImages, scanFolder, discoverShotRoots } from '../review-scan.js';
 import { REVIEW_STYLE } from '../review-render.js';
-import { scanProjectTree } from './tree.js';
+import { scanProjectTree, isWorkingFolderPath } from './tree.js';
 import { resolveWithin, sendFile } from './media.js';
 import { realWithin } from './contain.js';
 import { readSelections, setSelection } from './selections.js';
@@ -22,6 +23,8 @@ function sendJson(res, status, obj, extra = {}) {
 }
 
 function safeDecode(s) { try { return decodeURIComponent(s); } catch { return null; } }
+
+async function isDirectory(p) { try { return (await stat(p)).isDirectory(); } catch { return false; } }
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -88,6 +91,22 @@ async function handle({ root, previewer }, req, res) {
     if (ep === '_') shots = shots.filter((s) => s.episode == null);
     if (id) shots = shots.filter((s) => s.shotId === id);
     return sendJson(res, 200, { shots });
+  }
+
+  // A working folder under a shot root's shots/ (candidates/, assembled/, …),
+  // reviewed like `pipeline review --folder`. Episode must be a discovered one.
+  if (get && p === '/api/folder') {
+    const ep = url.searchParams.get('episode');
+    const rel = url.searchParams.get('path');
+    const shotRoot = (await discoverShotRoots(root))
+      .find((r) => (ep === '_' ? r.episode == null : r.episode != null && r.episode === ep));
+    if (!shotRoot) return sendJson(res, 404, { error: 'unknown episode' });
+    const shotsDir = path.join(shotRoot.root, 'shots');
+    const abs = resolveWithin(shotsDir, rel);
+    if (!abs) return sendJson(res, 400, { error: 'invalid path' });
+    if (!(await isWorkingFolderPath(shotsDir, rel))) return sendJson(res, 400, { error: 'not a working folder' });
+    if (!(await isDirectory(abs))) return sendJson(res, 404, { error: 'not found' });
+    return sendJson(res, 200, { shots: (await scanFolder(root, abs)).shots });
   }
 
   if (get && p === '/api/element') {
