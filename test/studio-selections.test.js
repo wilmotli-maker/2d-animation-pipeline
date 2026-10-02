@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, mkdir, writeFile, symlink, readdir, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { readSelections, setSelection, selectionsPath } from '../src/studio/selections.js';
+import { readSelections, setSelection, selectionsPath, isValidVersion } from '../src/studio/selections.js';
 
 async function withTempRoot(fn) {
   const root = await mkdtemp(path.join(tmpdir(), 'studio-sel-'));
@@ -119,3 +119,47 @@ test('setSelection: concurrent writes to different keys all land', async () => {
     assert.deepEqual(Object.keys((await readSelections(root)).selected).sort(), ['a', 'b', 'c', 'd']);
   });
 });
+
+test('isValidVersion is the one version rule', () => {
+  assert.equal(isValidVersion('v001'), true);
+  for (const v of ['final', 'v', 'v1x', 5, null, 'bad::x']) assert.equal(isValidVersion(v), false);
+});
+
+test('readSelections: normalizes a malformed doc without rewriting the file', async () => {
+  await withTempRoot(async (root) => {
+    const raw = JSON.stringify({ selected: {
+      a: ['v010', 'v002', 'v002', 'nope'], b: [], c: 'v001', '': ['v001'], ['x'.repeat(600)]: ['v001'],
+      d: [7], e: ['v003'],
+    } }).replace('"e"', '"__proto__"');
+    await mkdir(path.dirname(selectionsPath(root)), { recursive: true });
+    await writeFile(selectionsPath(root), raw);
+    const doc = await readSelections(root);
+    assert.deepEqual(doc.selected, { a: ['v002', 'v010'] });
+    assert.equal(Object.getPrototypeOf(doc.selected), Object.prototype);
+    // nope, c, '', long key, 7 (d left empty), __proto__ — the empty `b` is not counted.
+    assert.deepEqual(doc.warnings, ['ignored 6 invalid selection entries']);
+    assert.equal(await readFile(selectionsPath(root), 'utf8'), raw);
+  });
+});
+
+test('readSelections: clean doc has no warnings key', async () => {
+  await withTempRoot(async (root) => {
+    await setSelection(root, 'a', ['v001']);
+    assert.deepEqual(await readSelections(root), { version: 1, selected: { a: ['v001'] } });
+  });
+});
+
+for (const [label, raw] of [['invalid JSON', '{nope'], ['null doc', 'null'], ['array selected', '{"selected":[1]}'], ['string selected', '{"selected":"x"}']]) {
+  test(`readSelections: ${label} -> empty + one warning; setSelection then writes a clean doc`, async () => {
+    await withTempRoot(async (root) => {
+      await mkdir(path.dirname(selectionsPath(root)), { recursive: true });
+      await writeFile(selectionsPath(root), raw);
+      const doc = await readSelections(root);
+      assert.deepEqual(doc.selected, {});
+      assert.equal(doc.warnings.length, 1);
+      assert.equal(await readFile(selectionsPath(root), 'utf8'), raw);
+      assert.deepEqual(await setSelection(root, 'k', ['v001']), { version: 1, selected: { k: ['v001'] } });
+      assert.deepEqual(JSON.parse(await readFile(selectionsPath(root), 'utf8')), { version: 1, selected: { k: ['v001'] } });
+    });
+  });
+}

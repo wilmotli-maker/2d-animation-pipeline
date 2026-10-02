@@ -108,7 +108,9 @@ async function scanOneShot(projectRoot, shotRoot, episode, id) {
 
   // Which draft was promoted to final. The final/ folder itself is not surfaced as
   // a version — it holds alpha/comparison renders (often soundless), and the real
-  // deliverable is the draft named in source-draft.txt. We just badge that draft.
+  // deliverable is the draft named in source-draft.txt. We just badge that draft,
+  // and attribute final/'s alpha, upscales and qc to it (`pipeline shot matte`
+  // without --version writes them to final/).
   const promotedVersion = await readPromotedVersion(shotFinalDir(shotRoot, id));
 
   const draftsDir = shotDraftsDir(shotRoot, id);
@@ -120,11 +122,18 @@ async function scanOneShot(projectRoot, shotRoot, episode, id) {
     // Skip versions with no valid output (e.g. a draft folder that only has
     // prompt.md/notes.md) so they don't render as "missing artifact" columns.
     if (!(await fileExists(video))) continue;
+    const variants = await readVariants(dir);
+    if (v === promotedVersion) {
+      const fin = await readVariants(shotFinalDir(shotRoot, id));
+      variants.alpha ??= fin.alpha;
+      variants.upscaled.push(...fin.upscaled);
+      variants.qc.push(...fin.qc);
+    }
     versions.push({
       version: v, kind: 'draft',
       promoted: v === promotedVersion,
       video: relTo(projectRoot, video),
-      variants: mapVariants(projectRoot, await readVariants(dir)),
+      variants: mapVariants(projectRoot, variants),
       meta: await readMeta(dir),
     });
   }
