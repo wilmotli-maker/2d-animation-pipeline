@@ -307,7 +307,7 @@ test('scanImages: candidates dir (no vNNN) makes one version per image, sorted, 
     const d = `${EL}/sheets/pose/cands`;
     await seedFiles(root, [`${d}/b.png`, `${d}/a.png`, `${d}/notes.md`]);
     const s = await sheetsOf(root, 'pose', 'cands');
-    assert.deepEqual(s.versions.map((v) => v.version), ['v001', 'v002']);
+    assert.deepEqual(s.versions.map((v) => v.version), ['a.png', 'b.png']);
     assert.equal(s.versions[0].meta.label, 'a.png');
     assert.ok(s.versions[0].images[0].endsWith('a.png'));
     assert.equal(s.versions[1].meta.label, 'b.png');
@@ -359,5 +359,25 @@ test('scanShots: only dirs with shot.yaml or drafts/ are shots; isShotDir agrees
     assert.equal(await isShotDir(path.join(root, 'shots', 'b')), true);
     assert.equal(await isShotDir(path.join(root, 'shots', 'candidates')), false);
     assert.equal(await isShotDir(path.join(root, 'shots', 'nope')), false);
+  });
+});
+
+test('scanImages: candidate version ids are file names, stable when files are added', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/pose/cands`;
+    await seedFiles(root, [`${d}/b.png`, `${d}/c.png`]);
+    const before = (await sheetsOf(root, 'pose', 'cands')).versions.map((v) => v.version);
+    await seedFiles(root, [`${d}/a.png`]);
+    const after = (await sheetsOf(root, 'pose', 'cands')).versions.map((v) => v.version);
+    assert.deepEqual(before, ['b.png', 'c.png']);
+    assert.deepEqual(after, ['a.png', 'b.png', 'c.png']);
+  });
+});
+
+test('scanImages: candidates sort naturally', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/pose/cands`;
+    await seedFiles(root, [`${d}/p10.png`, `${d}/p2.png`]);
+    assert.deepEqual((await sheetsOf(root, 'pose', 'cands')).versions.map((v) => v.version), ['p2.png', 'p10.png']);
   });
 });

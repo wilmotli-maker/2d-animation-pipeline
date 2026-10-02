@@ -225,8 +225,9 @@ async function readSheetVersions(projectRoot, dir) {
 
   // Candidates folder: loose, unversioned images are alternatives to review.
   return sortNatural(images.filter((n) => !/^v\d+(\.|$)/i.test(n)))
-    .map((n, i) => ({
-      version: formatVersion(i + 1), images: [rel(n)], upscaled: [], meta: { label: n },
+    .map((n) => ({
+      // Version id = file name: stable when siblings are added/removed (selections key on it).
+      version: n, images: [rel(n)], upscaled: [], meta: { label: n },
     }));
 }
 

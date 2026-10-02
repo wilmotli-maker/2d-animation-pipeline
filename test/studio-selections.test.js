@@ -33,7 +33,12 @@ test('setSelection: rejects bad keys and versions', async () => {
     await assert.rejects(setSelection(root, '', ['v001']), /key/);
     await assert.rejects(setSelection(root, 'x'.repeat(600), ['v001']), /key/);
     await assert.rejects(setSelection(root, '__proto__', ['v001']), /key/);
-    await assert.rejects(setSelection(root, 'a', ['final']), /version/);
+    await assert.rejects(setSelection(root, 'a', ['a::b']), /version/);
+    await assert.rejects(setSelection(root, 'a', ['bad\u0001name']), /version/);
+    await assert.rejects(setSelection(root, 'a', ['__proto__']), /version/);
+    await assert.rejects(setSelection(root, 'a', ['']), /version/);
+    await assert.rejects(setSelection(root, 'a', ['x'.repeat(201)]), /version/);
+    await assert.rejects(setSelection(root, 'a', [5]), /version/);
     await assert.rejects(setSelection(root, 'a', 'v001'), /versions/);
     await assert.rejects(setSelection(root, '', ['v001']), (e) => e.status === 400);
   });
@@ -121,14 +126,14 @@ test('setSelection: concurrent writes to different keys all land', async () => {
 });
 
 test('isValidVersion is the one version rule', () => {
-  assert.equal(isValidVersion('v001'), true);
-  for (const v of ['final', 'v', 'v1x', 5, null, 'bad::x']) assert.equal(isValidVersion(v), false);
+  for (const v of ['v001', 'final', 'annoyed-neutral.png']) assert.equal(isValidVersion(v), true);
+  for (const v of ['', 'x'.repeat(201), 'a\u0001b', '__proto__', 5, null, 'bad::x']) assert.equal(isValidVersion(v), false);
 });
 
 test('readSelections: normalizes a malformed doc without rewriting the file', async () => {
   await withTempRoot(async (root) => {
     const raw = JSON.stringify({ selected: {
-      a: ['v010', 'v002', 'v002', 'nope'], b: [], c: 'v001', '': ['v001'], ['x'.repeat(600)]: ['v001'],
+      a: ['v010', 'v002', 'v002', 'bad::x'], b: [], c: 'v001', '': ['v001'], ['x'.repeat(600)]: ['v001'],
       d: [7], e: ['v003'],
     } }).replace('"e"', '"__proto__"');
     await mkdir(path.dirname(selectionsPath(root)), { recursive: true });
@@ -136,7 +141,7 @@ test('readSelections: normalizes a malformed doc without rewriting the file', as
     const doc = await readSelections(root);
     assert.deepEqual(doc.selected, { a: ['v002', 'v010'] });
     assert.equal(Object.getPrototypeOf(doc.selected), Object.prototype);
-    // nope, c, '', long key, 7 (d left empty), __proto__ — the empty `b` is not counted.
+    // bad::x, c, '', long key, 7 (d left empty), __proto__ — the empty `b` is not counted.
     assert.deepEqual(doc.warnings, ['ignored 6 invalid selection entries']);
     assert.equal(await readFile(selectionsPath(root), 'utf8'), raw);
   });
@@ -163,3 +168,11 @@ for (const [label, raw] of [['invalid JSON', '{nope'], ['null doc', 'null'], ['a
     });
   });
 }
+
+test('setSelection: filename versions round-trip, natural-sorted', async () => {
+  await withTempRoot(async (root) => {
+    await setSelection(root, 'mira/pose/cands', ['pose-10.png', 'final', 'pose-2.png']);
+    const doc = await readSelections(root);
+    assert.deepEqual(doc.selected['mira/pose/cands'], ['final', 'pose-2.png', 'pose-10.png']);
+  });
+});
