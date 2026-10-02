@@ -1,7 +1,7 @@
 // test/studio-server.test.js
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startStudio } from '../src/studio/server.js';
@@ -61,6 +61,29 @@ test('GET /media supports Range and blocks traversal', async () => {
   assert.equal(await r.text(), '234');
   const esc = await fetch(base + 'media/shots%2F..%2F..%2Fsecret.txt');
   assert.equal(esc.status, 404);
+});
+
+test('GET /media: unsatisfiable range -> 416; suffix range -> 206', async () => {
+  const p = 'media/episodes/1/shots/ai-1/drafts/v001/output.mp4';
+  const r416 = await fetch(base + p, { headers: { Range: 'bytes=999-' } });
+  assert.equal(r416.status, 416);
+  assert.equal(r416.headers.get('content-range'), 'bytes */10');
+  await r416.arrayBuffer();
+  const suffix = await fetch(base + p, { headers: { Range: 'bytes=-3' } });
+  assert.equal(suffix.status, 206);
+  assert.equal(await suffix.text(), '789');
+});
+
+test('GET /media: unreadable file -> 404 and the server survives', { skip: process.getuid?.() === 0 && 'root ignores file modes' }, async () => {
+  const f = path.join(root, 'locked.txt');
+  await writeFile(f, 'secret');
+  await chmod(f, 0o000);
+  try {
+    const r = await fetch(base + 'media/locked.txt');
+    assert.equal(r.status, 404);
+    await r.arrayBuffer();
+    assert.equal((await fetch(base + 'api/tree')).status, 200);
+  } finally { await chmod(f, 0o644); }
 });
 
 test('PUT /api/selections round-trips; requires JSON content type', async () => {

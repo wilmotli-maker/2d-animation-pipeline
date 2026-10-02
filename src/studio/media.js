@@ -1,6 +1,6 @@
 // src/studio/media.js
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
+import { pipeline } from 'node:stream';
 import path from 'node:path';
 
 const MIME = {
@@ -37,22 +37,26 @@ export function parseRange(header, size) {
 }
 
 export async function sendFile(req, res, abs) {
+  const notFound = () => { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); };
+  let fh;
+  try { fh = await open(abs, 'r'); } catch { return notFound(); }
   let st;
-  try { st = await stat(abs); } catch { st = null; }
-  if (!st || !st.isFile()) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); }
+  try { st = await fh.stat(); } catch { st = null; }
+  if (!st || !st.isFile()) { await fh.close().catch(() => {}); return notFound(); }
   const headers = { 'Content-Type': contentType(abs), 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' };
   const range = parseRange(req.headers.range, st.size);
   if (range === 'unsatisfiable') {
+    await fh.close().catch(() => {});
     res.writeHead(416, { 'Content-Range': `bytes */${st.size}` });
     return res.end();
   }
   if (range) {
     res.writeHead(206, { ...headers, 'Content-Range': `bytes ${range.start}-${range.end}/${st.size}`,
       'Content-Length': range.end - range.start + 1 });
-    if (req.method === 'HEAD') return res.end();
-    return createReadStream(abs, range).pipe(res);
+  } else {
+    res.writeHead(200, { ...headers, 'Content-Length': st.size });
   }
-  res.writeHead(200, { ...headers, 'Content-Length': st.size });
-  if (req.method === 'HEAD') return res.end();
-  createReadStream(abs).pipe(res);
+  if (req.method === 'HEAD') { await fh.close().catch(() => {}); return res.end(); }
+  // pipeline destroys both sides on error/client abort; the stream's autoClose releases the fd.
+  pipeline(fh.createReadStream(range ? { start: range.start, end: range.end } : {}), res, () => {});
 }
