@@ -230,3 +230,121 @@ test('scanShots: without source-draft.txt, final/ variants are ignored', async (
     assert.deepEqual(v.upscaled, []);
   });
 });
+
+// ---- element sheets: disk is truth, log only enriches ----
+
+async function seedFiles(root, files) {
+  for (const f of files) {
+    const p = path.join(root, f);
+    await mkdir(path.dirname(p), { recursive: true });
+    await writeFile(p, 'x');
+  }
+}
+const EL = 'elements/characters/mira';
+async function sheetsOf(root, sheetType, slug) {
+  const c = (await scanImages(root)).characters.find((x) => x.name === 'mira');
+  return c && c.sheets.find((s) => s.sheetType === sheetType && s.slug === slug);
+}
+const logLine = (o) => JSON.stringify(o) + '\n';
+
+test('scanImages: logged sheet with no folder on disk is dropped; logged sheet on disk is enriched', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/here/v001.png`]);
+    await writeFile(path.join(root, EL, 'generations.jsonl'),
+      logLine({ sheetType: 'pose', sheetId: 'gone', version: 'v001', model: 'm0', prompt: 'p0', ts: 'T0' }) +
+      logLine({ sheetType: 'pose', sheetId: 'here', version: 'v001', model: 'm1', prompt: 'p1', ts: 'T1' }));
+    const c = (await scanImages(root)).characters[0];
+    assert.deepEqual(c.sheets.map((s) => s.slug), ['here']);
+    assert.deepEqual(c.sheets[0].versions[0].meta, { model: 'm1', prompt: 'p1', ts: 'T1' });
+  });
+});
+
+test('scanImages: log versions missing on disk are ignored', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/turnaround/default/v002.png`]);
+    await writeFile(path.join(root, EL, 'generations.jsonl'),
+      ['v001', 'v002', 'v003'].map((version) => logLine({ sheetType: 'turnaround', sheetId: 'default', version, model: 'm' })).join(''));
+    const s = await sheetsOf(root, 'turnaround', 'default');
+    assert.deepEqual(s.versions.map((v) => v.version), ['v002']);
+  });
+});
+
+test('scanImages: never-logged disk slug appears with empty meta', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/new/v001.png`]);
+    const s = await sheetsOf(root, 'pose', 'new');
+    assert.deepEqual(s.versions[0].meta, {});
+  });
+});
+
+test('scanImages: panels dir wins over composite, natural order; composite-only version uses the file', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/turnaround/default`;
+    await seedFiles(root, [`${d}/v001.png`, `${d}/v001/panel-10.png`, `${d}/v001/panel-2.png`,
+      `${d}/v001/panel-1.png`, `${d}/v002.png`]);
+    const s = await sheetsOf(root, 'turnaround', 'default');
+    assert.deepEqual(s.versions[0].images.map((p) => path.basename(p)), ['panel-1.png', 'panel-2.png', 'panel-10.png']);
+    assert.deepEqual(s.versions[1].images.map((p) => path.basename(p)), ['v002.png']);
+    assert.ok(!path.isAbsolute(s.versions[1].images[0]));
+  });
+});
+
+test('scanImages: vNNN.upscaled-* files attach as upscaled, never as versions or images', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/turnaround/default`;
+    await seedFiles(root, [`${d}/v003.png`, `${d}/v003.upscaled-2x-topaz_image.png`,
+      `${d}/v003.upscaled-2x-topaz_image/panel-1.png`, `${d}/v003.upscaled-2x-topaz_image.json`]);
+    const s = await sheetsOf(root, 'turnaround', 'default');
+    assert.equal(s.versions.length, 1);
+    assert.deepEqual(s.versions[0].images.map((p) => path.basename(p)), ['v003.png']);
+    assert.deepEqual(s.versions[0].upscaled.map((p) => path.basename(p)), ['v003.upscaled-2x-topaz_image.png']);
+  });
+});
+
+test('scanImages: candidates dir (no vNNN) makes one version per image, sorted, labelled', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/pose/cands`;
+    await seedFiles(root, [`${d}/b.png`, `${d}/a.png`, `${d}/notes.md`]);
+    const s = await sheetsOf(root, 'pose', 'cands');
+    assert.deepEqual(s.versions.map((v) => v.version), ['v001', 'v002']);
+    assert.equal(s.versions[0].meta.label, 'a.png');
+    assert.ok(s.versions[0].images[0].endsWith('a.png'));
+    assert.equal(s.versions[1].meta.label, 'b.png');
+  });
+});
+
+test('scanImages: stray unversioned image beside real versions is ignored', async () => {
+  await withTempRoot(async (root) => {
+    const d = `${EL}/sheets/pose/x`;
+    await seedFiles(root, [`${d}/v001.png`, `${d}/ref.png`]);
+    const s = await sheetsOf(root, 'pose', 'x');
+    assert.equal(s.versions.length, 1);
+    assert.deepEqual(s.versions[0].images.map((p) => path.basename(p)), ['v001.png']);
+  });
+});
+
+test('scanImages: stray .DS_Store files at sheets/ and sheetType level do not crash', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/.DS_Store`, `${EL}/sheets/pose/.DS_Store`, `${EL}/sheets/pose/s/v001.png`]);
+    const c = (await scanImages(root)).characters[0];
+    assert.deepEqual(c.sheets.map((s) => s.slug), ['s']);
+  });
+});
+
+test('scanImages: direct sheetType files keep slug empty', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/v001.png`]);
+    assert.ok(await sheetsOf(root, 'pose', ''));
+  });
+});
+
+test('scanImages: last log entry for a sheet/version wins', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/s/v001.png`]);
+    await writeFile(path.join(root, EL, 'generations.jsonl'),
+      logLine({ sheetType: 'pose', sheetId: 's', version: 'v001', model: 'old', prompt: 'a', ts: '1' }) +
+      logLine({ sheetType: 'pose', sheetId: 's', version: 'v001', model: 'new', prompt: 'b', ts: '2' }));
+    const s = await sheetsOf(root, 'pose', 's');
+    assert.deepEqual(s.versions[0].meta, { model: 'new', prompt: 'b', ts: '2' });
+  });
+});
