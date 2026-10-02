@@ -167,3 +167,14 @@ test('scanFolder: empty/no-video folder yields no shots', async () => {
     assert.equal(model.shots.length, 0);
   });
 });
+
+test('scanShots: alpha.webm is surfaced as the matte variant', async () => {
+  await withTempRoot(async (root) => {
+    const dir = path.join(root, 'shots', 's1', 'drafts', 'v001');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'output.mp4'), 'x');
+    await writeFile(path.join(dir, 'alpha.webm'), 'x');
+    const m = await scanShots(root);
+    assert.equal(m.shots[0].versions[0].variants.alpha, path.join('shots', 's1', 'drafts', 'v001', 'alpha.webm'));
+  });
+});
