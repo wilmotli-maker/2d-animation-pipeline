@@ -124,7 +124,10 @@ function rerenderRow(key) {
   if (fresh) { fresh.scrollLeft = sx; hydratePreviews(fresh); }
 }
 
+// Bumped per route() call so a slow response for an older route is dropped.
+let routeSeq = 0;
 async function route() {
+  const my = ++routeSeq;
   state.route = parseRoute(location.hash);
   state.hidden.clear();
   rail.innerHTML = treeHTML(state.tree, location.hash || '#/');
@@ -140,12 +143,14 @@ async function route() {
   try {
     if (r.view === 'element') {
       const el = await getJson(`/api/element?type=${encodeURIComponent(r.type)}&name=${encodeURIComponent(r.name)}`);
+      if (my !== routeSeq) return;
       state.items = sheetRowItems(el);
       titleEl.textContent = `${r.name}`;
       subEl.textContent = `${r.type} · ${state.items.length} sheet(s)`;
     } else if (r.view === 'episode' || r.view === 'shot') {
       const q = `episode=${encodeURIComponent(r.episode)}` + (r.view === 'shot' ? `&id=${encodeURIComponent(r.shotId)}` : '');
       const { shots } = await getJson(`/api/shots?${q}`);
+      if (my !== routeSeq) return;
       state.items = shotRowItems(shots);
       titleEl.textContent = r.view === 'shot' ? r.shotId : (r.episode === '_' ? 'All shots' : `Episode ${r.episode}`);
       subEl.textContent = `${shots.length} shot(s)`;
@@ -155,6 +160,7 @@ async function route() {
       subEl.textContent = 'Project overview';
     }
   } catch (err) {
+    if (my !== routeSeq) return;
     state.items = [];
     subEl.textContent = `error: ${err.message}`;
   }
