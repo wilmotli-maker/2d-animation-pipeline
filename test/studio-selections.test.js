@@ -35,6 +35,7 @@ test('setSelection: rejects bad keys and versions', async () => {
     await assert.rejects(setSelection(root, '__proto__', ['v001']), /key/);
     await assert.rejects(setSelection(root, 'a', ['final']), /version/);
     await assert.rejects(setSelection(root, 'a', 'v001'), /versions/);
+    await assert.rejects(setSelection(root, '', ['v001']), (e) => e.status === 400);
   });
 });
 

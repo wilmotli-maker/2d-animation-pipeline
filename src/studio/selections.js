@@ -18,11 +18,14 @@ export async function readSelections(root) {
 // the page (fast checkbox clicks) can't drop each other's keys.
 let chain = Promise.resolve();
 
+// Validation failures are the caller's fault (400); anything else thrown is storage (500).
+function invalid(message) { return Object.assign(new Error(message), { status: 400 }); }
+
 export function setSelection(root, key, versions) {
-  if (typeof key !== 'string' || !key || key.length > 512 || key === '__proto__') return Promise.reject(new Error('selection: invalid key'));
-  if (!Array.isArray(versions)) return Promise.reject(new Error('selection: versions must be an array'));
+  if (typeof key !== 'string' || !key || key.length > 512 || key === '__proto__') return Promise.reject(invalid('selection: invalid key'));
+  if (!Array.isArray(versions)) return Promise.reject(invalid('selection: versions must be an array'));
   for (const v of versions) {
-    if (typeof v !== 'string' || !/^v\d+$/.test(v)) return Promise.reject(new Error(`selection: invalid version "${v}"`));
+    if (typeof v !== 'string' || !/^v\d+$/.test(v)) return Promise.reject(invalid(`selection: invalid version "${v}"`));
   }
   const sorted = [...new Set(versions)].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
   const run = chain.then(async () => {

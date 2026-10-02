@@ -115,7 +115,7 @@ async function handle({ root, previewer }, req, res) {
       try {
         return sendJson(res, 200, await setSelection(root, body && body.key, body && body.versions));
       } catch (err) {
-        return sendJson(res, 400, { error: err.message });
+        return sendJson(res, err.status || 500, { error: err.message });
       }
     }
   }

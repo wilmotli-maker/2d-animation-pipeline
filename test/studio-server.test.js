@@ -156,3 +156,18 @@ test('rejects cross-site requests (Sec-Fetch-Site / Origin)', async () => {
   const u = new URL(base);
   assert.equal(await rawGet('/api/tree', { Origin: `http://${u.host}` }), 200);
 });
+
+test('PUT /api/selections: storage failure (corrupt file) -> 500, not 400', async () => {
+  const proj = path.join(outer, 'corrupt');
+  await mkdir(path.join(proj, '.pipeline', 'studio'), { recursive: true });
+  await writeFile(path.join(proj, '.pipeline', 'studio', 'selections.json'), '{not json');
+  const { server: s2, url: b2 } = await startStudio({ root: proj, port: 0, previewer: {} });
+  try {
+    const r = await fetch(b2 + 'api/selections', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['v001'] }) });
+    assert.equal(r.status, 500);
+    const bad = await fetch(b2 + 'api/selections', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['x'] }) });
+    assert.equal(bad.status, 400);
+  } finally { s2.close(); }
+});
