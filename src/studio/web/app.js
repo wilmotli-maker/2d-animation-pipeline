@@ -199,17 +199,27 @@ grid.addEventListener('click', (e) => {
   }
 });
 
+// Per key::version toggle counter. A failed save only reverts its own click if no
+// later toggle of the same box has happened since; otherwise that later click
+// owns the state (and its queued save reads versionsFor at send time).
+const toggleGen = new Map();
+
 grid.addEventListener('change', async (e) => {
   const t = e.target; if (!t.classList.contains('selectbox')) return;
   const key = t.dataset.key, k = `${key}::${t.dataset.v}`;
-  if (t.checked) state.selected.add(k); else state.selected.delete(k);
-  if (state.onlySelected) rerenderRow(key); else t.closest('.col')?.classList.toggle('selected', t.checked);
+  const want = t.checked, gen = (toggleGen.get(k) || 0) + 1;
+  toggleGen.set(k, gen);
+  if (want) state.selected.add(k); else state.selected.delete(k);
+  if (state.onlySelected) rerenderRow(key); else t.closest('.col')?.classList.toggle('selected', want);
   renderToolbar();
   try { await saveKey(key); flash(''); }
   catch (err) {
-    if (t.checked) state.selected.delete(k); else state.selected.add(k);   // revert
-    t.checked = !t.checked; t.closest('.col')?.classList.toggle('selected', t.checked);
-    renderToolbar(); flash(`save failed: ${err.message}`);
+    if (toggleGen.get(k) === gen) {
+      if (want) state.selected.delete(k); else state.selected.add(k);   // revert
+      t.checked = !want; t.closest('.col')?.classList.toggle('selected', !want);
+      renderToolbar();
+    }
+    flash(`save failed: ${err.message}`);
   }
 });
 
