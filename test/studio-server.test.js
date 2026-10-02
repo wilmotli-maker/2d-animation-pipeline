@@ -1,7 +1,7 @@
 // test/studio-server.test.js
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, chmod, symlink, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -30,6 +30,15 @@ test('GET / serves the shell; /review.css serves the shared review style', async
   const css = await fetch(base + 'review.css');
   assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8');
   assert.match(await css.text(), /--accent/);
+});
+
+test('GET /static serves bundled web files (real-path checked), blocks traversal', async () => {
+  const r = await fetch(base + 'static/index.html');
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /<!doctype html>/i);
+  const esc = await fetch(base + 'static/..%2Fserver.js');
+  assert.equal(esc.status, 404);
+  await esc.arrayBuffer();
 });
 
 test('GET /api/tree', async () => {
@@ -62,6 +71,61 @@ test('GET /media supports Range and blocks traversal', async () => {
   assert.equal(await r.text(), '234');
   const esc = await fetch(base + 'media/shots%2F..%2F..%2Fsecret.txt');
   assert.equal(esc.status, 404);
+});
+
+// Symlinks can be unavailable (e.g. unprivileged Windows); skip rather than fail.
+async function trySymlink(t, target, p) {
+  try { await symlink(target, p); return true; } catch (err) {
+    if (err.code === 'EPERM' || err.code === 'EACCES') { t.skip('symlinks unavailable'); return false; }
+    throw err;
+  }
+}
+
+test('GET /media: in-root symlinks resolving outside the project -> 404, secret not served', async (t) => {
+  const ext = path.join(outer, 'ext');
+  await mkdir(ext, { recursive: true });
+  await writeFile(path.join(ext, 'secret.txt'), 'EXTERNAL-SECRET');
+  if (!await trySymlink(t, ext, path.join(root, 'escape'))) return;
+  await symlink(path.join(ext, 'secret.txt'), path.join(root, 'leak.txt'));
+  for (const p of ['media/escape/secret.txt', 'media/leak.txt', 'media/escape']) {
+    const r = await fetch(base + p);
+    assert.equal(r.status, 404, p);
+    assert.doesNotMatch(await r.text(), /EXTERNAL-SECRET/);
+  }
+  const ranged = await fetch(base + 'media/leak.txt', { headers: { Range: 'bytes=0-3' } });
+  assert.equal(ranged.status, 404);
+  await ranged.arrayBuffer();
+});
+
+test('GET /media: a symlink that stays inside the project is served', async (t) => {
+  const dir = path.join(root, 'episodes', '1', 'shots', 'ai-1', 'drafts', 'v002');
+  await mkdir(dir, { recursive: true });
+  if (!await trySymlink(t, path.join('..', 'v001', 'output.mp4'), path.join(dir, 'output.mp4'))) return;
+  const r = await fetch(base + 'media/episodes/1/shots/ai-1/drafts/v002/output.mp4');
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), '0123456789');
+});
+
+test('/api/selections: symlinked .pipeline outside the project -> 403 for GET and PUT, outside untouched', async (t) => {
+  const proj = path.join(outer, 'linked-sel');
+  const ext = path.join(outer, 'linked-sel-ext');
+  await mkdir(path.join(ext, 'studio'), { recursive: true });
+  await mkdir(proj, { recursive: true });
+  await writeFile(path.join(ext, 'studio', 'selections.json'), '{"version":1,"selected":{"SENTINEL":["v001"]}}');
+  if (!await trySymlink(t, ext, path.join(proj, '.pipeline'))) return;
+  const { server: s2, url: b2 } = await startStudio({ root: proj, port: 0, previewer: {} });
+  try {
+    const got = await fetch(b2 + 'api/selections');
+    assert.equal(got.status, 403);
+    assert.doesNotMatch(await got.text(), /SENTINEL/);
+    const put = await fetch(b2 + 'api/selections', { method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['v001'] }) });
+    assert.equal(put.status, 403);
+    await put.arrayBuffer();
+    assert.deepEqual(await readdir(path.join(ext, 'studio')), ['selections.json']);
+    assert.equal(await readFile(path.join(ext, 'studio', 'selections.json'), 'utf8'),
+      '{"version":1,"selected":{"SENTINEL":["v001"]}}');
+  } finally { s2.close(); }
 });
 
 test('GET /media: unsatisfiable range -> 416; suffix range -> 206', async () => {

@@ -1,5 +1,5 @@
 // src/studio/media.js
-import { open, stat } from 'node:fs/promises';
+import { open, stat, constants } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import path from 'node:path';
 
@@ -36,12 +36,15 @@ export function parseRange(header, size) {
   return { start, end };
 }
 
-export async function sendFile(req, res, abs) {
+// `noFollow`: open with O_NOFOLLOW. For callers passing an already-resolved real
+// path (see realWithin), so a symlink swapped in at the last component between
+// the containment check and open() is refused instead of followed.
+export async function sendFile(req, res, abs, { noFollow = false } = {}) {
   const notFound = () => { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); };
   // Check before open(): opening a FIFO blocks a threadpool thread until a writer appears.
   try { if (!(await stat(abs)).isFile()) return notFound(); } catch { return notFound(); }
   let fh;
-  try { fh = await open(abs, 'r'); } catch { return notFound(); }
+  try { fh = await open(abs, noFollow ? constants.O_RDONLY | constants.O_NOFOLLOW : 'r'); } catch { return notFound(); }
   let st;
   try { st = await fh.stat(); } catch { st = null; }
   if (!st || !st.isFile()) { await fh.close().catch(() => {}); return notFound(); }

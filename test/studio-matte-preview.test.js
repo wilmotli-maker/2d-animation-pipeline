@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, mkdir, writeFile, stat, utimes } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, stat, utimes, symlink, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -132,6 +132,67 @@ test('previewer: source changed mid-render -> preview is not ready, re-renders',
     await pv.drain();
     assert.equal(f.calls.length, 2);
     assert.equal((await pv.request(rel, 'checker')).state, 'ready');
+  });
+});
+
+// Symlinks can be unavailable (e.g. unprivileged Windows); skip rather than fail.
+async function trySymlink(t, target, p) {
+  try { await symlink(target, p); return true; } catch (err) {
+    if (err.code === 'EPERM' || err.code === 'EACCES') { t.skip('symlinks unavailable'); return false; }
+    throw err;
+  }
+}
+
+test('previewer: .pipeline symlinked outside the project -> error state, no render, nothing written outside', async (t) => {
+  await withTempRoot(async (outer) => {
+    const root = path.join(outer, 'proj');
+    const ext = path.join(outer, 'ext');
+    await mkdir(ext);
+    const rel = 'shots/a/drafts/v001/alpha.mov';
+    await seedAlpha(root, rel);
+    if (!await trySymlink(t, ext, path.join(root, '.pipeline'))) return;
+    const f = fakeRun();
+    const pv = createPreviewer({ root, run: f.run });
+    assert.deepEqual(await pv.request(rel, 'checker'), { state: 'error', error: 'path outside the project' });
+    await pv.drain();
+    assert.equal(f.calls.length, 0);
+    assert.deepEqual(await readdir(ext), []);
+  });
+});
+
+test('previewer: source alpha symlinked to a file outside the project -> error state, no render', async (t) => {
+  await withTempRoot(async (outer) => {
+    const root = path.join(outer, 'proj');
+    await mkdir(path.join(root, 'shots/a/drafts/v001'), { recursive: true });
+    await writeFile(path.join(outer, 'outside.mov'), 'alpha');
+    const rel = 'shots/a/drafts/v001/alpha.mov';
+    if (!await trySymlink(t, path.join(outer, 'outside.mov'), path.join(root, rel))) return;
+    const f = fakeRun();
+    const pv = createPreviewer({ root, run: f.run });
+    assert.deepEqual(await pv.request(rel, 'checker'), { state: 'error', error: 'path outside the project' });
+    await pv.drain();
+    assert.equal(f.calls.length, 0);
+  });
+});
+
+test('previewer: in-project symlinked source renders; planted temp-file symlink is not written through', async (t) => {
+  await withTempRoot(async (outer) => {
+    const root = path.join(outer, 'proj');
+    await seedAlpha(root, 'assets/alpha.mov');
+    await mkdir(path.join(root, 'shots/a/drafts/v001'), { recursive: true });
+    const rel = 'shots/a/drafts/v001/alpha.mov';
+    if (!await trySymlink(t, '../../../../assets/alpha.mov', path.join(root, rel))) return;
+    const out = path.join(root, previewRelPath(rel, 'checker'));
+    await mkdir(path.dirname(out), { recursive: true });
+    await writeFile(path.join(outer, 'victim.txt'), 'untouched');
+    await symlink(path.join(outer, 'victim.txt'), `${out}.tmp.mp4`);
+    const f = fakeRun();
+    const pv = createPreviewer({ root, run: f.run });
+    assert.deepEqual(await pv.request(rel, 'checker'), { state: 'pending' });
+    await pv.drain();
+    assert.equal(f.calls.length, 1);
+    assert.equal((await pv.request(rel, 'checker')).state, 'ready');
+    assert.equal(await readFile(path.join(outer, 'victim.txt'), 'utf8'), 'untouched');
   });
 });
 

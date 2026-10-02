@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, stat, rename, rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
+import { realWithin } from './contain.js';
 
 // Solid colors as ffmpeg hex; `checker` is generated with geq.
 export const PREVIEW_BGS = {
@@ -65,11 +66,14 @@ export function createPreviewer({ root, run = runFfmpeg, concurrency = 2 }) {
   // Never waits for a render: returns the current state and queues work if needed.
   async function request(srcRel, bg) {
     if (!Object.hasOwn(PREVIEW_BGS, bg)) throw new Error(`matte preview: unknown bg "${bg}"`);
-    const src = path.join(root, srcRel);
+    if (await mtime(path.join(root, srcRel)) == null) return { state: 'error', error: 'source not found' };
+    const rel = previewRelPath(srcRel, bg);
+    // Symlinks may not carry the read (source) or the write (cache) outside the project.
+    const src = await realWithin(root, path.join(root, srcRel));
+    const out = await realWithin(root, path.join(root, rel), { forWrite: true });
+    if (!src || !out) return { state: 'error', error: 'path outside the project' };
     const srcM = await mtime(src);
     if (srcM == null) return { state: 'error', error: 'source not found' };
-    const rel = previewRelPath(srcRel, bg);
-    const out = path.join(root, rel);
     const outM = await mtime(out);
     // A finished preview is stamped with the source mtime it was rendered from
     // (below), so ANY source mtime change (newer, older via `cp -p`, or a rewrite
@@ -83,15 +87,21 @@ export function createPreviewer({ root, run = runFfmpeg, concurrency = 2 }) {
     failed.delete(rel);
     inflight.add(rel);
     queue.push(async () => {
-      const tmp = `${out}.tmp.mp4`;
+      let tmp = null;
       try {
         await mkdir(path.dirname(out), { recursive: true });
+        // Re-check the now-existing directory chain right before writing into it.
+        const dir = await realWithin(root, path.dirname(out));
+        if (!dir) throw new Error('path outside the project');
+        const dest = path.join(dir, path.basename(out));
+        tmp = `${dest}.tmp.mp4`;
+        await rm(tmp, { force: true });   // ffmpeg -y would write through a planted symlink
         await run(buildPreviewArgs(src, tmp, bg));
-        await rename(tmp, out);
-        await utimes(out, new Date(), new Date(Math.trunc(srcM)));
+        await rename(tmp, dest);
+        await utimes(dest, new Date(), new Date(Math.trunc(srcM)));
       } catch (err) {
         failed.set(rel, { srcM, message: err.message });
-        await rm(tmp, { force: true });
+        if (tmp) await rm(tmp, { force: true });
       } finally {
         inflight.delete(rel);
       }

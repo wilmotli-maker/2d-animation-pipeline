@@ -8,6 +8,7 @@ import { scanShots, scanImages } from '../review-scan.js';
 import { REVIEW_STYLE } from '../review-render.js';
 import { scanProjectTree } from './tree.js';
 import { resolveWithin, sendFile } from './media.js';
+import { realWithin } from './contain.js';
 import { readSelections, setSelection } from './selections.js';
 import { createPreviewer, PREVIEW_BGS } from './matte-preview.js';
 
@@ -33,6 +34,15 @@ function readBody(req) {
       : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
+}
+
+// Lexical check first (cheap, rejects `..`), then the real-path check: a symlink
+// that resolves outside `base` is a plain 404, indistinguishable from missing.
+// The file is opened by its real path, not the client-supplied one.
+async function sendWithin(req, res, base, rel) {
+  const abs = resolveWithin(base, rel);
+  const real = abs && await realWithin(base, abs);
+  return real ? sendFile(req, res, real, { noFollow: true }) : sendJson(res, 404, { error: 'not found' });
 }
 
 async function handle({ root, previewer }, req, res) {
@@ -65,14 +75,8 @@ async function handle({ root, previewer }, req, res) {
     res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
     return res.end(REVIEW_STYLE);
   }
-  if (get && p.startsWith('/static/')) {
-    const abs = resolveWithin(WEB, safeDecode(p.slice('/static/'.length)));
-    return abs ? sendFile(req, res, abs) : sendJson(res, 404, { error: 'not found' });
-  }
-  if (get && p.startsWith('/media/')) {
-    const abs = resolveWithin(root, safeDecode(p.slice('/media/'.length)));
-    return abs ? sendFile(req, res, abs) : sendJson(res, 404, { error: 'not found' });
-  }
+  if (get && p.startsWith('/static/')) return sendWithin(req, res, WEB, safeDecode(p.slice('/static/'.length)));
+  if (get && p.startsWith('/media/')) return sendWithin(req, res, root, safeDecode(p.slice('/media/'.length)));
 
   if (get && p === '/api/tree') return sendJson(res, 200, await scanProjectTree(root));
 
@@ -107,7 +111,11 @@ async function handle({ root, previewer }, req, res) {
   }
 
   if (p === '/api/selections') {
-    if (get) return sendJson(res, 200, await readSelections(root));
+    if (get) {
+      try { return sendJson(res, 200, await readSelections(root)); } catch (err) {
+        return sendJson(res, err.status || 500, { error: err.message });
+      }
+    }
     if (req.method === 'PUT') {
       // Requiring application/json forces a CORS preflight for cross-origin
       // pages, which this server never answers, so other sites can't write here.
