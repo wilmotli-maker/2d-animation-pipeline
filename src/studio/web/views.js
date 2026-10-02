@@ -360,11 +360,10 @@ const byVersion = (a, b) => a.localeCompare(b, undefined, { numeric: true });
 // Studio key -> the static review page's key (src/review-render.js): shots are
 // keyed by shotId alone, sheets by name/sheetType/slug (no element type).
 // Studio shot keys have 1-2 segments (`[episode/]shotId`), sheet keys 4.
-// Folder-view keys (`folder:<ep>/<path>/<shotId>`) match `pipeline review --folder`
-// pages, which key by shotId alone.
+// Folder-view keys (`folder:<ep>/<path>/<shotId>`) are not handled here: they are
+// not real shots and never enter `selected` (see selectionExportDoc / folderSelection).
 function staticKey(key) {
   const parts = key.split('/');
-  if (key.startsWith('folder:')) return parts[parts.length - 1];
   return parts.length >= 4 ? parts.slice(1).join('/') : parts[parts.length - 1];
 }
 
@@ -375,15 +374,33 @@ export function toStaticSelection(selected) {
   // A Map, not `{}`: keys like `constructor` or `__proto__` must not hit Object.prototype.
   const out = new Map();
   for (const [key, vs] of Object.entries(selected)) {
+    if (key.startsWith('folder:')) continue;
     const k = staticKey(key);
     out.set(k, [...new Set([...(out.get(k) || []), ...vs])].sort(byVersion));
   }
   return Object.fromEntries(out);
 }
 
+// { 'folder:<ep>/<path>/<shotId>': versions } -> { '<ep>/<path>': { shotId: versions } }.
+// ep is the segment up to the first '/', shotId the last; path is everything between.
+export function folderSelection(selected) {
+  const out = new Map();
+  for (const [key, vs] of Object.entries(selected)) {
+    if (!key.startsWith('folder:')) continue;
+    const parts = key.slice('folder:'.length).split('/');
+    if (parts.length < 3) continue;
+    const dir = parts.slice(0, -1).join('/'), shotId = parts[parts.length - 1];
+    if (!out.has(dir)) out.set(dir, new Map());
+    const m = out.get(dir);
+    m.set(shotId, [...new Set([...(m.get(shotId) || []), ...vs])].sort(byVersion));
+  }
+  return Object.fromEntries([...out].map(([d, m]) => [d, Object.fromEntries(m)]));
+}
+
 // The "Export selection" file. `selected` (a Set of `key::version`) is written
-// twice: static-page-compatible keys under `selected` (what the static page's
-// importer reads) and the full studio keys under `studioSelected` (lossless).
+// twice: real shot/sheet keys in static-page form under `selected` (what the static
+// page's importer reads), folder-view candidates under `folderSelected`, and the
+// full studio keys under `studioSelected` (lossless).
 export function selectionExportDoc({ project, selected, exportedAt }) {
   const studioSelected = new Map();   // Map: see toStaticSelection
   for (const k of selected) {
@@ -395,7 +412,7 @@ export function selectionExportDoc({ project, selected, exportedAt }) {
   const sorted = Object.fromEntries([...studioSelected.keys()].sort()
     .map((key) => [key, [...new Set(studioSelected.get(key))].sort(byVersion)]));
   return { format: 'studio-selection/1', project, exportedAt,
-    selected: toStaticSelection(sorted), studioSelected: sorted };
+    selected: toStaticSelection(sorted), folderSelected: folderSelection(sorted), studioSelected: sorted };
 }
 
 // Folder views pass keyPrefix `folder:<ep>/<path>/` so their selection keys never
