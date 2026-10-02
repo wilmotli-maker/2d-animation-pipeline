@@ -178,3 +178,55 @@ test('scanShots: alpha.webm is surfaced as the matte variant', async () => {
     assert.equal(m.shots[0].versions[0].variants.alpha, path.join('shots', 's1', 'drafts', 'v001', 'alpha.webm'));
   });
 });
+
+async function seedFinalFiles(root, id, files) {
+  for (const f of files) {
+    const p = path.join(root, 'shots', id, 'final', f);
+    await mkdir(path.dirname(p), { recursive: true });
+    await writeFile(p, 'x');
+  }
+}
+
+test('scanShots: promoted draft without own alpha picks up final/alpha.mov', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 's1', { drafts: [{ version: 'v001' }, { version: 'v002' }], promoted: 'v002' });
+    await seedFinalFiles(root, 's1', ['alpha.mov']);
+    const s = (await scanShots(root, {})).shots.find((x) => x.shotId === 's1');
+    assert.deepEqual(s.versions.map((v) => v.version), ['v001', 'v002']);
+    assert.equal(s.versions[1].variants.alpha, path.join('shots', 's1', 'final', 'alpha.mov'));
+    assert.equal(s.versions[0].variants.alpha, null);
+  });
+});
+
+test('scanShots: promoted draft own alpha wins over final/alpha.mov', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 's1', { drafts: [{ version: 'v002' }], promoted: 'v002' });
+    await writeFile(path.join(root, 'shots', 's1', 'drafts', 'v002', 'alpha.webm'), 'x');
+    await seedFinalFiles(root, 's1', ['alpha.mov']);
+    const s = (await scanShots(root, {})).shots.find((x) => x.shotId === 's1');
+    assert.equal(s.versions[0].variants.alpha, path.join('shots', 's1', 'drafts', 'v002', 'alpha.webm'));
+  });
+});
+
+test('scanShots: final/ qc and upscales are attributed to the promoted draft', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 's1', { drafts: [{ version: 'v002' }], promoted: 'v002' });
+    await seedFinalFiles(root, 's1', ['qc/f0.png', 'upscaled-1080p.mp4']);
+    const s = (await scanShots(root, {})).shots.find((x) => x.shotId === 's1');
+    const v = s.versions[0].variants;
+    assert.deepEqual(v.qc, [path.join('shots', 's1', 'final', 'qc', 'f0.png')]);
+    assert.deepEqual(v.upscaled, [path.join('shots', 's1', 'final', 'upscaled-1080p.mp4')]);
+  });
+});
+
+test('scanShots: without source-draft.txt, final/ variants are ignored', async () => {
+  await withTempRoot(async (root) => {
+    await seedShot(root, 's1', { drafts: [{ version: 'v001' }] });
+    await seedFinalFiles(root, 's1', ['alpha.mov', 'qc/f0.png', 'upscaled-1080p.mp4']);
+    const s = (await scanShots(root, {})).shots.find((x) => x.shotId === 's1');
+    const v = s.versions[0].variants;
+    assert.equal(v.alpha, null);
+    assert.deepEqual(v.qc, []);
+    assert.deepEqual(v.upscaled, []);
+  });
+});
