@@ -23,6 +23,7 @@ const empty = () => ({ selected: new Set(), hidden: new Set(), mode: 'clips', bg
 test('esc + mediaUrl', () => {
   assert.equal(esc('<a "b">'), '&lt;a &quot;b&quot;&gt;');
   assert.equal(mediaUrl('shots/a b/v#1.mp4'), '/media/shots/a%20b/v%231.mp4');
+  assert.equal(mediaUrl('a/b\\c.mp4'), '/media/a/b%5Cc.mp4');   // backslash is a filename char on POSIX
   assert.equal(mediaUrl(null), null);
 });
 

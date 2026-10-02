@@ -8,7 +8,7 @@ export function esc(s) {
 }
 
 export function mediaUrl(rel) {
-  return rel ? '/media/' + rel.split(/[\\/]/).map(encodeURIComponent).join('/') : null;
+  return rel ? '/media/' + rel.split('/').map(encodeURIComponent).join('/') : null;
 }
 
 const enc = encodeURIComponent;
