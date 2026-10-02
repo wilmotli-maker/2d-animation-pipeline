@@ -32,6 +32,7 @@ test('setSelection: rejects bad keys and versions', async () => {
   await withTempRoot(async (root) => {
     await assert.rejects(setSelection(root, '', ['v001']), /key/);
     await assert.rejects(setSelection(root, 'x'.repeat(600), ['v001']), /key/);
+    await assert.rejects(setSelection(root, '__proto__', ['v001']), /key/);
     await assert.rejects(setSelection(root, 'a', ['final']), /version/);
     await assert.rejects(setSelection(root, 'a', 'v001'), /versions/);
   });

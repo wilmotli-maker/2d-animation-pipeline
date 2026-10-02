@@ -19,7 +19,7 @@ export async function readSelections(root) {
 let chain = Promise.resolve();
 
 export function setSelection(root, key, versions) {
-  if (typeof key !== 'string' || !key || key.length > 512) return Promise.reject(new Error('selection: invalid key'));
+  if (typeof key !== 'string' || !key || key.length > 512 || key === '__proto__') return Promise.reject(new Error('selection: invalid key'));
   if (!Array.isArray(versions)) return Promise.reject(new Error('selection: versions must be an array'));
   for (const v of versions) {
     if (typeof v !== 'string' || !/^v\d+$/.test(v)) return Promise.reject(new Error(`selection: invalid version "${v}"`));
