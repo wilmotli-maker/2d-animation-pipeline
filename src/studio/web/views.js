@@ -139,6 +139,43 @@ export function rowHTML({ key, title, tags = '', versions, col }, state) {
 export function shotKey(s) { return s.episode ? `${s.episode}/${s.shotId}` : s.shotId; }
 export function sheetKey(type, name, sh) { return `${type}/${name}/${sh.sheetType}/${sh.slug}`; }
 
+const byVersion = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+
+// Studio key -> the static review page's key (src/review-render.js): shots are
+// keyed by shotId alone, sheets by name/sheetType/slug (no element type).
+// Studio shot keys have 1-2 segments (`[episode/]shotId`), sheet keys 4.
+function staticKey(key) {
+  const parts = key.split('/');
+  return parts.length >= 4 ? parts.slice(1).join('/') : parts[parts.length - 1];
+}
+
+// { studioKey: versions } -> { staticKey: versions }, so a studio export imports
+// into already-generated static pages. Keys that collide (same shotId in two
+// episodes) get the union of their versions.
+export function toStaticSelection(selected) {
+  const out = {};
+  for (const [key, vs] of Object.entries(selected)) {
+    const k = staticKey(key);
+    out[k] = [...new Set([...(out[k] || []), ...vs])].sort(byVersion);
+  }
+  return out;
+}
+
+// The "Export selection" file. `selected` (a Set of `key::version`) is written
+// twice: static-page-compatible keys under `selected` (what the static page's
+// importer reads) and the full studio keys under `studioSelected` (lossless).
+export function selectionExportDoc({ project, selected, exportedAt }) {
+  const studioSelected = {};
+  for (const k of selected) {
+    const i = k.lastIndexOf('::');
+    (studioSelected[k.slice(0, i)] ||= []).push(k.slice(i + 2));
+  }
+  const sorted = Object.fromEntries(Object.keys(studioSelected).sort()
+    .map((key) => [key, [...new Set(studioSelected[key])].sort(byVersion)]));
+  return { format: 'studio-selection/1', project, exportedAt,
+    selected: toStaticSelection(sorted), studioSelected: sorted };
+}
+
 export function shotRowItems(shots) {
   return shots.map((s) => {
     const key = shotKey(s);

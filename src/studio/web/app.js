@@ -1,6 +1,6 @@
 // src/studio/web/app.js
 import {
-  esc, parseRoute, treeHTML, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS,
+  esc, parseRoute, treeHTML, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
 } from './views.js';
 import { createSelectionSync } from './selection-sync.js';
 
@@ -168,9 +168,8 @@ async function boot() {
 }
 
 function exportSelection() {
-  const doc = { project: state.tree.project, exportedAt: new Date().toISOString(),
-    selected: Object.fromEntries([...new Set([...state.selected].map((k) => k.slice(0, k.lastIndexOf('::'))))]
-      .sort().map((key) => [key, sync.versionsFor(key)])) };
+  // `selected` uses static-review keys so the file imports into generated review pages.
+  const doc = selectionExportDoc({ project: state.tree.project, selected: state.selected, exportedAt: new Date().toISOString() });
   const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `${state.tree.project}-selection.json` });
   document.body.appendChild(a); a.click(); a.remove();
