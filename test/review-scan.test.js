@@ -232,6 +232,7 @@ test('scanShots: without source-draft.txt, final/ variants are ignored', async (
 });
 
 // ---- element sheets: disk is truth, log only enriches ----
+import { isShotDir } from '../src/review-scan.js';
 
 async function seedFiles(root, files) {
   for (const f of files) {
@@ -346,5 +347,17 @@ test('scanImages: last log entry for a sheet/version wins', async () => {
       logLine({ sheetType: 'pose', sheetId: 's', version: 'v001', model: 'new', prompt: 'b', ts: '2' }));
     const s = await sheetsOf(root, 'pose', 's');
     assert.deepEqual(s.versions[0].meta, { model: 'new', prompt: 'b', ts: '2' });
+  });
+});
+
+test('scanShots: only dirs with shot.yaml or drafts/ are shots; isShotDir agrees', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, ['shots/candidates/x.mp4', 'shots/a/shot.yaml', 'shots/b/drafts/v001/output.mp4']);
+    const m = await scanShots(root);
+    assert.deepEqual(m.shots.map((s) => s.shotId), ['a', 'b']);
+    assert.equal(await isShotDir(path.join(root, 'shots', 'a')), true);
+    assert.equal(await isShotDir(path.join(root, 'shots', 'b')), true);
+    assert.equal(await isShotDir(path.join(root, 'shots', 'candidates')), false);
+    assert.equal(await isShotDir(path.join(root, 'shots', 'nope')), false);
   });
 });

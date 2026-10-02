@@ -153,12 +153,19 @@ function mapVariants(projectRoot, v) {
   };
 }
 
+// A folder under shots/ is a shot only if it has a shot.yaml or a drafts/ dir;
+// anything else (candidates/, assembled/, …) is a working folder, not a shot.
+export async function isShotDir(dir) {
+  return (await fileExists(path.join(dir, 'shot.yaml'))) || (await isDir(path.join(dir, 'drafts')));
+}
+
 export async function scanShots(projectRoot, { episodes } = {}) {
   const roots = await discoverShotRoots(projectRoot);
   const shots = [];
   for (const { root: shotRoot, episode } of roots) {
     if (episodes && episodes.length && (episode == null || !episodes.includes(episode))) continue;
     for (const id of (await listDirs(path.join(shotRoot, 'shots'))).sort(naturalCompare)) {
+      if (!(await isShotDir(path.join(shotRoot, 'shots', id)))) continue;
       shots.push(await scanOneShot(projectRoot, shotRoot, episode, id));
     }
   }
