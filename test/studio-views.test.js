@@ -90,3 +90,12 @@ test('sheetRowsHTML: one row per sheet, images, keyed by type/name/sheet/slug', 
   assert.match(h, /<img src="\/media\/elements\/characters\/mira\/sheets\/pose\/wave\/v001.png"/);
   assert.equal(sheetRowsHTML({ ...el, sheets: [] }, empty()).includes('No sheets yet'), true);
 });
+
+test('shotRowsHTML escapes quotes/angle brackets in data-key/data-row/data-v attributes', () => {
+  const evil = { ...SHOT, shotId: 'a"b<c', episode: '', versions: [{ ...SHOT.versions[0], version: 'v"1<x' }] };
+  const html = shotRowsHTML([evil], empty());
+  for (const m of html.matchAll(/data-(?:key|row|v)="([^"]*)"/g)) assert.ok(!/[<>]/.test(m[1]), m[0]);
+  assert.ok(html.includes('data-row="a&quot;b&lt;c"'));
+  assert.ok(html.includes('data-v="v&quot;1&lt;x"'));
+  assert.ok(!html.includes('a"b<c'));
+});
