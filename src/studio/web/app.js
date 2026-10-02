@@ -181,7 +181,8 @@ function exportSelection() {
       .sort().map((key) => [key, versionsFor(key)])) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `${state.tree.project}-selection.json` });
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);   // immediate revoke can cancel the download in Safari/Firefox
 }
 
 toolbar.addEventListener('click', async (e) => {
