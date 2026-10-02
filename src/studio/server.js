@@ -39,6 +39,16 @@ async function handle({ root, previewer }, req, res) {
   const host = (req.headers.host || '').replace(/:\d+$/, '');
   if (!LOCAL_HOSTS.has(host)) return sendJson(res, 403, { error: 'forbidden host' });
 
+  // Any web page can fire requests at 127.0.0.1 (<img>, fetch no-cors); refuse
+  // anything the browser marks as cross-site so they can't trigger renders or reads.
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return sendJson(res, 403, { error: 'cross-site request' });
+  if (req.headers.origin) {
+    let originHost = null;
+    try { originHost = new URL(req.headers.origin).host; } catch { /* malformed -> reject */ }
+    if (originHost !== req.headers.host) return sendJson(res, 403, { error: 'cross-origin request' });
+  }
+
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   const get = req.method === 'GET' || req.method === 'HEAD';

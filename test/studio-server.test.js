@@ -122,3 +122,24 @@ test('rejects foreign Host headers (DNS-rebinding guard)', async () => {
   });
   assert.equal(status, 403);
 });
+
+// node:http (not fetch) so the browser-controlled headers can be set.
+async function rawGet(pathname, headers) {
+  const http = await import('node:http');
+  return new Promise((resolve) => {
+    const u = new URL(base);
+    http.get({ host: u.hostname, port: u.port, path: pathname, headers },
+      (res) => { res.resume(); resolve(res.statusCode); });
+  });
+}
+
+test('rejects cross-site requests (Sec-Fetch-Site / Origin)', async () => {
+  assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'cross-site' }), 403);
+  assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'same-site' }), 403);
+  assert.equal(await rawGet('/api/tree', { Origin: 'http://evil.example' }), 403);
+  assert.equal(await rawGet('/api/tree', { Origin: 'not a url' }), 403);
+  assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'same-origin' }), 200);
+  assert.equal(await rawGet('/api/tree', { 'Sec-Fetch-Site': 'none' }), 200);
+  const u = new URL(base);
+  assert.equal(await rawGet('/api/tree', { Origin: `http://${u.host}` }), 200);
+});
