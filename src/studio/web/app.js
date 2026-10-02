@@ -2,6 +2,7 @@
 import {
   esc, parseRoute, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
   filterTree, filterSuggestions, filterCountText, railShellHTML, projectNodeHTML, elementsListHTML, shotsListHTML,
+  matchSuggestions, suggestionListHTML, parseStoredFilter, reconcileChip, chipHTML,
 } from './views.js';
 import { createSelectionSync } from './selection-sync.js';
 
@@ -17,8 +18,9 @@ const sync = createSelectionSync({ fetchJson: getJson, putJson });
 const state = {
   tree: null, route: { view: 'home' }, items: [], byKey: {},
   selected: sync.selected, hidden: new Set(), mode: 'clips', bg: loadBg(), onlySelected: false,
-  filters: { shots: loadFilter('shots'), elements: loadFilter('elements') },
+  filters: { shots: loadFilter('shots'), elements: loadFilter('elements') }, suggestions: { shots: [], elements: [] },
 };
+const KINDS = ['shots', 'elements'];
 
 // Matte background is a per-viewer convenience, so localStorage is enough.
 function loadBg() {
@@ -26,29 +28,39 @@ function loadBg() {
 }
 function saveBg() { try { localStorage.setItem('studio:bg', state.bg); } catch {} }
 
-// Rail filter text, also per viewer.
-function loadFilter(kind) { try { return localStorage.getItem(`studio:filter:${kind}`) || ''; } catch { return ''; } }
-function saveFilter(kind) { try { localStorage.setItem(`studio:filter:${kind}`, state.filters[kind]); } catch {} }
+// Rail filter box state `{ text, chip }`, also per viewer (older builds stored the text alone).
+function loadFilter(kind) {
+  try { return parseStoredFilter(localStorage.getItem(`studio:filter:${kind}`)); } catch { return { text: '', chip: null }; }
+}
+function saveFilter(kind) { try { localStorage.setItem(`studio:filter:${kind}`, JSON.stringify(state.filters[kind])); } catch {} }
+const filterTexts = () => ({ shots: state.filters.shots.text, elements: state.filters.elements.text });
 
-// The rail shell (filter inputs + datalists) is built once per boot/rescan; only
+// The rail shell (filter boxes + dropdowns) is built once per boot/rescan; only
 // the list containers inside it are re-rendered, so a focused input keeps its caret.
+// A stored chip whose character is gone (or no longer labels its text) is dropped here.
 function buildRail() {
-  rail.innerHTML = railShellHTML(state.tree, filterSuggestions(state.tree), state.filters);
+  state.suggestions = filterSuggestions(state.tree);
+  for (const kind of KINDS) {
+    const f = reconcileChip(state.filters[kind], state.suggestions[kind]);
+    if (f !== state.filters[kind]) { state.filters[kind] = f; saveFilter(kind); }
+  }
+  for (const kind of KINDS) Object.assign(combo[kind], { open: false, active: -1, items: [] });
+  rail.innerHTML = railShellHTML(state.tree, state.filters);
 }
 
 function renderRail() {
   const current = location.hash || '#/';
-  const ft = filterTree(state.tree, state.filters);
+  const ft = filterTree(state.tree, filterTexts());
   const fill = (id, html) => { const el = rail.querySelector(`#${id}`); if (el) el.innerHTML = html; };
   fill('rail-proj', projectNodeHTML(ft, current));
   fill('rail-elements', elementsListHTML(ft, current));
   fill('rail-shots', shotsListHTML(ft, current));
-  for (const kind of ['shots', 'elements']) {
+  for (const kind of KINDS) {
     const f = ft.filter[kind];
-    const input = rail.querySelector(`input[data-filter="${kind}"]`);
-    if (input) {
-      input.classList.toggle('invalid', f.invalid);
-      if (f.invalid) input.title = 'invalid regex — matching as text'; else input.removeAttribute('title');
+    const field = rail.querySelector(`[data-field="${kind}"]`);
+    if (field) {
+      field.classList.toggle('invalid', f.invalid);
+      if (f.invalid) field.title = 'invalid regex — matching as text'; else field.removeAttribute('title');
     }
     const cnt = rail.querySelector(`[data-count="${kind}"]`);
     if (cnt) cnt.textContent = filterCountText(f);
@@ -66,14 +78,119 @@ function revealActiveNode() {
   }
 }
 
+// ---- filter boxes: [chip] input [×] + suggestion dropdown (a combobox) ------
+// The text is what filters; a chip only labels the text a suggestion put there.
+
 let filterTimer = null;
+function setFilter(kind, f) {
+  state.filters[kind] = f;
+  saveFilter(kind);
+  syncBox(kind);
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(renderRail, 80);
+}
+
+// Mirror a box's state into its chip and clear button; the input keeps its own value.
+function syncBox(kind) {
+  const field = rail.querySelector(`[data-field="${kind}"]`);
+  if (!field) return;
+  const f = state.filters[kind];
+  field.querySelector('.chip')?.remove();
+  if (f.chip) field.insertAdjacentHTML('afterbegin', chipHTML(f.chip));
+  field.querySelector('.fclear').hidden = !(f.text || f.chip);
+}
+
+// Per-box dropdown state; `items` is the matched list the open dropdown shows.
+const combo = Object.fromEntries(KINDS.map((k) => [k, { open: false, active: -1, query: '', items: [] }]));
+const boxPart = (kind, sel) => rail.querySelector(`[data-field="${kind}"] ${sel}`);
+
+function renderSuggest(kind) {
+  const c = combo[kind], input = boxPart(kind, 'input.filter'), ul = boxPart(kind, 'ul.sug');
+  if (!input || !ul) return;
+  c.items = c.open ? matchSuggestions(state.suggestions[kind], c.query) : [];
+  if (c.active >= c.items.length) c.active = -1;
+  const shown = c.items.length > 0;
+  ul.innerHTML = shown
+    ? suggestionListHTML(state.suggestions[kind], { query: c.query, activeIndex: c.active, idPrefix: `sug-${kind}` }) : '';
+  ul.hidden = !shown;
+  input.setAttribute('aria-expanded', String(shown));
+  const li = ul.querySelector('li.on');
+  if (li) {
+    input.setAttribute('aria-activedescendant', li.id);
+    // Scroll only the dropdown (ul is the li's offsetParent), never the rail or window.
+    if (li.offsetTop < ul.scrollTop) ul.scrollTop = li.offsetTop;
+    else if (li.offsetTop + li.offsetHeight > ul.scrollTop + ul.clientHeight) ul.scrollTop = li.offsetTop + li.offsetHeight - ul.clientHeight;
+  } else input.removeAttribute('aria-activedescendant');
+}
+// With a chip the text is its regex, so the full list shows; otherwise the text narrows it.
+function openSuggest(kind) {
+  const f = state.filters[kind];
+  Object.assign(combo[kind], { open: true, active: -1, query: f.chip ? '' : f.text });
+  renderSuggest(kind);
+}
+function closeSuggest(kind) {
+  if (!combo[kind].open) return;
+  Object.assign(combo[kind], { open: false, active: -1 });
+  renderSuggest(kind);
+}
+
+function pickSuggestion(kind, i) {
+  const s = combo[kind].items[i], input = boxPart(kind, 'input.filter');
+  if (!s || !input) return;
+  input.value = s.value;   // programmatic: fires no input event, so the chip below survives
+  input.setSelectionRange(s.value.length, s.value.length);
+  setFilter(kind, { text: s.value, chip: { label: s.label, value: s.value } });
+  closeSuggest(kind);
+}
+
+// Any edit of the text (typing, paste, delete) drops the chip and keeps the text.
 rail.addEventListener('input', (e) => {
   const kind = e.target.dataset?.filter;
   if (!kind) return;
-  state.filters[kind] = e.target.value;
-  saveFilter(kind);
-  clearTimeout(filterTimer);
-  filterTimer = setTimeout(renderRail, 80);
+  setFilter(kind, { text: e.target.value, chip: null });
+  openSuggest(kind);
+});
+rail.addEventListener('focusin', (e) => { const kind = e.target.dataset?.filter; if (kind) openSuggest(kind); });
+// Blur (Tab, click outside) closes; option clicks preventDefault on mousedown so they never blur.
+rail.addEventListener('focusout', (e) => { const kind = e.target.dataset?.filter; if (kind) closeSuggest(kind); });
+
+rail.addEventListener('keydown', (e) => {
+  const kind = e.target.dataset?.filter;
+  if (!kind) return;
+  const c = combo[kind];
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!c.open) openSuggest(kind);
+    const n = c.items.length;
+    if (!n) return;
+    c.active = e.key === 'ArrowDown' ? (c.active + 1) % n : (c.active <= 0 ? n - 1 : c.active - 1);
+    renderSuggest(kind);
+  } else if (e.key === 'Enter') {
+    if (c.open && c.active >= 0) { e.preventDefault(); pickSuggestion(kind, c.active); } else closeSuggest(kind);
+  } else if (e.key === 'Escape' || e.key === 'Tab') {
+    closeSuggest(kind);
+  } else if (e.key === 'Backspace' && !e.target.value && state.filters[kind].chip) {
+    e.preventDefault();
+    setFilter(kind, { text: '', chip: null });
+  }
+});
+
+rail.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('ul.sug')) return;
+  e.preventDefault();   // keep focus (and the caret) in the input, incl. on the dropdown's scrollbar
+  const li = e.target.closest('li[data-i]');
+  if (li) pickSuggestion(li.closest('[data-field]').dataset.field, Number(li.dataset.i));
+});
+
+rail.addEventListener('click', (e) => {
+  const clear = e.target.closest('button[data-clear]');
+  const kind = clear?.dataset.clear || e.target.dataset?.filter;
+  if (!kind) return;
+  if (clear) {
+    const input = boxPart(kind, 'input.filter');
+    if (input) input.value = '';
+    setFilter(kind, { text: '', chip: null });
+  } else if (!combo[kind].open) openSuggest(kind);   // click into an already-focused box after Esc/Enter
 });
 
 // Swap each .mpv placeholder for its composite <video>. The server renders on

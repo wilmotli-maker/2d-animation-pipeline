@@ -151,15 +151,15 @@ test('filterSuggestions: characters with escaped regex values; elements sorted c
   const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
   const s = filterSuggestions(FT);
   assert.deepEqual(s.shots, [
-    { value: '^a\\.b-', label: 'a.b (1 shot)' },
-    { value: '^ai-', label: 'ai (2 shots)' },
-    { value: '^art-', label: 'art (2 shots)' },
-    { value: '^monster-', label: 'monster (1 shot)' },
+    { value: '^a\\.b-', label: 'a.b', meta: '1 shot' },
+    { value: '^ai-', label: 'ai', meta: '2 shots' },
+    { value: '^art-', label: 'art', meta: '2 shots' },
+    { value: '^monster-', label: 'monster', meta: '1 shot' },
   ]);
   assert.deepEqual(s.elements, [
-    { value: '^a\\.b$', label: 'a.b (characters)' },
-    { value: '^lamp$', label: 'lamp (props)' },
-    { value: '^Mira$', label: 'Mira (characters)' },
+    { value: '^a\\.b$', label: 'a.b', meta: 'characters' },
+    { value: '^lamp$', label: 'lamp', meta: 'props' },
+    { value: '^Mira$', label: 'Mira', meta: 'characters' },
   ]);
   // A suggestion, used as the filter, selects exactly that character.
   const f = filterTree(FT, { shots: s.shots[0].value });
@@ -185,15 +185,15 @@ const matchedIds = (filterTree, tree, re) => {
 test('filterSuggestions: a character extended by longer ones excludes them via negative lookahead', async () => {
   const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
   const s = filterSuggestions(AI).shots;
-  const ai = s.find((x) => x.label.startsWith('ai ('));
+  const ai = s.find((x) => x.label === 'ai');
   assert.equal(ai.value, '^ai-(?!alt1(?:-|$)|alt2(?:-|$))');
-  assert.equal(ai.label, 'ai (6 shots, 1 folder)');   // ^ai- also matches the ai-candidates folder
+  assert.equal(ai.meta, '6 shots, 1 folder');   // ^ai- also matches the ai-candidates folder
   assert.deepEqual(matchedIds(filterTree, AI, ai.value), ['ai-1', 'ai-talk-01', 'ai-talk-02', 'ai-2', 'ai-3', 'ai-react-1']);
-  assert.equal(s.find((x) => x.label.startsWith('ai-alt1')).value, '^ai-alt1-');
-  assert.equal(s.find((x) => x.label.startsWith('art')).value, '^art-');
-  // Every label's count equals what its value actually matches across the tree.
+  assert.equal(s.find((x) => x.label === 'ai-alt1').value, '^ai-alt1-');
+  assert.equal(s.find((x) => x.label === 'art').value, '^art-');
+  // Every meta count equals what its value actually matches across the tree.
   for (const sug of s) {
-    const [, n, m = 0] = /\((\d+) shots?(?:, (\d+) folders?)?\)$/.exec(sug.label);
+    const [, n, m = 0] = /^(\d+) shots?(?:, (\d+) folders?)?$/.exec(sug.meta);
     const f = filterTree(AI, { shots: sug.value });
     assert.equal(matchedIds(filterTree, AI, sug.value).length, Number(n), sug.label);
     assert.equal(f.episodes.reduce((a, e) => a + e.folders.length, 0) + f.folders.length, Number(m), sug.label);
@@ -205,10 +205,10 @@ test('filterSuggestions: label pluralizes and counts matching folders', async ()
   const t = { project: 'p', elements: [], episodes: [], folders: [{ path: 'zed-stuff', clips: 1 }, { path: 'zed-more', clips: 1 }],
     shots: ['zed-1', 'solo-1', 'solo-2'].map((shotId) => ({ shotId, versions: 1 })) };
   const s = filterSuggestions(t).shots;
-  assert.equal(s.find((x) => x.value === '^zed-').label, 'zed (1 shot, 2 folders)');
-  assert.equal(s.find((x) => x.value === '^solo-').label, 'solo (2 shots)');
+  assert.equal(s.find((x) => x.value === '^zed-').meta, '1 shot, 2 folders');
+  assert.equal(s.find((x) => x.value === '^solo-').meta, '2 shots');
   const one = { ...t, folders: [{ path: 'solo-x', clips: 1 }] };
-  assert.equal(filterSuggestions(one).shots.find((x) => x.value === '^solo-').label, 'solo (2 shots, 1 folder)');
+  assert.equal(filterSuggestions(one).shots.find((x) => x.value === '^solo-').meta, '2 shots, 1 folder');
 });
 
 test('filterSuggestions: characters are case-insensitive (one suggestion, lowercase, lookahead covers other cases)', async () => {
@@ -216,7 +216,7 @@ test('filterSuggestions: characters are case-insensitive (one suggestion, lowerc
   const t = { project: 'p', elements: [], folders: [], episodes: [{ id: '1', folders: [], shots:
     ['AI-03', 'ai-03', 'ai-1', 'AI-ALT1-talk-01', 'Ai-Alt1-idle'].map((shotId) => ({ shotId, versions: 1 })) }], shots: [] };
   const s = filterSuggestions(t).shots;
-  assert.deepEqual(s.map((x) => x.label), ['ai (3 shots)', 'ai-alt1 (2 shots)']);
+  assert.deepEqual(s.map((x) => [x.label, x.meta]), [['ai', '3 shots'], ['ai-alt1', '2 shots']]);
   assert.equal(s[0].value, '^ai-(?!alt1(?:-|$))');
   assert.deepEqual(matchedIds(filterTree, t, s[0].value), ['AI-03', 'ai-03', 'ai-1']);
   assert.deepEqual(matchedIds(filterTree, t, s[1].value), ['AI-ALT1-talk-01', 'Ai-Alt1-idle']);
@@ -227,14 +227,67 @@ test('filterSuggestions: regex metachars in characters and their extensions are 
   const t = { project: 'p', elements: [], folders: [], episodes: [{ id: '1', folders: [], shots:
     ['a.b-1', 'a.b-c+d-2', 'axb-1', 'a.b-c+d-talk'].map((shotId) => ({ shotId, versions: 1 })) }], shots: [] };
   const s = filterSuggestions(t).shots;
-  const ab = s.find((x) => x.label.startsWith('a.b ('));
+  const ab = s.find((x) => x.label === 'a.b');
   assert.equal(ab.value, '^a\\.b-(?!c\\+d(?:-|$))');
   assert.deepEqual(matchedIds(filterTree, t, ab.value), ['a.b-1']);
-  assert.equal(ab.label, 'a.b (1 shot)');
-  const abcd = s.find((x) => x.label.startsWith('a.b-c+d'));
+  assert.equal(ab.meta, '1 shot');
+  const abcd = s.find((x) => x.label === 'a.b-c+d');
   assert.equal(abcd.value, '^a\\.b-c\\+d-');
   assert.deepEqual(matchedIds(filterTree, t, abcd.value), ['a.b-c+d-2', 'a.b-c+d-talk']);
-  for (const sug of s) assert.equal(matchedIds(filterTree, t, sug.value).length, Number(/\((\d+) shots?\)$/.exec(sug.label)[1]));
+  for (const sug of s) assert.equal(matchedIds(filterTree, t, sug.value).length, Number(/^(\d+) shots?$/.exec(sug.meta)[1]));
+});
+
+test('matchSuggestions: case-insensitive substring on the name only (never the regex)', async () => {
+  const { matchSuggestions, filterSuggestions } = await import('../src/studio/web/views.js');
+  const s = filterSuggestions(AI).shots;
+  assert.deepEqual(matchSuggestions(s, 'ALT').map((x) => x.label), ['ai-alt1', 'ai-alt2']);
+  assert.deepEqual(matchSuggestions(s, 'R').map((x) => x.label), ['art', 'monster']);
+  assert.equal(matchSuggestions(s, '').length, s.length);
+  assert.equal(matchSuggestions(s, undefined).length, s.length);
+  assert.deepEqual(matchSuggestions(s, '^ai-'), []);   // a regex typed in the box matches no name
+  assert.deepEqual(matchSuggestions(s, 'shots'), []);  // meta text is not searched
+});
+
+test('suggestionListHTML: options show name + dim meta, escaped; active option; never the regex', async () => {
+  const { suggestionListHTML, filterSuggestions } = await import('../src/studio/web/views.js');
+  const s = filterSuggestions(AI).shots;
+  const h = suggestionListHTML(s, { activeIndex: 1, idPrefix: 'sug-shots' });
+  assert.match(h, /^<li role="option" id="sug-shots-0" data-i="0" aria-selected="false"><span class="sl">ai<\/span><span class="sm">6 shots, 1 folder<\/span><\/li>/);
+  assert.match(h, /<li role="option" id="sug-shots-1" data-i="1" class="on" aria-selected="true"><span class="sl">ai-alt1<\/span>/);
+  for (const sug of s) assert.ok(!h.includes(sug.value), sug.value);
+  assert.doesNotMatch(h, /\(\?!|\^/);
+  // The query narrows the list; data-i indexes the narrowed list.
+  const q = suggestionListHTML(s, { query: 'alt2', idPrefix: 'x' });
+  assert.equal((q.match(/<li /g) || []).length, 1);
+  assert.match(q, /id="x-0" data-i="0" aria-selected="false"><span class="sl">ai-alt2</);
+  assert.equal(suggestionListHTML(s, { query: 'zzz' }), '');
+  const evil = suggestionListHTML([{ label: '<b>"', meta: '&', value: 'v' }], { idPrefix: 'a"b' });
+  assert.equal(evil, '<li role="option" id="a&quot;b-0" data-i="0" aria-selected="false"><span class="sl">&lt;b&gt;&quot;</span><span class="sm">&amp;</span></li>');
+  assert.doesNotMatch(suggestionListHTML([{ label: 'x', value: 'v' }]), /class="sm"/);
+});
+
+test('parseStoredFilter: JSON state, legacy plain strings, junk', async () => {
+  const { parseStoredFilter } = await import('../src/studio/web/views.js');
+  assert.deepEqual(parseStoredFilter(null), { text: '', chip: null });
+  assert.deepEqual(parseStoredFilter(''), { text: '', chip: null });
+  assert.deepEqual(parseStoredFilter('^art-'), { text: '^art-', chip: null });   // legacy plain string
+  assert.deepEqual(parseStoredFilter('123'), { text: '123', chip: null });       // valid JSON, but not a state
+  assert.deepEqual(parseStoredFilter('"ai"'), { text: '"ai"', chip: null });
+  assert.deepEqual(parseStoredFilter('null'), { text: 'null', chip: null });
+  const st = { text: '^ai-', chip: { label: 'ai', value: '^ai-' } };
+  assert.deepEqual(parseStoredFilter(JSON.stringify(st)), st);
+  assert.deepEqual(parseStoredFilter(JSON.stringify({ text: 'x', chip: { label: 1 } })), { text: 'x', chip: null });
+  assert.deepEqual(parseStoredFilter(JSON.stringify({ text: 'x' })), { text: 'x', chip: null });
+});
+
+test('reconcileChip: keeps a chip only while it still labels the text', async () => {
+  const { reconcileChip } = await import('../src/studio/web/views.js');
+  const sugs = [{ label: 'ai', value: '^ai-(?!alt1(?:-|$))', meta: '' }];
+  const f = { text: '^ai-', chip: { label: 'ai', value: '^ai-' } };
+  assert.equal(reconcileChip(f, sugs), f);                                          // label exists, value == text
+  assert.deepEqual(reconcileChip({ ...f, chip: { label: 'gone', value: '^ai-' } }, sugs), { text: '^ai-', chip: null });
+  assert.deepEqual(reconcileChip({ ...f, text: '^ai-x' }, sugs), { text: '^ai-x', chip: null });
+  assert.deepEqual(reconcileChip({ text: 'a', chip: null }, sugs), { text: 'a', chip: null });
 });
 
 test('filterCountText: count line unit follows the tree', async () => {
@@ -244,18 +297,23 @@ test('filterCountText: count line unit follows the tree', async () => {
   assert.equal(filterCountText(filterTree(FT, {}).filter.shots), '');
 });
 
-test('railShellHTML: stable filter inputs + datalists, persisted values escaped', async () => {
-  const { railShellHTML, filterSuggestions } = await import('../src/studio/web/views.js');
-  const h = railShellHTML(FT, filterSuggestions(FT), { shots: '^a"<', elements: '' });
-  assert.match(h, /<input type="search" class="filter" data-filter="shots" list="sug-shots" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
-  assert.match(h, /<datalist id="sug-shots"><option value="\^a\\\.b-" label="a\.b \(1 shot\)">/);
-  assert.match(h, /data-filter="elements" list="sug-elements"/);
+test('railShellHTML: stable combobox filter boxes (no datalist), chip on the left, persisted values escaped', async () => {
+  const { railShellHTML } = await import('../src/studio/web/views.js');
+  const h = railShellHTML(FT, { shots: { text: '^a"<', chip: { label: 'a<"', value: '^a"<' } }, elements: { text: '', chip: null } });
+  assert.doesNotMatch(h, /datalist|list="/);
+  assert.match(h, /<div class="ffield" data-field="shots"><span class="chip" title="a&lt;&quot;">a&lt;&quot;<\/span><input type="text" class="filter" data-filter="shots" role="combobox" aria-expanded="false" aria-controls="sug-shots" aria-autocomplete="list" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
+  assert.match(h, /<button type="button" class="fclear" data-clear="shots" title="Clear filter" aria-label="Clear filter">×<\/button><ul class="sug" id="sug-shots" role="listbox" hidden><\/ul>/);
+  // Empty box: no chip, clear button hidden.
+  assert.match(h, /<div class="ffield" data-field="elements"><input [^>]*data-filter="elements"[^>]*value=""[^>]*>/);
+  assert.match(h, /data-clear="elements" [^>]*hidden>×/);
+  // Text without a chip still shows the clear button.
+  assert.doesNotMatch(railShellHTML(FT, { elements: { text: 'x', chip: null } }), /data-clear="elements" [^>]*hidden/);
   assert.match(h, /<h3>Episodes<\/h3>/);
   assert.match(h, /id="rail-proj"/);
   assert.match(h, /id="rail-elements"/);
   assert.match(h, /id="rail-shots"/);
   // No episodes/flat shots at all -> no shots filter.
-  const bare = railShellHTML({ ...FT, episodes: [], shots: [], folders: [] }, filterSuggestions(FT), {});
+  const bare = railShellHTML({ ...FT, episodes: [], shots: [], folders: [] }, {});
   assert.doesNotMatch(bare, /data-filter="shots"/);
 });
 

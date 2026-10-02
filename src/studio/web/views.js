@@ -62,8 +62,8 @@ export function shotCharacter(shotId) {
 export function escapeRegex(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 // Case-insensitive regex; an invalid one falls back to substring match (flagged).
-// null for an empty box.
-function makeMatcher(text) {
+// null for an empty box. Shared by the rail (filterTree) and the review grid.
+export function makeMatcher(text) {
   const t = String(text ?? '');
   if (!t.trim()) return null;
   try {
@@ -121,6 +121,8 @@ function characterRegex(c, all) {
   return `^${escapeRegex(c)}-${ahead}`;
 }
 
+// Each suggestion: `label` (character/element name, shown and used as the chip),
+// `meta` (dim count/type, shown) and `value` (the regex applied; never shown in the list).
 export function filterSuggestions(tree) {
   const shots = allShots(tree);
   // Lowercased: filters match case-insensitively, so AI-03 and ai-03 are one character.
@@ -129,18 +131,58 @@ export function filterSuggestions(tree) {
   for (const e of tree.elements) names.set(e.name, [...(names.get(e.name) || []), e.type]);
   const ci = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
   return {
-    // The label's counts are what the value actually matches (shots and folders, same 'i' flag as filterTree).
+    // The meta counts are what the value actually matches (shots and folders, same 'i' flag as filterTree).
     shots: chars.sort(ci).map((c) => {
       const value = characterRegex(c, chars);
       const re = new RegExp(value, 'i');
       const nS = shots.filter((s) => re.test(s.shotId)).length;
       const nF = allFolders(tree).filter((f) => re.test(f.path)).length;
       const part = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-      return { value, label: `${c} (${part(nS, 'shot')}${nF ? `, ${part(nF, 'folder')}` : ''})` };
+      return { value, label: c, meta: `${part(nS, 'shot')}${nF ? `, ${part(nF, 'folder')}` : ''}` };
     }),
     elements: [...names.keys()].sort(ci)
-      .map((n) => ({ value: `^${escapeRegex(n)}$`, label: `${n} (${[...new Set(names.get(n))].join(', ')})` })),
+      .map((n) => ({ value: `^${escapeRegex(n)}$`, label: n, meta: [...new Set(names.get(n))].join(', ') })),
   };
+}
+
+// Suggestions whose name contains `query` (case-insensitive substring); all of them for an empty query.
+export function matchSuggestions(items, query = '') {
+  const q = String(query ?? '').toLowerCase();
+  return q ? items.filter((s) => s.label.toLowerCase().includes(q)) : items;
+}
+
+// The dropdown's options: name + dim meta only (never the regex). data-i indexes into
+// matchSuggestions(items, query) — the same list app.js picks from; ids are `${idPrefix}-${i}`.
+export function suggestionListHTML(items, { query = '', activeIndex = -1, idPrefix = 'sug' } = {}) {
+  return matchSuggestions(items, query).map((s, i) => `<li role="option" id="${esc(idPrefix)}-${i}" data-i="${i}"`
+    + (i === activeIndex ? ' class="on" aria-selected="true"' : ' aria-selected="false"')
+    + `><span class="sl">${esc(s.label)}</span>${s.meta ? `<span class="sm">${esc(s.meta)}</span>` : ''}</li>`).join('');
+}
+
+// A filter box's persisted state, from localStorage: JSON `{ text, chip }`, or an
+// older plain-string value (the text alone). Anything unparseable is plain text.
+export function parseStoredFilter(raw) {
+  if (raw == null || raw === '') return { text: '', chip: null };
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object' && typeof o.text === 'string') {
+      const c = o.chip;
+      const chip = c && typeof c.label === 'string' && typeof c.value === 'string' ? { label: c.label, value: c.value } : null;
+      return { text: o.text, chip };
+    }
+  } catch {}
+  return { text: String(raw), chip: null };
+}
+
+// Drop a chip that no longer labels its text: its name is gone from the current
+// suggestions, or the text is no longer exactly its value. The text is kept.
+export function reconcileChip(f, suggestions) {
+  const ok = f.chip && f.chip.value === f.text && suggestions.some((s) => s.label === f.chip.label);
+  return ok ? f : { text: f.text, chip: null };
+}
+
+export function chipHTML(chip) {
+  return chip ? `<span class="chip" title="${esc(chip.label)}">${esc(chip.label)}</span>` : '';
 }
 
 // The rail's first shots heading: Episodes when any exist, else the flat Shots section.
@@ -186,20 +228,28 @@ export function shotsListHTML(tree, current) {
   return h || (tree.filter?.shots.active ? '<div class="empty">no matches</div>' : '');
 }
 
-function filterBox(kind, suggestions, value) {
-  return `<div class="fbox"><input type="search" class="filter" data-filter="${kind}" list="sug-${kind}"`
-    + ` placeholder="filter — character or regex" value="${esc(value || '')}" autocomplete="off" spellcheck="false">`
-    + `<datalist id="sug-${kind}">${suggestions.map((s) => `<option value="${esc(s.value)}" label="${esc(s.label)}">`).join('')}</datalist>`
+// One filter box: [chip] input [×] in a bordered field, with a combobox dropdown
+// (app.js fills and shows the <ul>). `f` is `{ text, chip }`.
+function filterBox(kind, f) {
+  const text = f?.text || '', chip = f?.chip || null;
+  return `<div class="fbox"><div class="ffield" data-field="${kind}">${chipHTML(chip)}`
+    + `<input type="text" class="filter" data-filter="${kind}" role="combobox" aria-expanded="false"`
+    + ` aria-controls="sug-${kind}" aria-autocomplete="list" placeholder="filter — character or regex"`
+    + ` value="${esc(text)}" autocomplete="off" spellcheck="false">`
+    + `<button type="button" class="fclear" data-clear="${kind}" title="Clear filter" aria-label="Clear filter"`
+    + `${text || chip ? '' : ' hidden'}>×</button>`
+    + `<ul class="sug" id="sug-${kind}" role="listbox" hidden></ul></div>`
     + `<div class="fcount" data-count="${kind}"></div></div>`;
 }
 
 // Static rail skeleton, rendered once per boot/rescan so the filter inputs (and
 // their focus/caret) survive route changes; app.js fills the list containers.
-export function railShellHTML(tree, suggestions, values = {}) {
+// `values[kind]` is the box state `{ text, chip }`; suggestions are kept by app.js.
+export function railShellHTML(tree, values = {}) {
   const heading = shotsHeading(tree);
-  return '<div id="rail-proj"></div><h3>Elements</h3>' + filterBox('elements', suggestions.elements, values.elements)
+  return '<div id="rail-proj"></div><h3>Elements</h3>' + filterBox('elements', values.elements)
     + '<div class="rlist" id="rail-elements"></div>'
-    + (heading ? `<h3>${heading}</h3>` + filterBox('shots', suggestions.shots, values.shots)
+    + (heading ? `<h3>${heading}</h3>` + filterBox('shots', values.shots)
       + '<div class="rlist" id="rail-shots"></div>' : '');
 }
 
