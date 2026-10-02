@@ -6,7 +6,9 @@
   font-size:.88rem; padding:.12rem .4rem; border-radius:5px; }
 .rail a.node:hover { background:var(--panel); }
 .rail a.node.on { background:var(--panel); color:var(--accent); box-shadow:inset 2px 0 0 var(--accent); }
-.rail a.node .meta { color:var(--dim); font-size:.72rem; font-family:ui-monospace,Menlo,monospace; }
+.rail a.node .meta { color:var(--dim); font-size:.72rem; font-family:ui-monospace,Menlo,monospace; white-space:nowrap; flex:none; }
+/* Long names (folder paths) truncate on one line; the full name is in the title tooltip. */
+.rail a.node > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rail .nested a.node { padding-left:1.1rem; font-family:ui-monospace,Menlo,monospace; font-size:.8rem; }
 .rail a.node.folder > span:first-child::before { content:"▤ "; color:var(--dim); }
 .rail .fbox { margin:0 0 .4rem; }

@@ -32,7 +32,7 @@ export function folderHref(epToken, relPath) {
 }
 
 function node(href, label, meta, current, cls = '') {
-  return `<a class="node${cls ? ` ${cls}` : ''}${href === current ? ' on' : ''}" href="${esc(href)}"><span>${esc(label)}</span>`
+  return `<a class="node${cls ? ` ${cls}` : ''}${href === current ? ' on' : ''}" href="${esc(href)}"><span title="${esc(label)}">${esc(label)}</span>`
     + (meta ? `<span class="meta">${esc(meta)}</span>` : '') + '</a>';
 }
 
