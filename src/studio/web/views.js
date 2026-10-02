@@ -23,19 +23,26 @@ export function parseRoute(hash) {
   if (parts[0] === 'element' && parts.length === 3) return { view: 'element', type: parts[1], name: parts[2] };
   if (parts[0] === 'episode' && parts.length === 2) return { view: 'episode', episode: parts[1] };
   if (parts[0] === 'shot' && parts.length === 3) return { view: 'shot', episode: parts[1], shotId: parts[2] };
+  if (parts[0] === 'folder' && parts.length >= 3) return { view: 'folder', episode: parts[1], path: parts.slice(2).join('/') };
   return { view: 'home' };
 }
 
-function node(href, label, meta, current) {
-  return `<a class="node${href === current ? ' on' : ''}" href="${esc(href)}"><span>${esc(label)}</span>`
+export function folderHref(epToken, relPath) {
+  return `#/folder/${enc(epToken)}/${relPath.split('/').map(enc).join('/')}`;
+}
+
+function node(href, label, meta, current, cls = '') {
+  return `<a class="node${cls ? ` ${cls}` : ''}${href === current ? ' on' : ''}" href="${esc(href)}"><span>${esc(label)}</span>`
     + (meta ? `<span class="meta">${esc(meta)}</span>` : '') + '</a>';
 }
 
-function shotNodes(epToken, shots, current) {
-  if (!shots.length) return '<div class="empty">no shots yet</div>';
+function shotNodes(epToken, shots, folders, current) {
+  if (!shots.length && !folders.length) return '<div class="empty">no shots yet</div>';
   return '<div class="nested">' + shots.map((s) =>
     node(`#/shot/${enc(epToken)}/${enc(s.shotId)}`, s.shotId,
-      `${s.versions}v${s.promotedVersion ? ' ★' : ''}`, current)).join('') + '</div>';
+      `${s.versions}v${s.promotedVersion ? ' ★' : ''}`, current)).join('')
+    + folders.map((f) => node(folderHref(epToken, f.path), f.path, `${f.clips} clips`, current, 'folder')).join('')
+    + '</div>';
 }
 
 export function treeHTML(tree, current) {
@@ -51,12 +58,14 @@ export function treeHTML(tree, current) {
     h += '<h3>Episodes</h3>';
     for (const ep of tree.episodes) {
       h += node(`#/episode/${enc(ep.id)}`, `Episode ${ep.id}`, `${ep.shots.length}`, current);
-      h += shotNodes(ep.id, ep.shots, current);
+      h += shotNodes(ep.id, ep.shots, ep.folders || [], current);
     }
   }
-  if (tree.shots.length) {
-    h += '<h3>Shots</h3>' + node('#/episode/_', 'All shots', `${tree.shots.length}`, current);
-    h += shotNodes('_', tree.shots, current);
+  const flatFolders = tree.folders || [];
+  if (tree.shots.length || flatFolders.length) {
+    h += '<h3>Shots</h3>';
+    if (tree.shots.length) h += node('#/episode/_', 'All shots', `${tree.shots.length}`, current);
+    h += shotNodes('_', tree.shots, flatFolders, current);
   }
   return h;
 }
@@ -64,9 +73,10 @@ export function treeHTML(tree, current) {
 export function homeHTML(tree) {
   const nShots = tree.shots.length + tree.episodes.reduce((a, e) => a + e.shots.length, 0);
   const nMattes = [...tree.shots, ...tree.episodes.flatMap((e) => e.shots)].reduce((a, s) => a + s.mattes, 0);
+  const nFolders = (tree.folders || []).length + tree.episodes.reduce((a, e) => a + (e.folders || []).length, 0);
   const card = (n, l) => `<div class="card"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
   return '<div class="cards">' + card(tree.elements.length, 'elements') + card(tree.episodes.length, 'episodes')
-    + card(nShots, 'shots') + card(nMattes, 'mattes') + '</div>';
+    + card(nShots, 'shots') + card(nMattes, 'mattes') + (nFolders ? card(nFolders, 'folders') : '') + '</div>';
 }
 
 function selectbox(key, v, state) {
@@ -144,8 +154,11 @@ const byVersion = (a, b) => a.localeCompare(b, undefined, { numeric: true });
 // Studio key -> the static review page's key (src/review-render.js): shots are
 // keyed by shotId alone, sheets by name/sheetType/slug (no element type).
 // Studio shot keys have 1-2 segments (`[episode/]shotId`), sheet keys 4.
+// Folder-view keys (`folder:<ep>/<path>/<shotId>`) match `pipeline review --folder`
+// pages, which key by shotId alone.
 function staticKey(key) {
   const parts = key.split('/');
+  if (key.startsWith('folder:')) return parts[parts.length - 1];
   return parts.length >= 4 ? parts.slice(1).join('/') : parts[parts.length - 1];
 }
 
@@ -179,9 +192,11 @@ export function selectionExportDoc({ project, selected, exportedAt }) {
     selected: toStaticSelection(sorted), studioSelected: sorted };
 }
 
-export function shotRowItems(shots) {
+// Folder views pass keyPrefix `folder:<ep>/<path>/` so their selection keys never
+// collide with real shots of the same id.
+export function shotRowItems(shots, { keyPrefix = '' } = {}) {
   return shots.map((s) => {
-    const key = shotKey(s);
+    const key = keyPrefix + shotKey(s);
     const tags = [s.episode && `ep ${esc(s.episode)}`, s.promotedVersion && `final: ${esc(s.promotedVersion)}`,
       esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ');
     return { key, title: s.shotId, tags, versions: s.versions, kind: 'shot' };

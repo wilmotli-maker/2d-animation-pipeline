@@ -71,6 +71,7 @@ async function putJson(url, body) {
 function flash(msg) { const e = document.getElementById('err'); if (e) e.textContent = msg; }
 
 function renderToolbar() {
+  // Folder views have no mattes, so they get no Clips/Mattes toggle (clips only).
   const isShots = state.route.view === 'episode' || state.route.view === 'shot';
   const seg = isShots
     ? `<span class="seg"><button data-mode="clips" class="${state.mode === 'clips' ? 'on' : ''}">Clips</button>`
@@ -88,13 +89,19 @@ function renderToolbar() {
     + '<span class="err" id="err"></span>';
 }
 
+// Render-time state: folder views are clips-only (no mattes), whatever mode the
+// toolbar was left in by an earlier shot view.
+function viewState() { return state.route.view === 'folder' ? { ...state, mode: 'clips' } : state; }
+
 function renderGrid() {
   if (state.route.view === 'home') { grid.innerHTML = homeHTML(state.tree); return; }
   const y = window.scrollY;
   // A rebuild resets every row's horizontal scroll; snapshot per data-row and restore.
   const sx = new Map([...grid.querySelectorAll('.cols[data-row]')].map((c) => [c.dataset.row, c.scrollLeft]));
-  grid.innerHTML = state.items.map((it) => itemRowHTML(it, state)).join('')
-    || `<p class="missing">${state.route.view === 'element' ? 'No sheets yet.' : 'No shots here yet.'}</p>`;
+  const vs = viewState();
+  grid.innerHTML = state.items.map((it) => itemRowHTML(it, vs)).join('')
+    || `<p class="missing">${{ element: 'No sheets yet.', folder: 'No videos in this folder.' }[state.route.view]
+      || 'No shots here yet.'}</p>`;
   for (const c of grid.querySelectorAll('.cols[data-row]')) if (sx.has(c.dataset.row)) c.scrollLeft = sx.get(c.dataset.row);
   window.scrollTo(0, y);
   hydratePreviews();
@@ -107,7 +114,7 @@ function rerenderRow(key) {
   if (!item || !cols) return;
   const sx = cols.scrollLeft;
   const sec = cols.closest('section');
-  sec.outerHTML = itemRowHTML(item, state);
+  sec.outerHTML = itemRowHTML(item, viewState());
   const fresh = [...grid.querySelectorAll('.cols[data-row]')].find((c) => c.dataset.row === key);
   if (fresh) { fresh.scrollLeft = sx; hydratePreviews(fresh); }
 }
@@ -142,6 +149,14 @@ async function route() {
       state.items = shotRowItems(shots);
       titleEl.textContent = r.view === 'shot' ? r.shotId : (r.episode === '_' ? 'All shots' : `Episode ${r.episode}`);
       subEl.textContent = `${shots.length} shot(s)`;
+    } else if (r.view === 'folder') {
+      const { shots } = await getJson(`/api/folder?episode=${encodeURIComponent(r.episode)}&path=${encodeURIComponent(r.path)}`);
+      if (my !== routeSeq) return;
+      // Namespaced keys: a folder's "ai-8" must not share selections with the real shot ai-8.
+      state.items = shotRowItems(shots, { keyPrefix: `folder:${r.episode}/${r.path}/` });
+      titleEl.textContent = r.path.split('/').pop();
+      subEl.textContent = `${r.episode === '_' ? 'Shots' : `Episode ${r.episode}`} · ${r.path} · `
+        + `${shots.length} clip group(s) · versions inferred from filenames`;
     } else {
       state.items = [];
       titleEl.textContent = state.tree.project;

@@ -8,6 +8,7 @@
 .rail a.node.on { background:var(--panel); color:var(--accent); box-shadow:inset 2px 0 0 var(--accent); }
 .rail a.node .meta { color:var(--dim); font-size:.72rem; font-family:ui-monospace,Menlo,monospace; }
 .rail .nested a.node { padding-left:1.1rem; font-family:ui-monospace,Menlo,monospace; font-size:.8rem; }
+.rail a.node.folder > span:first-child::before { content:"▤ "; color:var(--dim); }
 .rail .empty { color:var(--dim); font-size:.8rem; padding:.1rem .4rem; }
 .toolbar .seg { display:inline-flex; }
 .toolbar .seg button { border-radius:0; }
