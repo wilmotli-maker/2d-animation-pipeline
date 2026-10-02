@@ -317,6 +317,44 @@ test('railShellHTML: stable combobox filter boxes (no datalist), chip on the lef
   assert.doesNotMatch(bare, /data-filter="shots"/);
 });
 
+const ROWS = ['ai-1', 'ai-alt1-talk-01', 'AI-03', 'art-idle', 'x(1'].map((id) => ({ key: `1/${id}`, title: id, kind: 'shot' }));
+const titles = (rows) => rows.map((r) => r.title);
+
+test('filterRowItems: episode rows by shot id with the rail matcher; no filter = all rows', async () => {
+  const { filterRowItems, makeMatcher, filterSuggestions } = await import('../src/studio/web/views.js');
+  assert.equal(filterRowItems(ROWS, null), ROWS);
+  assert.equal(filterRowItems(ROWS, makeMatcher('  ')), ROWS);              // blank box = no matcher
+  assert.deepEqual(titles(filterRowItems(ROWS, makeMatcher('^art-'))), ['art-idle']);
+  // A character suggestion's regex selects the same rows in the grid as in the rail (case-insensitive).
+  const ai = filterSuggestions(AI).shots.find((s) => s.label === 'ai');
+  assert.deepEqual(titles(filterRowItems(ROWS, makeMatcher(ai.value))), ['ai-1', 'AI-03']);
+  assert.deepEqual(filterRowItems(ROWS, makeMatcher('zzz')), []);
+});
+
+test('filterRowItems: invalid regex falls back to case-insensitive substring', async () => {
+  const { filterRowItems, makeMatcher } = await import('../src/studio/web/views.js');
+  const m = makeMatcher('X(');
+  assert.equal(m.invalid, true);
+  assert.deepEqual(titles(filterRowItems(ROWS, m)), ['x(1']);
+});
+
+test('filterRowItems: folder view shows all rows when the folder path matches, else rows by inferred shot id', async () => {
+  const { filterRowItems, makeMatcher } = await import('../src/studio/web/views.js');
+  assert.equal(filterRowItems(ROWS, makeMatcher('^ai-'), { folderPath: 'ai-candidates' }), ROWS);
+  assert.equal(filterRowItems(ROWS, makeMatcher('cand'), { folderPath: 'x/candidates' }), ROWS);
+  assert.deepEqual(titles(filterRowItems(ROWS, makeMatcher('^art-'), { folderPath: 'candidates' })), ['art-idle']);
+});
+
+test('gridFilterBannerHTML: shown only when rows are hidden; label escaped; clear button', async () => {
+  const { gridFilterBannerHTML } = await import('../src/studio/web/views.js');
+  assert.equal(gridFilterBannerHTML({ label: 'ai', shown: 5, total: 5 }), '');
+  assert.equal(gridFilterBannerHTML({ label: 'ai', shown: 0, total: 0 }), '');
+  assert.equal(gridFilterBannerHTML({ label: 'ai', shown: 8, total: 25 }),
+    '<p class="fbanner">Filtered by “ai”: 8 of 25 shots · <button class="clearf">clear filter</button></p>');
+  assert.equal(gridFilterBannerHTML({ label: '<b>', shown: 0, total: 3 }),
+    '<p class="fbanner">No shots match “&lt;b&gt;” in this view · <button class="clearf">clear filter</button></p>');
+});
+
 test('homeHTML: folders card only when folders exist; shots count excludes folders', () => {
   assert.doesNotMatch(homeHTML(TREE), /folders/);
   const t = { ...TREE, episodes: [{ ...TREE.episodes[0], folders: [{ path: 'c', clips: 9 }] }], folders: [{ path: 'a', clips: 1 }] };

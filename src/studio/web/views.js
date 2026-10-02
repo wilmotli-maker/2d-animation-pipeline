@@ -108,6 +108,23 @@ export function filterTree(tree, { shots: shotText = '', elements: elText = '' }
   return out;
 }
 
+// The review grid's rows under the shots filter (multi-shot views only; app.js decides
+// which views). A folder whose own path matches keeps all its rows, as in the rail;
+// otherwise rows match by shot id (the inferred one, in a folder). null matcher = all.
+export function filterRowItems(items, matcher, { folderPath = null } = {}) {
+  if (!matcher || (folderPath != null && matcher.test(folderPath))) return items;
+  return items.filter((it) => matcher.test(it.title));
+}
+
+// One line above a filtered grid; '' when nothing is hidden.
+export function gridFilterBannerHTML({ label, shown, total }) {
+  if (shown === total) return '';
+  const clear = '<button class="clearf">clear filter</button>';
+  return shown
+    ? `<p class="fbanner">Filtered by “${esc(label)}”: ${shown} of ${total} shots · ${clear}</p>`
+    : `<p class="fbanner">No shots match “${esc(label)}” in this view · ${clear}</p>`;
+}
+
 // The line under a filter box ("3 of 25 shots & folders"); '' when the box is empty.
 export function filterCountText(f) {
   return f && f.active ? `${f.matched} of ${f.total} ${f.unit}` : '';

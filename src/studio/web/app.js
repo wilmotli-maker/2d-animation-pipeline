@@ -3,6 +3,7 @@ import {
   esc, parseRoute, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
   filterTree, filterSuggestions, filterCountText, railShellHTML, projectNodeHTML, elementsListHTML, shotsListHTML,
   matchSuggestions, suggestionListHTML, parseStoredFilter, reconcileChip, chipHTML,
+  makeMatcher, filterRowItems, gridFilterBannerHTML,
 } from './views.js';
 import { createSelectionSync } from './selection-sync.js';
 
@@ -81,13 +82,25 @@ function revealActiveNode() {
 // ---- filter boxes: [chip] input [×] + suggestion dropdown (a combobox) ------
 // The text is what filters; a chip only labels the text a suggestion put there.
 
-let filterTimer = null;
+// One debounce for both boxes; a shots change also re-renders a multi-shot grid,
+// unless a route is mid-load (its own renderGrid will use the latest text).
+let filterTimer = null, gridDirty = false;
 function setFilter(kind, f) {
   state.filters[kind] = f;
   saveFilter(kind);
   syncBox(kind);
+  if (kind === 'shots') gridDirty = true;
   clearTimeout(filterTimer);
-  filterTimer = setTimeout(renderRail, 80);
+  filterTimer = setTimeout(() => {
+    renderRail();
+    if (gridDirty && isMultiShot() && state.itemsSeq === routeSeq) renderGrid();
+    gridDirty = false;
+  }, 80);
+}
+function clearFilter(kind) {
+  const input = boxPart(kind, 'input.filter');
+  if (input) input.value = '';
+  setFilter(kind, { text: '', chip: null });
 }
 
 // Mirror a box's state into its chip and clear button; the input keeps its own value.
@@ -186,11 +199,8 @@ rail.addEventListener('click', (e) => {
   const clear = e.target.closest('button[data-clear]');
   const kind = clear?.dataset.clear || e.target.dataset?.filter;
   if (!kind) return;
-  if (clear) {
-    const input = boxPart(kind, 'input.filter');
-    if (input) input.value = '';
-    setFilter(kind, { text: '', chip: null });
-  } else if (!combo[kind].open) openSuggest(kind);   // click into an already-focused box after Esc/Enter
+  if (clear) clearFilter(kind);
+  else if (!combo[kind].open) openSuggest(kind);   // click into an already-focused box after Esc/Enter
 });
 
 // Swap each .mpv placeholder for its composite <video>. The server renders on
@@ -262,15 +272,28 @@ function renderToolbar() {
 // toolbar was left in by an earlier shot view.
 function viewState() { return state.route.view === 'folder' ? { ...state, mode: 'clips' } : state; }
 
+// The shots filter narrows multi-shot review views (an episode / All shots, a folder);
+// a single shot, element sheets and home are never filtered.
+function isMultiShot() { return state.route.view === 'episode' || state.route.view === 'folder'; }
+function gridRows() {
+  if (!isMultiShot()) return state.items;
+  const r = state.route;
+  return filterRowItems(state.items, makeMatcher(state.filters.shots.text),
+    { folderPath: r.view === 'folder' ? r.path : null });
+}
+
 function renderGrid() {
   if (state.route.view === 'home') { grid.innerHTML = homeHTML(state.tree); return; }
   const y = window.scrollY;
   // A rebuild resets every row's horizontal scroll; snapshot per data-row and restore.
   const sx = new Map([...grid.querySelectorAll('.cols[data-row]')].map((c) => [c.dataset.row, c.scrollLeft]));
   const vs = viewState();
-  grid.innerHTML = state.items.map((it) => itemRowHTML(it, vs)).join('')
-    || `<p class="missing">${{ element: 'No sheets yet.', folder: 'No videos in this folder.' }[state.route.view]
-      || 'No shots here yet.'}</p>`;
+  const rows = gridRows(), total = state.items.length, f = state.filters.shots;
+  if (state.subFmt) subEl.textContent = state.subFmt(rows.length === total ? `${total}` : `${rows.length} of ${total}`);
+  grid.innerHTML = gridFilterBannerHTML({ label: f.chip ? f.chip.label : f.text, shown: rows.length, total })
+    + (rows.map((it) => itemRowHTML(it, vs)).join('')
+    || (total ? '' : `<p class="missing">${{ element: 'No sheets yet.', folder: 'No videos in this folder.' }[state.route.view]
+      || 'No shots here yet.'}</p>`));
   for (const c of grid.querySelectorAll('.cols[data-row]')) if (sx.has(c.dataset.row)) c.scrollLeft = sx.get(c.dataset.row);
   window.scrollTo(0, y);
   hydratePreviews();
@@ -295,9 +318,12 @@ async function route() {
   state.route = parseRoute(location.hash);
   state.hidden.clear();
   clearTimeout(filterTimer);   // this render already reflects the latest filter text
+  gridDirty = false;
   renderRail();
   revealActiveNode();
   const r = state.route;
+  // Multi-shot subtitles are written by renderGrid via subFmt (the count may read "8 of 25").
+  state.subFmt = null;
   try {
     if (r.view === 'element') {
       const el = await getJson(`/api/element?type=${encodeURIComponent(r.type)}&name=${encodeURIComponent(r.name)}`);
@@ -311,15 +337,15 @@ async function route() {
       if (my !== routeSeq) return;
       state.items = shotRowItems(shots);
       titleEl.textContent = r.view === 'shot' ? r.shotId : (r.episode === '_' ? 'All shots' : `Episode ${r.episode}`);
-      subEl.textContent = `${shots.length} shot(s)`;
+      state.subFmt = (n) => `${n} shot(s)`;
     } else if (r.view === 'folder') {
       const { shots } = await getJson(`/api/folder?episode=${encodeURIComponent(r.episode)}&path=${encodeURIComponent(r.path)}`);
       if (my !== routeSeq) return;
       // Namespaced keys: a folder's "ai-8" must not share selections with the real shot ai-8.
       state.items = shotRowItems(shots, { keyPrefix: `folder:${r.episode}/${r.path}/` });
       titleEl.textContent = r.path.split('/').pop();
-      subEl.textContent = `${r.episode === '_' ? 'Shots' : `Episode ${r.episode}`} · ${r.path} · `
-        + `${shots.length} clip group(s) · versions inferred from filenames`;
+      state.subFmt = (n) => `${r.episode === '_' ? 'Shots' : `Episode ${r.episode}`} · ${r.path} · `
+        + `${n} clip group(s) · versions inferred from filenames`;
     } else {
       state.items = [];
       titleEl.textContent = state.tree.project;
@@ -328,8 +354,10 @@ async function route() {
   } catch (err) {
     if (my !== routeSeq) return;
     state.items = [];
+    state.subFmt = null;
     subEl.textContent = `error: ${err.message}`;
   }
+  state.itemsSeq = my;   // state.items now belong to this route (the filter debounce checks it)
   state.byKey = Object.fromEntries(state.items.map((it) => [it.key, it]));
   document.title = `${titleEl.textContent} · Studio`;
   renderToolbar();
@@ -367,7 +395,8 @@ toolbar.addEventListener('click', async (e) => {
 grid.addEventListener('click', (e) => {
   const t = e.target;
   const mk = t.closest('.hmark');
-  if (t.classList.contains('hide')) { state.hidden.add(`${t.dataset.key}::${t.dataset.v}`); rerenderRow(t.dataset.key); }
+  if (t.classList.contains('clearf')) clearFilter('shots');
+  else if (t.classList.contains('hide')) { state.hidden.add(`${t.dataset.key}::${t.dataset.v}`); rerenderRow(t.dataset.key); }
   else if (mk) { state.hidden.delete(`${mk.dataset.key}::${mk.dataset.v}`); rerenderRow(mk.dataset.key); }
   else if (t.classList.contains('reset')) {
     const p = `${t.dataset.key}::`;
