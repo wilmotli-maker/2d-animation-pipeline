@@ -286,6 +286,10 @@ each node opens a side-by-side version review.
   checkerboard or a solid white/black/gray/green background, and the composites are
   cached in `.pipeline/studio/previews/`. Mattes pulled to `final/` show on the
   promoted draft.
+  This holds for both the studio and the static `pipeline review` pages: mattes,
+  upscales and QC files in a shot's `final/` are attributed to the promoted draft.
+  Static pages vendor those files, so pages whose shots have `final/` ProRes mattes
+  get larger.
 - Selections are saved to `.pipeline/studio/selections.json`. Nothing outside
   `.pipeline/studio/` is written.
 - Static, shareable pages are still produced by `pipeline review` (above).
