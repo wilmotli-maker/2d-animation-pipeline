@@ -20,6 +20,13 @@ before(async () => {
   const cand = path.join(root, 'episodes', '1', 'shots', 'candidates');
   await mkdir(cand, { recursive: true });
   for (const f of ['x-v001.mp4', 'x-v002.mp4', 'y.mp4', 'notes.txt']) await writeFile(path.join(cand, f), 'v');
+  await mkdir(path.join(cand, 'nested'), { recursive: true });
+  await writeFile(path.join(cand, 'nested', 'n.mp4'), 'v');
+  const deep = path.join(cand, 'a', 'b', 'c', 'd');
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(deep, 'd.mp4'), 'v');
+  await mkdir(path.join(cand, '.hidden'), { recursive: true });
+  await writeFile(path.join(cand, '.hidden', 'h.mp4'), 'v');
   await mkdir(path.join(root, 'shots', 'assembled'), { recursive: true });
   await writeFile(path.join(root, 'shots', 'assembled', 'TEST2.mp4'), 'v');
   // Stub previewer: the endpoint's validation + passthrough is what's under test here
@@ -82,6 +89,13 @@ test('GET /api/folder scans a working folder like `review --folder`', async () =
   assert.equal((await q('..', 'candidates')).status, 404);
   assert.equal((await q('1', 'ai-1')).status, 400);             // a real shot dir
   assert.equal((await q('1', 'nope')).status, 404);             // nonexistent
+  // Same rules as the tree walk: only paths the tree can list.
+  assert.equal((await q('1', 'ai-1/drafts/v001')).status, 400);   // inside a shot
+  assert.equal((await q('1', 'ai-1/drafts')).status, 400);
+  assert.equal((await q('1', 'ai-1/final')).status, 400);
+  assert.equal((await q('1', 'candidates/.hidden')).status, 400); // hidden segment
+  assert.equal((await q('1', 'candidates/a/b/c/d')).status, 400); // deeper than the walker goes
+  assert.equal((await q('1', 'candidates/nested')).status, 200);  // listed nested folder
   assert.equal((await q('1', 'candidates/x-v001.mp4')).status, 404);   // a file, not a dir
 });
 

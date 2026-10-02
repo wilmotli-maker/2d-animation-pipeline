@@ -5,9 +5,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stat } from 'node:fs/promises';
-import { scanShots, scanImages, scanFolder, isShotDir, discoverShotRoots } from '../review-scan.js';
+import { scanShots, scanImages, scanFolder, discoverShotRoots } from '../review-scan.js';
 import { REVIEW_STYLE } from '../review-render.js';
-import { scanProjectTree } from './tree.js';
+import { scanProjectTree, isWorkingFolderPath } from './tree.js';
 import { resolveWithin, sendFile } from './media.js';
 import { realWithin } from './contain.js';
 import { readSelections, setSelection } from './selections.js';
@@ -101,10 +101,11 @@ async function handle({ root, previewer }, req, res) {
     const shotRoot = (await discoverShotRoots(root))
       .find((r) => (ep === '_' ? r.episode == null : r.episode != null && r.episode === ep));
     if (!shotRoot) return sendJson(res, 404, { error: 'unknown episode' });
-    const abs = resolveWithin(path.join(shotRoot.root, 'shots'), rel);
+    const shotsDir = path.join(shotRoot.root, 'shots');
+    const abs = resolveWithin(shotsDir, rel);
     if (!abs) return sendJson(res, 400, { error: 'invalid path' });
+    if (!(await isWorkingFolderPath(shotsDir, rel))) return sendJson(res, 400, { error: 'not a working folder' });
     if (!(await isDirectory(abs))) return sendJson(res, 404, { error: 'not found' });
-    if (await isShotDir(abs)) return sendJson(res, 400, { error: 'not a working folder (it is a shot)' });
     return sendJson(res, 200, { shots: (await scanFolder(root, abs)).shots });
   }
 
