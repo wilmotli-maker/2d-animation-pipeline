@@ -192,9 +192,11 @@ export function parseStoredFilter(raw) {
 }
 
 // Drop a chip that no longer labels its text: its name is gone from the current
-// suggestions, or the text is no longer exactly its value. The text is kept.
+// suggestions, its value differs from the current suggestion's (a Rescan changed the
+// regex), or the text is no longer exactly its value. The text is kept.
 export function reconcileChip(f, suggestions) {
-  const ok = f.chip && f.chip.value === f.text && suggestions.some((s) => s.label === f.chip.label);
+  const ok = f.chip && f.chip.value === f.text
+    && suggestions.some((s) => s.label === f.chip.label && s.value === f.chip.value);
   return ok ? f : { text: f.text, chip: null };
 }
 
