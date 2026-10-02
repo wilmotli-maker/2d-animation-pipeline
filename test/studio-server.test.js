@@ -173,7 +173,7 @@ test('PUT /api/selections round-trips; requires JSON content type', async () => 
   const bad = await fetch(base + 'api/selections', { method: 'PUT', body: '{"key":"a","versions":[]}' });
   assert.equal(bad.status, 415);
   const invalid = await fetch(base + 'api/selections', { method: 'PUT',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['final'] }) });
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['a::b'] }) });
   assert.equal(invalid.status, 400);
 });
 
@@ -249,7 +249,7 @@ test('PUT /api/selections: storage failure (unreadable store) -> 500, not 400', 
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['v001'] }) });
     assert.equal(r.status, 500);
     const bad = await fetch(b2 + 'api/selections', { method: 'PUT',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['x'] }) });
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['x::y'] }) });
     assert.equal(bad.status, 400);
   } finally { s2.close(); }
 });
