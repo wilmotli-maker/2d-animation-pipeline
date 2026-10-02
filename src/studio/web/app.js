@@ -216,7 +216,7 @@ grid.addEventListener('change', async (e) => {
   catch (err) {
     if (toggleGen.get(k) === gen) {
       if (want) state.selected.delete(k); else state.selected.add(k);   // revert
-      t.checked = !want; t.closest('.col')?.classList.toggle('selected', !want);
+      rerenderRow(key);   // t may be detached by now; redraw the live row from state
       renderToolbar();
     }
     flash(`save failed: ${err.message}`);
