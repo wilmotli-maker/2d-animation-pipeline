@@ -27,6 +27,7 @@ function hydratePreviews(scope = grid) {
   for (const el of scope.querySelectorAll('.mpv:not([data-polling])')) {
     el.dataset.polling = '1';
     const q = `/api/matte-preview?src=${encodeURIComponent(el.dataset.src)}&bg=${encodeURIComponent(el.dataset.bg)}`;
+    let delay = 1500;   // back off 1.5x up to 5s while the server is still rendering
     const tick = async () => {
       if (!el.isConnected) return;
       let r;
@@ -40,7 +41,8 @@ function hydratePreviews(scope = grid) {
         el.classList.add('err');
         el.textContent = `preview failed: ${r.error}`;
       } else {
-        setTimeout(tick, 1500);
+        setTimeout(tick, delay);
+        delay = Math.min(delay * 1.5, 5000);
       }
     };
     tick();
