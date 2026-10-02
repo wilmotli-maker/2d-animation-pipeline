@@ -1,7 +1,7 @@
 // src/studio/web/app.js
 import {
   esc, parseRoute, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS, selectionExportDoc,
-  filterTree, filterSuggestions, railShellHTML, projectNodeHTML, elementsListHTML, shotsListHTML,
+  filterTree, filterSuggestions, filterCountText, railShellHTML, projectNodeHTML, elementsListHTML, shotsListHTML,
 } from './views.js';
 import { createSelectionSync } from './selection-sync.js';
 
@@ -51,7 +51,7 @@ function renderRail() {
       if (f.invalid) input.title = 'invalid regex — matching as text'; else input.removeAttribute('title');
     }
     const cnt = rail.querySelector(`[data-count="${kind}"]`);
-    if (cnt) cnt.textContent = f.active ? `${f.matched} of ${f.total} ${kind}` : '';
+    if (cnt) cnt.textContent = filterCountText(f);
   }
 }
 

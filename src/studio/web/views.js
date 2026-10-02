@@ -77,42 +77,62 @@ function makeMatcher(text) {
 
 const allShots = (tree) => [...tree.episodes.flatMap((e) => e.shots), ...tree.shots];
 
+const nFolders = (tree) => (tree.folders || []).length + tree.episodes.reduce((a, e) => a + (e.folders || []).length, 0);
+const nItems = (tree) => allShots(tree).length + nFolders(tree);
+
 // Same tree shape, narrowed to what the rail boxes match. Episodes with no
-// matching shot/folder are dropped and carry `totalShots` for a matched/total meta;
-// `filter` holds per-box state for the count line and the invalid-regex flag.
+// matching shot/folder are dropped; while filtering, episodes and the flat section
+// carry `totalItems` (shots + folders) for a matched/total meta. `filter` holds
+// per-box state for the count line and the invalid-regex flag.
 export function filterTree(tree, { shots: shotText = '', elements: elText = '' } = {}) {
   const sm = makeMatcher(shotText), em = makeMatcher(elText);
   const out = { ...tree, folders: tree.folders || [], shotsHeading: shotsHeading(tree) };
-  const nShots = allShots(tree).length;
   if (sm) {
     out.episodes = tree.episodes.map((ep) => ({ ...ep,
       shots: ep.shots.filter((s) => sm.test(s.shotId)),
       folders: (ep.folders || []).filter((f) => sm.test(f.path)),
-      totalShots: ep.shots.length,
+      totalItems: ep.shots.length + (ep.folders || []).length,
     })).filter((ep) => ep.shots.length || ep.folders.length);
     out.shots = tree.shots.filter((s) => sm.test(s.shotId));
     out.folders = out.folders.filter((f) => sm.test(f.path));
-    out.totalShots = tree.shots.length;
+    out.totalItems = tree.shots.length + (tree.folders || []).length;
   }
   if (em) out.elements = tree.elements.filter((e) => em.test(e.name));
   out.filter = {
-    shots: { active: !!sm, invalid: !!sm?.invalid, matched: allShots(out).length, total: nShots },
-    elements: { active: !!em, invalid: !!em?.invalid, matched: out.elements.length, total: tree.elements.length },
+    shots: { active: !!sm, invalid: !!sm?.invalid, matched: nItems(out), total: nItems(tree),
+      unit: nFolders(tree) ? 'shots & folders' : 'shots' },
+    elements: { active: !!em, invalid: !!em?.invalid, matched: out.elements.length, total: tree.elements.length,
+      unit: 'elements' },
   };
   return out;
 }
 
+// The line under a filter box ("3 of 25 shots & folders"); '' when the box is empty.
+export function filterCountText(f) {
+  return f && f.active ? `${f.matched} of ${f.total} ${f.unit}` : '';
+}
+
+// Regex selecting exactly character `c`: other characters that extend it with '-'
+// (ai -> ai-alt1, ai-alt2) are excluded by a negative lookahead on their remainders.
+function characterRegex(c, all) {
+  const rest = [...new Set(all.filter((d) => d.startsWith(`${c}-`)).map((d) => d.slice(c.length + 1)))].sort();
+  const ahead = rest.length ? `(?!${rest.map((r) => `${escapeRegex(r)}(?:-|$)`).join('|')})` : '';
+  return `^${escapeRegex(c)}-${ahead}`;
+}
+
 export function filterSuggestions(tree) {
-  const chars = new Map();
-  for (const s of allShots(tree)) {
-    const c = shotCharacter(s.shotId);
-    if (c) chars.set(c, (chars.get(c) || 0) + 1);
-  }
+  const shots = allShots(tree);
+  const chars = [...new Set(shots.map((s) => shotCharacter(s.shotId)).filter(Boolean))];
   const names = new Map();
   for (const e of tree.elements) names.set(e.name, [...(names.get(e.name) || []), e.type]);
   const ci = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
   return {
-    shots: [...chars.keys()].sort(ci).map((c) => ({ value: `^${escapeRegex(c)}-`, label: `${c} (${chars.get(c)} shots)` })),
+    // The label's count is what the value actually matches (same 'i' flag as filterTree).
+    shots: chars.sort(ci).map((c) => {
+      const value = characterRegex(c, chars);
+      const re = new RegExp(value, 'i');
+      return { value, label: `${c} (${shots.filter((s) => re.test(s.shotId)).length} shots)` };
+    }),
     elements: [...names.keys()].sort(ci)
       .map((n) => ({ value: `^${escapeRegex(n)}$`, label: `${n} (${[...new Set(names.get(n))].join(', ')})` })),
   };
@@ -146,12 +166,16 @@ export function shotsListHTML(tree, current) {
   const count = (shown, total) => (total != null ? `${shown}/${total}` : `${shown}`);
   let h = '';
   for (const ep of tree.episodes) {
-    h += node(`#/episode/${enc(ep.id)}`, `Episode ${ep.id}`, count(ep.shots.length, ep.totalShots), current);
+    h += node(`#/episode/${enc(ep.id)}`, `Episode ${ep.id}`,
+      ep.totalItems != null ? count(ep.shots.length + ep.folders.length, ep.totalItems) : count(ep.shots.length), current);
     h += shotNodes(ep.id, ep.shots, ep.folders || [], current);
   }
   if (tree.shots.length || flatFolders.length) {
     if (heading === 'Episodes') h += '<h3>Shots</h3>';
-    if (tree.shots.length) h += node('#/episode/_', 'All shots', count(tree.shots.length, tree.totalShots), current);
+    if (tree.shots.length) {
+      h += node('#/episode/_', 'All shots', tree.totalItems != null
+        ? count(tree.shots.length + flatFolders.length, tree.totalItems) : count(tree.shots.length), current);
+    }
     h += shotNodes('_', tree.shots, flatFolders, current);
   }
   return h || (tree.filter?.shots.active ? '<div class="empty">no matches</div>' : '');
