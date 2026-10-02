@@ -99,6 +99,30 @@ test('previewer: concurrency limit, failures are sticky per source version, miss
   });
 });
 
+test('previewer: source changed mid-render -> preview is not ready, re-renders', async () => {
+  await withTempRoot(async (root) => {
+    const rel = 'shots/a/drafts/v001/alpha.mov';
+    await seedAlpha(root, rel);
+    const f = fakeRun();
+    let bumped = false;
+    const run = async (args) => {
+      await f.run(args);
+      if (!bumped) {   // matte re-pulled while the first render was running
+        bumped = true;
+        const future = new Date(Date.now() + 60_000);
+        await utimes(path.join(root, rel), future, future);
+      }
+    };
+    const pv = createPreviewer({ root, run });
+    await pv.request(rel, 'checker');
+    await pv.drain();
+    assert.deepEqual(await pv.request(rel, 'checker'), { state: 'pending' });
+    await pv.drain();
+    assert.equal(f.calls.length, 2);
+    assert.equal((await pv.request(rel, 'checker')).state, 'ready');
+  });
+});
+
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 test('previewer + real ffmpeg: ProRes 4444 alpha composites to an mp4', { skip: !hasFfmpeg && 'ffmpeg not on PATH' }, async () => {
   await withTempRoot(async (root) => {

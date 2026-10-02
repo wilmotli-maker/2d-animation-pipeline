@@ -3,7 +3,7 @@
 // browser-playable H.264 mp4, cached under .pipeline/studio/previews/. The UI
 // shows only these composites, never the raw ProRes/VP9-alpha file.
 import { spawn } from 'node:child_process';
-import { mkdir, stat, rename, rm } from 'node:fs/promises';
+import { mkdir, stat, rename, rm, utimes } from 'node:fs/promises';
 import path from 'node:path';
 
 // Solid colors as ffmpeg hex; `checker` is generated with geq.
@@ -71,7 +71,12 @@ export function createPreviewer({ root, run = runFfmpeg, concurrency = 2 }) {
     const rel = previewRelPath(srcRel, bg);
     const out = path.join(root, rel);
     const outM = await mtime(out);
-    if (outM != null && outM >= srcM) return { state: 'ready', url: mediaUrl(rel) };
+    // A finished preview is stamped with the source mtime it was rendered from
+    // (below), so ANY source mtime change (newer, older via `cp -p`, or a rewrite
+    // mid-render) makes it stale. (round(outM): utimes' float seconds can land a
+    // hair under the whole ms we stamped.) Comparing against "now" would call a composite
+    // of the old matte ready forever.
+    if (outM != null && Math.round(outM) === Math.trunc(srcM)) return { state: 'ready', url: mediaUrl(rel) };
     if (inflight.has(rel)) return { state: 'pending' };
     const f = failed.get(rel);
     if (f && f.srcM === srcM) return { state: 'error', error: f.message };
@@ -83,6 +88,7 @@ export function createPreviewer({ root, run = runFfmpeg, concurrency = 2 }) {
         await mkdir(path.dirname(out), { recursive: true });
         await run(buildPreviewArgs(src, tmp, bg));
         await rename(tmp, out);
+        await utimes(out, new Date(), new Date(Math.trunc(srcM)));
       } catch (err) {
         failed.set(rel, { srcM, message: err.message });
         await rm(tmp, { force: true });
