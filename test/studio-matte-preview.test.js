@@ -17,12 +17,13 @@ async function seedAlpha(root, rel) {
   await mkdir(path.dirname(path.join(root, rel)), { recursive: true });
   await writeFile(path.join(root, rel), 'alpha');
 }
-// Fake ffmpeg: records calls, writes the output file (last arg) after a tick.
-function fakeRun({ fail = false } = {}) {
+// Fake ffmpeg: records calls, writes the output file (last arg) after a tick
+// (or after `gate` resolves, for tests that need renders held open).
+function fakeRun({ fail = false, gate = null } = {}) {
   const calls = []; let active = 0; let maxActive = 0;
   const run = async (args) => {
     calls.push(args); active++; maxActive = Math.max(maxActive, active);
-    await new Promise((r) => setTimeout(r, 20));
+    await (gate || new Promise((r) => setTimeout(r, 20)));
     active--;
     if (fail) throw new Error('ffmpeg exit 1: boom');
     await writeFile(args[args.length - 1], 'mp4');
@@ -83,10 +84,17 @@ test('previewer: concurrency limit, failures are sticky per source version, miss
   await withTempRoot(async (root) => {
     const rels = ['a', 'b', 'c', 'd'].map((s) => `shots/${s}/drafts/v001/alpha.mov`);
     for (const r of rels) await seedAlpha(root, r);
-    const f = fakeRun();
+    let open; const gate = new Promise((r) => { open = r; });
+    const f = fakeRun({ gate });
     const pv = createPreviewer({ root, run: f.run, concurrency: 2 });
     for (const r of rels) await pv.request(r, 'white');
+    for (let i = 0; i < 200 && f.calls.length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 30));   // a (buggy) 3rd job would have started by now
+    assert.equal(f.calls.length, 2, 'only 2 renders start while the gate is closed');
+    assert.equal(f.max(), 2);
+    open();
     await pv.drain();
+    assert.equal(f.calls.length, 4);
     assert.equal(f.max(), 2);
 
     const bad = fakeRun({ fail: true });
