@@ -110,6 +110,11 @@ test('GET /api/matte-preview validates src/bg and delegates to the previewer', a
   assert.equal((await q('episodes/1/shots/ai-1/drafts/v001/output.mp4')).status, 400);   // not a matte
   assert.equal((await q('../secret/alpha.mov')).status, 400);                            // escapes root
   assert.equal((await q('.pipeline/studio/previews/x/alpha.mov')).status, 400);          // cache dir
+  assert.equal((await q('./.pipeline/studio/previews/x/alpha.mov')).status, 400);        // ...even un-normalized
+  assert.equal((await q('x/../.pipeline/studio/previews/x/alpha.mov')).status, 400);
+  const lookalike = await q('.pipelineX/alpha.mov');                                     // not the cache dir
+  assert.equal(lookalike.status, 200);
+  assert.equal((await lookalike.json()).src, path.join('.pipelineX', 'alpha.mov'));
   assert.equal((await q('shots/a/alpha.mov', 'plaid')).status, 400);                    // unknown bg
 });
 

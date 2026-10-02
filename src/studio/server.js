@@ -91,11 +91,12 @@ async function handle({ root, previewer }, req, res) {
     const src = url.searchParams.get('src');
     const bg = url.searchParams.get('bg') || 'checker';
     // Only real matte files inside the project; the previews cache itself is off-limits.
+    const norm = src && path.normalize(src);
     if (!resolveWithin(root, src) || !/(^|[\\/])alpha\.(mov|webm|mp4)$/i.test(src)
-      || src.startsWith('.pipeline') || !Object.hasOwn(PREVIEW_BGS, bg)) {
+      || norm.split(/[\\/]/)[0] === '.pipeline' || !Object.hasOwn(PREVIEW_BGS, bg)) {
       return sendJson(res, 400, { error: 'invalid src or bg' });
     }
-    return sendJson(res, 200, await previewer.request(path.normalize(src), bg));
+    return sendJson(res, 200, await previewer.request(norm, bg));
   }
 
   if (p === '/api/selections') {
