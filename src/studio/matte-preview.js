@@ -95,6 +95,8 @@ export function createPreviewer({ root, run = runFfmpeg, concurrency = 2 }) {
         if (!dir) throw new Error('path outside the project');
         const dest = path.join(dir, path.basename(out));
         tmp = `${dest}.tmp.mp4`;
+        // ffmpeg opens the source only now, after the queue wait: re-check it hasn't been swapped out.
+        if (!await realWithin(root, src)) throw new Error('path outside the project');
         await rm(tmp, { force: true });   // ffmpeg -y would write through a planted symlink
         await run(buildPreviewArgs(src, tmp, bg));
         await rename(tmp, dest);

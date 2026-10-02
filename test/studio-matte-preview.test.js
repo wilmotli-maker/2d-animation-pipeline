@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, mkdir, writeFile, stat, utimes, symlink, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, stat, utimes, symlink, rename, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -172,6 +172,32 @@ test('previewer: source alpha symlinked to a file outside the project -> error s
     assert.deepEqual(await pv.request(rel, 'checker'), { state: 'error', error: 'path outside the project' });
     await pv.drain();
     assert.equal(f.calls.length, 0);
+  });
+});
+
+test('previewer: source dir swapped for an outside symlink while queued -> error state, no render', async (t) => {
+  await withTempRoot(async (outer) => {
+    const root = path.join(outer, 'proj');
+    const ext = path.join(outer, 'ext');
+    await mkdir(path.join(ext, 'v001'), { recursive: true });
+    await writeFile(path.join(ext, 'v001', 'alpha.mov'), 'alpha');
+    const relA = 'shots/a/drafts/v001/alpha.mov';
+    const relB = 'shots/b/drafts/v001/alpha.mov';
+    await seedAlpha(root, relA);
+    await seedAlpha(root, relB);
+    let release; const gate = new Promise((r) => { release = r; });
+    const f = fakeRun({ gate });
+    const pv = createPreviewer({ root, run: f.run, concurrency: 1 });
+    assert.deepEqual(await pv.request(relA, 'checker'), { state: 'pending' });   // holds the only slot
+    assert.deepEqual(await pv.request(relB, 'checker'), { state: 'pending' });   // queued behind it
+    const dir = path.join(root, 'shots/b/drafts');
+    await rename(dir, path.join(outer, 'moved'));
+    if (!await trySymlink(t, ext, dir)) { release(); await pv.drain(); return; }
+    release();
+    await pv.drain();
+    assert.equal(f.calls.length, 1, 'only the first job ran ffmpeg');
+    const s = await pv.request(relB, 'checker');
+    assert.deepEqual(s, { state: 'error', error: 'path outside the project' });
   });
 });
 

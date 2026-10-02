@@ -52,7 +52,7 @@ export function setSelection(root, key, versions) {
     // 'wx' (O_EXCL) never follows a symlink planted at the temp path; clear any stale one first.
     await rm(tmp, { force: true });
     await writeFile(tmp, JSON.stringify(doc, null, 2) + '\n', { flag: 'wx' });
-    await rename(tmp, path.join(dir, path.basename(file)));   // replaces a link at `file`, never follows it
+    await rename(tmp, path.join(dir, path.basename(file)));   // `file` is already the real path: an in-project symlinked selections.json is followed to its real target inside the project (outside targets were refused by contained())
     return doc;
   });
   chain = run.catch(() => {});
