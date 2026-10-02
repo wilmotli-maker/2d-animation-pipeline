@@ -117,12 +117,13 @@ export function filterRowItems(items, matcher, { folderPath = null } = {}) {
 }
 
 // One line above a filtered grid; '' when nothing is hidden.
-export function gridFilterBannerHTML({ label, shown, total }) {
+// `unit` is what the rows are: 'shots', or 'clip groups' in folder views.
+export function gridFilterBannerHTML({ label, shown, total, unit = 'shots' }) {
   if (shown === total) return '';
   const clear = '<button class="clearf">clear filter</button>';
   return shown
-    ? `<p class="fbanner">Filtered by “${esc(label)}”: ${shown} of ${total} shots · ${clear}</p>`
-    : `<p class="fbanner">No shots match “${esc(label)}” in this view · ${clear}</p>`;
+    ? `<p class="fbanner">Filtered by “${esc(label)}”: ${shown} of ${total} ${unit} · ${clear}</p>`
+    : `<p class="fbanner">No ${unit} match “${esc(label)}” in this view · ${clear}</p>`;
 }
 
 // The line under a filter box ("3 of 25 shots & folders"); '' when the box is empty.

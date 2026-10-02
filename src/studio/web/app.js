@@ -290,7 +290,8 @@ function renderGrid() {
   const vs = viewState();
   const rows = gridRows(), total = state.items.length, f = state.filters.shots;
   if (state.subFmt) subEl.textContent = state.subFmt(rows.length === total ? `${total}` : `${rows.length} of ${total}`);
-  grid.innerHTML = gridFilterBannerHTML({ label: f.chip ? f.chip.label : f.text, shown: rows.length, total })
+  grid.innerHTML = gridFilterBannerHTML({ label: f.chip ? f.chip.label : f.text, shown: rows.length, total,
+    unit: state.route.view === 'folder' ? 'clip groups' : 'shots' })
     + (rows.map((it) => itemRowHTML(it, vs)).join('')
     || (total ? '' : `<p class="missing">${{ element: 'No sheets yet.', folder: 'No videos in this folder.' }[state.route.view]
       || 'No shots here yet.'}</p>`));
