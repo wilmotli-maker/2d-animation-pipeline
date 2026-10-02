@@ -22,7 +22,19 @@ async function listDirs(p) {
 
 // Same extensions scanFolder reviews.
 const VIDEO_RE = /\.(mp4|mov|webm|m4v)$/i;
-const FOLDER_DEPTH = 4;   // levels below shots/
+export const FOLDER_DEPTH = 4;   // levels below shots/
+
+// Whether `relPath` (below shots/) is a place scanWorkingFolders may list: no hidden
+// segments, at most FOLDER_DEPTH segments, and no shot dir at or above it (shot
+// dirs are never entered). Shared with the server so "tree lists it <=> API opens it".
+export async function isWorkingFolderPath(shotsDir, relPath) {
+  const segs = String(relPath ?? '').split(/[\\/]+/).filter(Boolean);
+  if (!segs.length || segs.length > FOLDER_DEPTH || segs.some((x) => x.startsWith('.'))) return false;
+  for (let i = 1; i <= segs.length; i++) {
+    if (await isShotDir(path.join(shotsDir, ...segs.slice(0, i)))) return false;
+  }
+  return true;
+}
 
 // Working folders under <shotRoot>/shots/ (candidates/, assembled/, …): any non-shot
 // dir that directly holds videos, found recursively up to FOLDER_DEPTH. Shot dirs are
