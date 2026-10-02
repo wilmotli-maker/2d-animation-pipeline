@@ -92,8 +92,11 @@ function renderToolbar() {
 function renderGrid() {
   if (state.route.view === 'home') { grid.innerHTML = homeHTML(state.tree); return; }
   const y = window.scrollY;
+  // A rebuild resets every row's horizontal scroll; snapshot per data-row and restore.
+  const sx = new Map([...grid.querySelectorAll('.cols[data-row]')].map((c) => [c.dataset.row, c.scrollLeft]));
   grid.innerHTML = state.items.map((it) => itemRowHTML(it, state)).join('')
     || `<p class="missing">${state.route.view === 'element' ? 'No sheets yet.' : 'No shots here yet.'}</p>`;
+  for (const c of grid.querySelectorAll('.cols[data-row]')) if (sx.has(c.dataset.row)) c.scrollLeft = sx.get(c.dataset.row);
   window.scrollTo(0, y);
   hydratePreviews();
 }
