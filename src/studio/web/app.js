@@ -189,7 +189,7 @@ toolbar.addEventListener('click', async (e) => {
   if (t.dataset.mode) { state.mode = t.dataset.mode; renderToolbar(); renderGrid(); }
   else if (t.dataset.bg) { state.bg = t.dataset.bg; saveBg(); renderToolbar(); renderGrid(); }
   else if (t.id === 'onlySelected') { state.onlySelected = !state.onlySelected; renderToolbar(); renderGrid(); }
-  else if (t.id === 'refresh') { await boot(); }
+  else if (t.id === 'refresh') { try { await boot(); } catch (err) { flash(`rescan failed: ${err.message}`); } }
   else if (t.id === 'export') exportSelection();
 });
 
