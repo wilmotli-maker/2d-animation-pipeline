@@ -276,6 +276,20 @@ static HTML page for browsing generated shots or element sheets — open its
   which is gitignored — review pages are local artifacts, not committed
   deliverables (only the generated `index.html`/`review.json` are trackable).
 
+### Studio (local review UI)
+
+`pipeline studio [--root <project>] [--port 4870]` starts a local web UI
+(127.0.0.1 only) that shows the project's elements, episodes and shots as a tree;
+each node opens a side-by-side version review.
+
+- Shots can be viewed as clips or mattes. Mattes are composited (ffmpeg) over a
+  checkerboard or a solid white/black/gray/green background, and the composites are
+  cached in `.pipeline/studio/previews/`. Mattes pulled to `final/` show on the
+  promoted draft.
+- Selections are saved to `.pipeline/studio/selections.json`. Nothing outside
+  `.pipeline/studio/` is written.
+- Static, shareable pages are still produced by `pipeline review` (above).
+
 ## Example
 
 A full pass on the **ArtAI** project: build the `art` character, then author the
