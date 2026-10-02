@@ -32,6 +32,7 @@ test('parseRoute', () => {
   assert.deepEqual(parseRoute('#/episode/_'), { view: 'episode', episode: '_' });
   assert.deepEqual(parseRoute('#/shot/1/ai-1'), { view: 'shot', episode: '1', shotId: 'ai-1' });
   assert.deepEqual(parseRoute('#/bogus/x'), { view: 'home' });
+  assert.deepEqual(parseRoute('#/shot/%E0'), { view: 'home' });   // malformed escape must not throw
 });
 
 test('treeHTML: lists elements by type, episodes with nested shots, marks current', () => {

@@ -17,7 +17,9 @@ const enc = encodeURIComponent;
 export const MATTE_BGS = ['checker', 'white', 'black', 'gray', 'green'];
 
 export function parseRoute(hash) {
-  const parts = String(hash || '').replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+  let parts;
+  try { parts = String(hash || '').replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent); }
+  catch { return { view: 'home' }; }   // malformed %-escape, e.g. #/shot/%E0
   if (parts[0] === 'element' && parts.length === 3) return { view: 'element', type: parts[1], name: parts[2] };
   if (parts[0] === 'episode' && parts.length === 2) return { view: 'episode', episode: parts[1] };
   if (parts[0] === 'shot' && parts.length === 3) return { view: 'shot', episode: parts[1], shotId: parts[2] };
