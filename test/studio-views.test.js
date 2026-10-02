@@ -282,12 +282,15 @@ test('parseStoredFilter: JSON state, legacy plain strings, junk', async () => {
 
 test('reconcileChip: keeps a chip only while it still labels the text', async () => {
   const { reconcileChip } = await import('../src/studio/web/views.js');
-  const sugs = [{ label: 'ai', value: '^ai-(?!alt1(?:-|$))', meta: '' }];
+  const sugs = [{ label: 'ai', value: '^ai-', meta: '' }];
   const f = { text: '^ai-', chip: { label: 'ai', value: '^ai-' } };
   assert.equal(reconcileChip(f, sugs), f);                                          // label exists, value == text
   assert.deepEqual(reconcileChip({ ...f, chip: { label: 'gone', value: '^ai-' } }, sugs), { text: '^ai-', chip: null });
   assert.deepEqual(reconcileChip({ ...f, text: '^ai-x' }, sugs), { text: '^ai-x', chip: null });
   assert.deepEqual(reconcileChip({ text: 'a', chip: null }, sugs), { text: 'a', chip: null });
+  // Same label, but the suggestion's value changed (e.g. Rescan added ai-alt3): stale chip dropped, text kept.
+  const changed = [{ label: 'ai', value: '^ai-(?!alt1(?:-|$))(?!alt3(?:-|$))', meta: '' }];
+  assert.deepEqual(reconcileChip(f, changed), { text: '^ai-', chip: null });
 });
 
 test('filterCountText: count line unit follows the tree', async () => {
