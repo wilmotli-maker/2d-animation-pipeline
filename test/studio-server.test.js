@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { startStudio } from '../src/studio/server.js';
 
 let outer, root, server, base;
@@ -84,6 +85,14 @@ test('GET /media: unreadable file -> 404 and the server survives', { skip: proce
     await r.arrayBuffer();
     assert.equal((await fetch(base + 'api/tree')).status, 200);
   } finally { await chmod(f, 0o644); }
+});
+
+const hasMkfifo = spawnSync('mkfifo', ['--help']).error == null;
+test('GET /media: FIFO -> 404 without blocking', { skip: !hasMkfifo && 'mkfifo unavailable' }, async () => {
+  assert.equal(spawnSync('mkfifo', [path.join(root, 'pipe.fifo')]).status, 0);
+  const r = await fetch(base + 'media/pipe.fifo', { signal: AbortSignal.timeout(2000) });
+  assert.equal(r.status, 404);
+  await r.arrayBuffer();
 });
 
 test('PUT /api/selections round-trips; requires JSON content type', async () => {

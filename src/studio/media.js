@@ -1,5 +1,5 @@
 // src/studio/media.js
-import { open } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream';
 import path from 'node:path';
 
@@ -38,6 +38,8 @@ export function parseRange(header, size) {
 
 export async function sendFile(req, res, abs) {
   const notFound = () => { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); };
+  // Check before open(): opening a FIFO blocks a threadpool thread until a writer appears.
+  try { if (!(await stat(abs)).isFile()) return notFound(); } catch { return notFound(); }
   let fh;
   try { fh = await open(abs, 'r'); } catch { return notFound(); }
   let st;
