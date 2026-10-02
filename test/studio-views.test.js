@@ -151,10 +151,10 @@ test('filterSuggestions: characters with escaped regex values; elements sorted c
   const { filterSuggestions, filterTree } = await import('../src/studio/web/views.js');
   const s = filterSuggestions(FT);
   assert.deepEqual(s.shots, [
-    { value: '^a\\.b-', label: 'a.b (1 shots)' },
+    { value: '^a\\.b-', label: 'a.b (1 shot)' },
     { value: '^ai-', label: 'ai (2 shots)' },
     { value: '^art-', label: 'art (2 shots)' },
-    { value: '^monster-', label: 'monster (1 shots)' },
+    { value: '^monster-', label: 'monster (1 shot)' },
   ]);
   assert.deepEqual(s.elements, [
     { value: '^a\\.b$', label: 'a.b (characters)' },
@@ -172,7 +172,7 @@ const AI = {
   episodes: [
     { id: '1', folders: [], shots: ['ai-1', 'ai-talk-01', 'ai-talk-02', 'ai-alt1-talk-01', 'ai-alt1-talk-02b', 'ai-alt2-idle',
       'ai-alt2-talk-01', 'art-talk-03', 'art-idle'].map((shotId) => ({ shotId, versions: 1 })) },
-    { id: '2', folders: [{ path: 'candidates', clips: 5 }], shots: ['ai-2', 'ai-3', 'ai-alt2-talk-02', 'monster-4']
+    { id: '2', folders: [{ path: 'candidates', clips: 5 }, { path: 'ai-candidates', clips: 2 }], shots: ['ai-2', 'ai-3', 'ai-alt2-talk-02', 'monster-4']
       .map((shotId) => ({ shotId, versions: 1 })) },
   ],
   shots: [{ shotId: 'ai-react-1', versions: 1 }],
@@ -187,15 +187,28 @@ test('filterSuggestions: a character extended by longer ones excludes them via n
   const s = filterSuggestions(AI).shots;
   const ai = s.find((x) => x.label.startsWith('ai ('));
   assert.equal(ai.value, '^ai-(?!alt1(?:-|$)|alt2(?:-|$))');
-  assert.equal(ai.label, 'ai (6 shots)');
+  assert.equal(ai.label, 'ai (6 shots, 1 folder)');   // ^ai- also matches the ai-candidates folder
   assert.deepEqual(matchedIds(filterTree, AI, ai.value), ['ai-1', 'ai-talk-01', 'ai-talk-02', 'ai-2', 'ai-3', 'ai-react-1']);
   assert.equal(s.find((x) => x.label.startsWith('ai-alt1')).value, '^ai-alt1-');
   assert.equal(s.find((x) => x.label.startsWith('art')).value, '^art-');
   // Every label's count equals what its value actually matches across the tree.
   for (const sug of s) {
-    const n = Number(/\((\d+) shots\)$/.exec(sug.label)[1]);
-    assert.equal(matchedIds(filterTree, AI, sug.value).length, n, sug.label);
+    const [, n, m = 0] = /\((\d+) shots?(?:, (\d+) folders?)?\)$/.exec(sug.label);
+    const f = filterTree(AI, { shots: sug.value });
+    assert.equal(matchedIds(filterTree, AI, sug.value).length, Number(n), sug.label);
+    assert.equal(f.episodes.reduce((a, e) => a + e.folders.length, 0) + f.folders.length, Number(m), sug.label);
   }
+});
+
+test('filterSuggestions: label pluralizes and counts matching folders', async () => {
+  const { filterSuggestions } = await import('../src/studio/web/views.js');
+  const t = { project: 'p', elements: [], episodes: [], folders: [{ path: 'zed-stuff', clips: 1 }, { path: 'zed-more', clips: 1 }],
+    shots: ['zed-1', 'solo-1', 'solo-2'].map((shotId) => ({ shotId, versions: 1 })) };
+  const s = filterSuggestions(t).shots;
+  assert.equal(s.find((x) => x.value === '^zed-').label, 'zed (1 shot, 2 folders)');
+  assert.equal(s.find((x) => x.value === '^solo-').label, 'solo (2 shots)');
+  const one = { ...t, folders: [{ path: 'solo-x', clips: 1 }] };
+  assert.equal(filterSuggestions(one).shots.find((x) => x.value === '^solo-').label, 'solo (2 shots, 1 folder)');
 });
 
 test('filterSuggestions: regex metachars in characters and their extensions are escaped', async () => {
@@ -206,11 +219,11 @@ test('filterSuggestions: regex metachars in characters and their extensions are 
   const ab = s.find((x) => x.label.startsWith('a.b ('));
   assert.equal(ab.value, '^a\\.b-(?!c\\+d(?:-|$))');
   assert.deepEqual(matchedIds(filterTree, t, ab.value), ['a.b-1']);
-  assert.equal(ab.label, 'a.b (1 shots)');
+  assert.equal(ab.label, 'a.b (1 shot)');
   const abcd = s.find((x) => x.label.startsWith('a.b-c+d'));
   assert.equal(abcd.value, '^a\\.b-c\\+d-');
   assert.deepEqual(matchedIds(filterTree, t, abcd.value), ['a.b-c+d-2', 'a.b-c+d-talk']);
-  for (const sug of s) assert.equal(matchedIds(filterTree, t, sug.value).length, Number(/\((\d+) shots\)$/.exec(sug.label)[1]));
+  for (const sug of s) assert.equal(matchedIds(filterTree, t, sug.value).length, Number(/\((\d+) shots?\)$/.exec(sug.label)[1]));
 });
 
 test('filterCountText: count line unit follows the tree', async () => {
@@ -224,7 +237,7 @@ test('railShellHTML: stable filter inputs + datalists, persisted values escaped'
   const { railShellHTML, filterSuggestions } = await import('../src/studio/web/views.js');
   const h = railShellHTML(FT, filterSuggestions(FT), { shots: '^a"<', elements: '' });
   assert.match(h, /<input type="search" class="filter" data-filter="shots" list="sug-shots" placeholder="filter — character or regex" value="\^a&quot;&lt;"/);
-  assert.match(h, /<datalist id="sug-shots"><option value="\^a\\\.b-" label="a\.b \(1 shots\)">/);
+  assert.match(h, /<datalist id="sug-shots"><option value="\^a\\\.b-" label="a\.b \(1 shot\)">/);
   assert.match(h, /data-filter="elements" list="sug-elements"/);
   assert.match(h, /<h3>Episodes<\/h3>/);
   assert.match(h, /id="rail-proj"/);

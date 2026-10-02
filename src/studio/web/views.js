@@ -77,6 +77,7 @@ function makeMatcher(text) {
 
 const allShots = (tree) => [...tree.episodes.flatMap((e) => e.shots), ...tree.shots];
 
+const allFolders = (tree) => [...(tree.folders || []), ...tree.episodes.flatMap((e) => e.folders || [])];
 const nFolders = (tree) => (tree.folders || []).length + tree.episodes.reduce((a, e) => a + (e.folders || []).length, 0);
 const nItems = (tree) => allShots(tree).length + nFolders(tree);
 
@@ -127,11 +128,14 @@ export function filterSuggestions(tree) {
   for (const e of tree.elements) names.set(e.name, [...(names.get(e.name) || []), e.type]);
   const ci = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
   return {
-    // The label's count is what the value actually matches (same 'i' flag as filterTree).
+    // The label's counts are what the value actually matches (shots and folders, same 'i' flag as filterTree).
     shots: chars.sort(ci).map((c) => {
       const value = characterRegex(c, chars);
       const re = new RegExp(value, 'i');
-      return { value, label: `${c} (${shots.filter((s) => re.test(s.shotId)).length} shots)` };
+      const nS = shots.filter((s) => re.test(s.shotId)).length;
+      const nF = allFolders(tree).filter((f) => re.test(f.path)).length;
+      const part = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+      return { value, label: `${c} (${part(nS, 'shot')}${nF ? `, ${part(nF, 'folder')}` : ''})` };
     }),
     elements: [...names.keys()].sort(ci)
       .map((n) => ({ value: `^${escapeRegex(n)}$`, label: `${n} (${[...new Set(names.get(n))].join(', ')})` })),
