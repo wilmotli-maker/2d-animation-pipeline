@@ -49,7 +49,7 @@ test('treeHTML: folder nodes under episodes and the flat Shots section', () => {
     episodes: [{ id: '2', shots: [], folders: [{ path: 'candidates/blue matte', clips: 3 }] }],
     shots: [], folders: [{ path: 'assembled', clips: 1 }] };
   const h = treeHTML(t, '#/folder/2/candidates/blue%20matte');
-  assert.match(h, /class="node folder on" href="#\/folder\/2\/candidates\/blue%20matte"><span>candidates\/blue matte<\/span><span class="meta">3 clips<\/span>/);
+  assert.match(h, /class="node folder on" href="#\/folder\/2\/candidates\/blue%20matte"><span title="candidates\/blue matte">candidates\/blue matte<\/span><span class="meta">3 clips<\/span>/);
   assert.match(h, /<h3>Shots<\/h3>/);                     // flat folders alone still show the section
   assert.match(h, /class="node folder" href="#\/folder\/_\/assembled"/);
   assert.doesNotMatch(treeHTML({ ...t, folders: [] }, '#/'), /<h3>Shots<\/h3>/);
