@@ -327,3 +327,6 @@ export function renderImagePage({ model, selection, title = 'Image review', slug
   return page({ title, subtitle: `${n} sheet(s) · generated ${model.generatedAt || ''}`,
     data: { model, selection, slug, type, title }, script: COMMON_SCRIPT + IMAGE_SCRIPT });
 }
+
+// Shared with the studio UI (served as /review.css) so both surfaces keep one look.
+export { STYLE as REVIEW_STYLE };
