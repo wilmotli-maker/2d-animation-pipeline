@@ -178,3 +178,13 @@ test('flush waits for saves queued while flushing', async () => {
   await f;
   assert.equal(done, true);
 });
+
+test("load() skips versions containing '::' (would corrupt key::version)", async () => {
+  const srv = fakeServer({});
+  const sync = createSelectionSync(srv);
+  const loading = sync.load();
+  await tick();
+  srv.gets[0].respond({ version: 1, selected: { 'shot-1': ['v001', 'v::2', 7] } });
+  await loading;
+  assert.deepEqual([...sync.selected], ['shot-1::v001']);
+});

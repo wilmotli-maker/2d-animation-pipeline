@@ -153,25 +153,28 @@ function staticKey(key) {
 // into already-generated static pages. Keys that collide (same shotId in two
 // episodes) get the union of their versions.
 export function toStaticSelection(selected) {
-  const out = {};
+  // A Map, not `{}`: keys like `constructor` or `__proto__` must not hit Object.prototype.
+  const out = new Map();
   for (const [key, vs] of Object.entries(selected)) {
     const k = staticKey(key);
-    out[k] = [...new Set([...(out[k] || []), ...vs])].sort(byVersion);
+    out.set(k, [...new Set([...(out.get(k) || []), ...vs])].sort(byVersion));
   }
-  return out;
+  return Object.fromEntries(out);
 }
 
 // The "Export selection" file. `selected` (a Set of `key::version`) is written
 // twice: static-page-compatible keys under `selected` (what the static page's
 // importer reads) and the full studio keys under `studioSelected` (lossless).
 export function selectionExportDoc({ project, selected, exportedAt }) {
-  const studioSelected = {};
+  const studioSelected = new Map();   // Map: see toStaticSelection
   for (const k of selected) {
     const i = k.lastIndexOf('::');
-    (studioSelected[k.slice(0, i)] ||= []).push(k.slice(i + 2));
+    const key = k.slice(0, i);
+    if (!studioSelected.has(key)) studioSelected.set(key, []);
+    studioSelected.get(key).push(k.slice(i + 2));
   }
-  const sorted = Object.fromEntries(Object.keys(studioSelected).sort()
-    .map((key) => [key, [...new Set(studioSelected[key])].sort(byVersion)]));
+  const sorted = Object.fromEntries([...studioSelected.keys()].sort()
+    .map((key) => [key, [...new Set(studioSelected.get(key))].sort(byVersion)]));
   return { format: 'studio-selection/1', project, exportedAt,
     selected: toStaticSelection(sorted), studioSelected: sorted };
 }

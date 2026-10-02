@@ -63,7 +63,7 @@ export function createSelectionSync({ fetchJson, putJson }) {
   //     itself queued the save that will persist them;
   //  3. every other key takes the server snapshot.
   // The server normalizes the store, but stay defensive: non-array values and
-  // non-string versions are skipped rather than failing boot.
+  // non-string versions (and ones containing '::', which would corrupt `key::version`) are skipped rather than failing boot.
   // Resolves to { warnings: string[] } (from the server, e.g. a corrupt store).
   async function load() {
     await flush();
@@ -75,7 +75,7 @@ export function createSelectionSync({ fetchJson, putJson }) {
     for (const k of selected) if (changed(k.slice(0, k.lastIndexOf('::')))) next.push(k);
     for (const [key, vs] of Object.entries(sel)) {
       if (changed(key) || !Array.isArray(vs)) continue;
-      for (const v of vs) if (typeof v === 'string') next.push(`${key}::${v}`);
+      for (const v of vs) if (typeof v === 'string' && !v.includes('::')) next.push(`${key}::${v}`);
     }
     selected.clear();
     for (const k of next) selected.add(k);

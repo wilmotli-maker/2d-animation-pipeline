@@ -75,3 +75,14 @@ test('round trip: every studio-exported selection is accepted by the static shot
   // The raw studio keys would not have imported (the original bug).
   assert.deepEqual(imported({ selected: doc.studioSelected }, shotVALID), ['flat-1::v003']);
 });
+
+test('export tolerates keys named like Object.prototype members', () => {
+  const keys = ['1/constructor', 'toString', '__defineGetter__'];
+  const sel = new Set(keys.flatMap((k) => [`${k}::v002`, `${k}::v001`]));
+  const doc = selectionExportDoc({ project: 'p', selected: sel, exportedAt: 'now' });
+  assert.deepEqual(doc.studioSelected, {
+    '1/constructor': ['v001', 'v002'], __defineGetter__: ['v001', 'v002'], toString: ['v001', 'v002'],
+  });
+  assert.deepEqual(doc.selected, { constructor: ['v001', 'v002'], toString: ['v001', 'v002'], __defineGetter__: ['v001', 'v002'] });
+  assert.deepEqual(toStaticSelection({ toString: ['v001'], '2/toString': ['v002'] }), { toString: ['v001', 'v002'] });
+});
