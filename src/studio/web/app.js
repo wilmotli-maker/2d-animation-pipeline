@@ -117,6 +117,14 @@ async function route() {
   state.route = parseRoute(location.hash);
   state.hidden.clear();
   rail.innerHTML = treeHTML(state.tree, location.hash || '#/');
+  // Bring the active node into the rail's viewport. Set scrollTop directly (not
+  // scrollIntoView) so only the rail scrolls, never the window.
+  const on = rail.querySelector('a.node.on');
+  if (on) {
+    const rr = rail.getBoundingClientRect(), nr = on.getBoundingClientRect();
+    if (nr.top < rr.top) rail.scrollTop += nr.top - rr.top;
+    else if (nr.bottom > rr.bottom) rail.scrollTop += nr.bottom - rr.bottom;
+  }
   const r = state.route;
   try {
     if (r.view === 'element') {
