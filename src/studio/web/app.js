@@ -2,6 +2,7 @@
 import {
   esc, parseRoute, treeHTML, homeHTML, shotRowItems, sheetRowItems, itemRowHTML, MATTE_BGS,
 } from './views.js';
+import { createSelectionSync } from './selection-sync.js';
 
 const rail = document.getElementById('rail');
 const grid = document.getElementById('grid');
@@ -9,9 +10,12 @@ const toolbar = document.getElementById('toolbar');
 const titleEl = document.getElementById('title');
 const subEl = document.getElementById('subtitle');
 
+// Selection state + server sync live in selection-sync.js; state.selected is
+// its Set (mutated in place), which the view builders read directly.
+const sync = createSelectionSync({ fetchJson: getJson, putJson });
 const state = {
   tree: null, route: { view: 'home' }, items: [], byKey: {},
-  selected: new Set(), hidden: new Set(), mode: 'clips', bg: loadBg(), onlySelected: false,
+  selected: sync.selected, hidden: new Set(), mode: 'clips', bg: loadBg(), onlySelected: false,
 };
 
 // Matte background is a per-viewer convenience, so localStorage is enough.
@@ -55,31 +59,13 @@ async function getJson(url) {
   return r.json();
 }
 
-async function loadSelections() {
-  const doc = await getJson('/api/selections');
-  state.selected = new Set(Object.entries(doc.selected).flatMap(([k, vs]) => vs.map((v) => `${k}::${v}`)));
-}
-
-function versionsFor(key) {
-  const p = `${key}::`;
-  return [...state.selected].filter((k) => k.startsWith(p)).map((k) => k.slice(p.length));
-}
-
-// Saves are chained per key so PUTs land in click order, and each sends the list
-// as of send time; otherwise a stale full list from an earlier click could win.
-const saveChains = new Map();
-function saveKey(key) {
-  const send = async () => {
-    const r = await fetch('/api/selections', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, versions: versionsFor(key) }) });
-    if (!r.ok) {
-      const body = await r.json().catch(() => null);
-      throw new Error(body?.error || `HTTP ${r.status}`);
-    }
-  };
-  const p = (saveChains.get(key) || Promise.resolve()).catch(() => {}).then(send);
-  saveChains.set(key, p);
-  return p;
+async function putJson(url, body) {
+  const r = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const b = await r.json().catch(() => null);
+    throw new Error(b?.error || `HTTP ${r.status}`);
+  }
+  return r.json().catch(() => null);
 }
 
 function flash(msg) { const e = document.getElementById('err'); if (e) e.textContent = msg; }
@@ -172,15 +158,17 @@ async function route() {
   renderGrid();
 }
 
+// Also the Rescan path: sync.load() waits for pending saves and keeps toggles
+// made during its GET, so a rescan can't undo a click.
 async function boot() {
-  [state.tree] = await Promise.all([getJson('/api/tree'), loadSelections()]);
+  [state.tree] = await Promise.all([getJson('/api/tree'), sync.load()]);
   await route();
 }
 
 function exportSelection() {
   const doc = { project: state.tree.project, exportedAt: new Date().toISOString(),
     selected: Object.fromEntries([...new Set([...state.selected].map((k) => k.slice(0, k.lastIndexOf('::'))))]
-      .sort().map((key) => [key, versionsFor(key)])) };
+      .sort().map((key) => [key, sync.versionsFor(key)])) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `${state.tree.project}-selection.json` });
   document.body.appendChild(a); a.click(); a.remove();
@@ -208,28 +196,21 @@ grid.addEventListener('click', (e) => {
   }
 });
 
-// Per key::version toggle counter. A failed save only reverts its own click if no
-// later toggle of the same box has happened since; otherwise that later click
-// owns the state (and its queued save reads versionsFor at send time).
-const toggleGen = new Map();
-
+// Optimistic: sync.toggle updates state.selected synchronously and queues the
+// save. On failure it reverts only if no later click of the same box happened.
 grid.addEventListener('change', async (e) => {
   const t = e.target; if (!t.classList.contains('selectbox')) return;
-  const key = t.dataset.key, k = `${key}::${t.dataset.v}`;
-  const want = t.checked, gen = (toggleGen.get(k) || 0) + 1;
-  toggleGen.set(k, gen);
-  if (want) state.selected.add(k); else state.selected.delete(k);
+  const key = t.dataset.key, want = t.checked;
+  const saved = sync.toggle(key, t.dataset.v, want);
   if (state.onlySelected) rerenderRow(key); else t.closest('.col')?.classList.toggle('selected', want);
   renderToolbar();
-  try { await saveKey(key); flash(''); }
-  catch (err) {
-    if (toggleGen.get(k) === gen) {
-      if (want) state.selected.delete(k); else state.selected.add(k);   // revert
-      rerenderRow(key);   // t may be detached by now; redraw the live row from state
-      renderToolbar();
-    }
-    flash(`save failed: ${err.message}`);
+  const r = await saved;
+  if (r.ok) { flash(''); return; }
+  if (r.reverted) {
+    rerenderRow(key);   // t may be detached by now; redraw the live row from state
+    renderToolbar();
   }
+  flash(`save failed: ${r.error.message}`);
 });
 
 // Media errors don't bubble; capture them so a broken clip shows a message

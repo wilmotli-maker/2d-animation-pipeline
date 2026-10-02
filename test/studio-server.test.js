@@ -36,6 +36,10 @@ test('GET /static serves bundled web files (real-path checked), blocks traversal
   const r = await fetch(base + 'static/index.html');
   assert.equal(r.status, 200);
   assert.match(await r.text(), /<!doctype html>/i);
+  const mod = await fetch(base + 'static/selection-sync.js');   // imported by app.js
+  assert.equal(mod.status, 200);
+  assert.match(mod.headers.get('content-type'), /javascript/);
+  assert.match(await mod.text(), /export function createSelectionSync/);
   const esc = await fetch(base + 'static/..%2Fserver.js');
   assert.equal(esc.status, 404);
   await esc.arrayBuffer();
