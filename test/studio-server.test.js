@@ -17,6 +17,11 @@ before(async () => {
   await mkdir(path.join(root, 'elements', 'characters', 'mira', 'sheets', 'pose', 'wave'), { recursive: true });
   await writeFile(path.join(root, 'elements', 'characters', 'mira', 'sheets', 'pose', 'wave', 'v001.png'), 'png');
   await writeFile(path.join(outer, 'secret.txt'), 'nope');
+  const cand = path.join(root, 'episodes', '1', 'shots', 'candidates');
+  await mkdir(cand, { recursive: true });
+  for (const f of ['x-v001.mp4', 'x-v002.mp4', 'y.mp4', 'notes.txt']) await writeFile(path.join(cand, f), 'v');
+  await mkdir(path.join(root, 'shots', 'assembled'), { recursive: true });
+  await writeFile(path.join(root, 'shots', 'assembled', 'TEST2.mp4'), 'v');
   // Stub previewer: the endpoint's validation + passthrough is what's under test here
   // (rendering is covered by test/studio-matte-preview.test.js).
   const previewer = { request: async (src, bg) => ({ state: 'pending', src, bg }) };
@@ -59,6 +64,25 @@ test('GET /api/shots filters by episode and id', async () => {
   assert.equal(none.shots.length, 0);
   const one = await fetch(base + 'api/shots?episode=1&id=nope').then((r) => r.json());
   assert.equal(one.shots.length, 0);
+});
+
+test('GET /api/folder scans a working folder like `review --folder`', async () => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const r = await q('1', 'candidates');
+  assert.equal(r.status, 200);
+  const { shots } = await r.json();
+  assert.deepEqual(shots.map((s) => s.shotId), ['x', 'y']);
+  assert.deepEqual(shots[0].versions.map((v) => v.version), ['v001', 'v002']);
+  assert.equal(shots[0].versions[0].video, path.join('episodes', '1', 'shots', 'candidates', 'x-v001.mp4'));
+  const flat = await q('_', 'assembled').then((x) => x.json());
+  assert.deepEqual(flat.shots.map((s) => s.shotId), ['TEST2']);
+  assert.equal((await q('1', '../../..')).status, 400);         // traversal
+  assert.equal((await q('1', '')).status, 400);                 // missing path
+  assert.equal((await q('9', 'candidates')).status, 404);       // unknown episode
+  assert.equal((await q('..', 'candidates')).status, 404);
+  assert.equal((await q('1', 'ai-1')).status, 400);             // a real shot dir
+  assert.equal((await q('1', 'nope')).status, 404);             // nonexistent
+  assert.equal((await q('1', 'candidates/x-v001.mp4')).status, 404);   // a file, not a dir
 });
 
 test('GET /api/element', async () => {

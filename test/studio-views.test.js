@@ -36,6 +36,42 @@ test('parseRoute', () => {
   assert.deepEqual(parseRoute('#/shot/%E0'), { view: 'home' });   // malformed escape must not throw
 });
 
+test('parseRoute: folder routes (nested path, encoded segments)', () => {
+  assert.deepEqual(parseRoute('#/folder/2/candidates'), { view: 'folder', episode: '2', path: 'candidates' });
+  assert.deepEqual(parseRoute('#/folder/2/candidates/blue-matte-final'),
+    { view: 'folder', episode: '2', path: 'candidates/blue-matte-final' });
+  assert.deepEqual(parseRoute('#/folder/_/my%20clips/a%23b'), { view: 'folder', episode: '_', path: 'my clips/a#b' });
+  assert.deepEqual(parseRoute('#/folder/2'), { view: 'home' });   // needs at least one path segment
+});
+
+test('treeHTML: folder nodes under episodes and the flat Shots section', () => {
+  const t = { ...TREE,
+    episodes: [{ id: '2', shots: [], folders: [{ path: 'candidates/blue matte', clips: 3 }] }],
+    shots: [], folders: [{ path: 'assembled', clips: 1 }] };
+  const h = treeHTML(t, '#/folder/2/candidates/blue%20matte');
+  assert.match(h, /class="node folder on" href="#\/folder\/2\/candidates\/blue%20matte"><span>candidates\/blue matte<\/span><span class="meta">3 clips<\/span>/);
+  assert.match(h, /<h3>Shots<\/h3>/);                     // flat folders alone still show the section
+  assert.match(h, /class="node folder" href="#\/folder\/_\/assembled"/);
+  assert.doesNotMatch(treeHTML({ ...t, folders: [] }, '#/'), /<h3>Shots<\/h3>/);
+  // Trees without the folders keys (older shape) still render.
+  assert.match(treeHTML(TREE, '#/'), /Episode 1/);
+});
+
+test('shotRowItems: keyPrefix namespaces folder rows', async () => {
+  const { shotRowItems } = await import('../src/studio/web/views.js');
+  const s = { ...SHOT, episode: null, shotId: 'x' };
+  assert.equal(shotRowItems([s])[0].key, 'x');
+  assert.equal(shotRowItems([s], { keyPrefix: 'folder:2/candidates/' })[0].key, 'folder:2/candidates/x');
+});
+
+test('homeHTML: folders card only when folders exist; shots count excludes folders', () => {
+  assert.doesNotMatch(homeHTML(TREE), /folders/);
+  const t = { ...TREE, episodes: [{ ...TREE.episodes[0], folders: [{ path: 'c', clips: 9 }] }], folders: [{ path: 'a', clips: 1 }] };
+  const h = homeHTML(t);
+  assert.match(h, />1<\/div><div class="l">shots/);
+  assert.match(h, />2<\/div><div class="l">folders/);
+});
+
 test('treeHTML: lists elements by type, episodes with nested shots, marks current', () => {
   const h = treeHTML(TREE, '#/shot/1/ai-1');
   assert.match(h, /href="#\/element\/characters\/mira"/);
