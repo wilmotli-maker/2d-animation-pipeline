@@ -20,7 +20,7 @@ function fakeServer(initial = {}) {
     const d = deferred();
     gets.push({
       url,
-      respond: (doc) => d.resolve(doc ?? { version: 1, selected: structuredClone(store) }),
+      respond: (...doc) => d.resolve(doc.length ? doc[0] : { version: 1, selected: structuredClone(store) }),
     });
     return d.promise;
   };
@@ -105,6 +105,20 @@ test('load without pending work takes the server snapshot and drops stale local 
   assert.equal(sync.selected, sel, 'set is mutated in place');
   assert.deepEqual([...sync.selected], ['a::v002']);
   assert.equal(sync.size, 1);
+});
+
+test('load tolerates a malformed payload and keeps only valid entries', async () => {
+  for (const doc of [
+    { selected: { 'shot-1': null, ok: ['v001', 5, null], s: 'v001', o: { v: 1 } }, warnings: ['ignored 3'] },
+    { selected: [] }, { selected: null }, {}, null,
+  ]) {
+    const srv = fakeServer({});
+    const sync = createSelectionSync(srv);
+    const p = sync.load(); await tick(); srv.gets[0].respond(doc);
+    const { warnings } = await p;
+    assert.deepEqual(warnings, doc?.warnings ?? []);
+    assert.deepEqual([...sync.selected], doc?.selected?.ok ? ['ok::v001'] : []);
+  }
 });
 
 test('failed save reverts only when no later toggle of the same box happened', async () => {

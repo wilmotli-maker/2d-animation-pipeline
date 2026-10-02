@@ -62,19 +62,24 @@ export function createSelectionSync({ fetchJson, putJson }) {
   //     that toggle's PUT, so keep the client's versions for that key; the toggle
   //     itself queued the save that will persist them;
   //  3. every other key takes the server snapshot.
+  // The server normalizes the store, but stay defensive: non-array values and
+  // non-string versions are skipped rather than failing boot.
+  // Resolves to { warnings: string[] } (from the server, e.g. a corrupt store).
   async function load() {
     await flush();
     const before = new Map(keyGen);
     const doc = await fetchJson(API);
     const changed = (key) => (keyGen.get(key) || 0) !== (before.get(key) || 0);
+    const sel = doc && doc.selected && typeof doc.selected === 'object' && !Array.isArray(doc.selected) ? doc.selected : {};
     const next = [];
     for (const k of selected) if (changed(k.slice(0, k.lastIndexOf('::')))) next.push(k);
-    for (const [key, vs] of Object.entries(doc.selected)) {
-      if (!changed(key)) for (const v of vs) next.push(`${key}::${v}`);
+    for (const [key, vs] of Object.entries(sel)) {
+      if (changed(key) || !Array.isArray(vs)) continue;
+      for (const v of vs) if (typeof v === 'string') next.push(`${key}::${v}`);
     }
     selected.clear();
     for (const k of next) selected.add(k);
-    return doc;
+    return { warnings: Array.isArray(doc?.warnings) ? doc.warnings.filter((w) => typeof w === 'string') : [] };
   }
 
   return {

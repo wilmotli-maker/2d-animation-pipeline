@@ -161,8 +161,10 @@ async function route() {
 // Also the Rescan path: sync.load() waits for pending saves and keeps toggles
 // made during its GET, so a rescan can't undo a click.
 async function boot() {
-  [state.tree] = await Promise.all([getJson('/api/tree'), sync.load()]);
+  let sel;
+  [state.tree, sel] = await Promise.all([getJson('/api/tree'), sync.load()]);
   await route();
+  if (sel.warnings.length) flash(sel.warnings[0]);   // e.g. a corrupt selections.json was ignored
 }
 
 function exportSelection() {

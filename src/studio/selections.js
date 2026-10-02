@@ -16,15 +16,45 @@ async function contained(root, p) {
   return real;
 }
 
+// The single rule for what a selection key / version may be, on read and write.
+export function isValidVersion(v) { return typeof v === 'string' && /^v\d+$/.test(v); }
+function isValidKey(key) { return typeof key === 'string' && !!key && key.length <= 512 && key !== '__proto__'; }
+function sortVersions(vs) { return [...new Set(vs)].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))); }
+function isPlainObject(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+
+const UNTOUCHED = 'starting empty (file left untouched until the next save)';
+
+// Never fails on bad content: a hand-edited or corrupt file must not brick the
+// studio. Unparseable JSON or a non-object `selected` reads as empty; otherwise
+// only valid keys with arrays of valid versions survive (deduped, sorted, empty
+// keys dropped). Anything ignored is reported in `warnings`. The file itself is
+// left alone; the next setSelection rewrites it from this normalized doc.
+// I/O failures (other than a missing file) still throw.
 export async function readSelections(root) {
   const file = await contained(root, selectionsPath(root));
-  try {
-    const doc = JSON.parse(await readFile(file, 'utf8'));
-    return { version: 1, selected: doc && typeof doc.selected === 'object' && doc.selected ? doc.selected : {} };
-  } catch (err) {
+  let raw;
+  try { raw = await readFile(file, 'utf8'); } catch (err) {
     if (err.code === 'ENOENT') return { version: 1, selected: {} };
     throw err;
   }
+  let doc;
+  try { doc = JSON.parse(raw); } catch {
+    return { version: 1, selected: {}, warnings: [`selections.json is not valid JSON; ${UNTOUCHED}`] };
+  }
+  if (!isPlainObject(doc) || (doc.selected !== undefined && !isPlainObject(doc.selected))) {
+    return { version: 1, selected: {}, warnings: [`selections.json has no valid "selected" object; ${UNTOUCHED}`] };
+  }
+  const selected = {};
+  let dropped = 0;
+  for (const [key, vs] of Object.entries(doc.selected || {})) {
+    if (!isValidKey(key) || !Array.isArray(vs)) { dropped++; continue; }
+    const ok = vs.filter(isValidVersion);
+    dropped += vs.length - ok.length;
+    if (ok.length) selected[key] = sortVersions(ok);
+  }
+  const out = { version: 1, selected };
+  if (dropped) out.warnings = [`ignored ${dropped} invalid selection ${dropped === 1 ? 'entry' : 'entries'}`];
+  return out;
 }
 
 // Writes are read-modify-write on one file; chain them so concurrent PUTs from
@@ -35,14 +65,15 @@ let chain = Promise.resolve();
 function invalid(message) { return Object.assign(new Error(message), { status: 400 }); }
 
 export function setSelection(root, key, versions) {
-  if (typeof key !== 'string' || !key || key.length > 512 || key === '__proto__') return Promise.reject(invalid('selection: invalid key'));
+  if (!isValidKey(key)) return Promise.reject(invalid('selection: invalid key'));
   if (!Array.isArray(versions)) return Promise.reject(invalid('selection: versions must be an array'));
   for (const v of versions) {
-    if (typeof v !== 'string' || !/^v\d+$/.test(v)) return Promise.reject(invalid(`selection: invalid version "${v}"`));
+    if (!isValidVersion(v)) return Promise.reject(invalid(`selection: invalid version "${v}"`));
   }
-  const sorted = [...new Set(versions)].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  const sorted = sortVersions(versions);
   const run = chain.then(async () => {
-    const doc = await readSelections(root);
+    const { selected } = await readSelections(root);   // normalized; warnings are not persisted
+    const doc = { version: 1, selected };
     if (sorted.length) doc.selected[key] = sorted; else delete doc.selected[key];
     const file = await contained(root, selectionsPath(root));
     await mkdir(path.dirname(file), { recursive: true });
