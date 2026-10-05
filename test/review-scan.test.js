@@ -471,3 +471,31 @@ test('scanImages: panels from alias dirs (v1/, V01/, v001/) merge, canonical dir
     ]);
   });
 });
+
+import { isValidVersion } from '../src/studio/selections.js';
+
+test('scanImages: candidate ids are encoded, valid, distinct, stable and round-trip through key::version', async () => {
+  await withTempRoot(async (root) => {
+    const long = 'x'.repeat(246) + '.png'; // 250 chars
+    const names = ['hero::front.png', 'a%b.png', 'a%3Ab.png', 'plain.png', long, 'c\u0001d.png'];
+    const made = [];
+    for (const n of names) {
+      try { await seedFiles(root, [`${EL}/sheets/ref/${n}`]); made.push(n); } catch { /* FS rejects name */ }
+    }
+    assert.ok(made.includes('hero::front.png'));
+    const first = (await sheetsOf(root, 'ref', '')).versions;
+    const second = (await sheetsOf(root, 'ref', '')).versions;
+    assert.deepEqual(first.map((v) => v.version), second.map((v) => v.version));
+    assert.equal(new Set(first.map((v) => v.version)).size, made.length);
+    for (const v of first) {
+      assert.ok(isValidVersion(v.version), v.version);
+      const k = `characters/mira/ref/::${v.version}`;
+      const i = k.lastIndexOf('::');
+      assert.equal(k.slice(i + 2), v.version);
+      assert.ok(made.includes(v.meta.label), 'label is the real file name');
+    }
+    assert.equal(first.find((v) => v.meta.label === 'plain.png').version, 'plain.png');
+    assert.equal(first.find((v) => v.meta.label === 'hero::front.png').version, 'hero%3A%3Afront.png');
+    assert.equal(first.find((v) => v.meta.label === 'a%b.png').version, 'a%25b.png');
+  });
+});

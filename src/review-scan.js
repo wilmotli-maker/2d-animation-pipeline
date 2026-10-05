@@ -1,6 +1,7 @@
 // src/review-scan.js
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import {
   shotDir, shotDraftsDir, shotFinalDir, shotVersionDir, formatVersion,
@@ -190,6 +191,16 @@ const sortNatural = (names) => [...names].sort(naturalCompare);
 //   vNNN.<img> and/or vNNN/<images>   -> a version (per-panel images win over the composite)
 //   vNNN.upscaled-*.<img>             -> that version's `upscaled`, never a version itself
 //   no vNNN at all, only loose images -> a candidates folder: one version per image
+// Candidate id = file name made safe for selection keys (`key::version`, no control
+// chars, <=200 chars): `%`, `:` and control chars are percent-encoded (normal names
+// are unchanged). Over-long ids become first 180 chars + `~` + sha1(full name)[0..8].
+export function candidateId(name) {
+  const enc = name.replace(/[%:\u0000-\u001f\u007f]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+  if (enc.length <= 200) return enc;
+  return enc.slice(0, 180) + '~' + createHash('sha1').update(name).digest('hex').slice(0, 8);
+}
+
 async function readSheetVersions(projectRoot, dir) {
   const files = (await listFiles(dir)).filter((n) => !n.startsWith('.'));
   const images = files.filter((n) => IMG_RE.test(n));
@@ -254,8 +265,8 @@ async function readSheetVersions(projectRoot, dir) {
   const cands = sortNatural(loose.filter((n) => !upRe.test(n)));
   const stemOf = (n) => n.slice(0, n.lastIndexOf('.'));
   return cands.map((n) => ({
-    // Version id = file name: stable when siblings are added/removed (selections key on it).
-    version: n, images: [rel(n)],
+    // Version id = encoded file name (label keeps the real one): stable when siblings are added/removed (selections key on it).
+    version: candidateId(n), images: [rel(n)],
     upscaled: sortNatural(loose.filter((u) => { const m = upRe.exec(u); return m && m[1] === stemOf(n); })).map(rel),
     meta: { label: n },
   }));
