@@ -248,11 +248,14 @@ async function readSheetVersions(projectRoot, dir) {
   }
 
   const versions = [...byV.entries()]
-    .filter(([, v]) => v.composite || v.panels.length)
+    .filter(([, v]) => v.composite || v.panels.length || v.extras.length)
     .sort(([a], [b]) => naturalCompare(a, b))
     .map(([version, v]) => ({
       version,
-      images: [...(v.panels.length ? v.panels.map(rel) : [rel(v.composite)]), ...v.extras.map(rel)],
+      images: [
+        ...(v.panels.length ? v.panels.map(rel) : v.composite ? [rel(v.composite)] : []),
+        ...v.extras.map(rel), // already natural-sorted (iterated from sorted images)
+      ],
       upscaled: sortNatural(v.upscaled).map(rel),
       meta: {},
     }));

@@ -403,13 +403,6 @@ test('scanImages: vNNN-<x>.png / vNNN_<x>.png are extra images appended after th
   });
 });
 
-test('scanImages: extras alone do not make a version or a candidate', async () => {
-  await withTempRoot(async (root) => {
-    await seedFiles(root, [`${EL}/sheets/pose/x/v001-alt.png`]);
-    assert.equal(await sheetsOf(root, 'pose', 'x'), undefined);
-  });
-});
-
 test('scanImages: log meta keys are normalized to match merged versions', async () => {
   await withTempRoot(async (root) => {
     await seedFiles(root, [`${EL}/sheets/pose/x/V1.png`]);
@@ -512,5 +505,15 @@ test('scanImages: upscale rows (ok or failed) never overwrite a generation row\'
       logLine({ ...key, model: 'noversion', ts: 'T5' }));
     const s = await sheetsOf(root, 'pose', 's');
     assert.deepEqual(s.versions[0].meta, { model: 'gen', prompt: 'gp', ts: 'T1' });
+  });
+});
+
+test('scanImages: extras-only legacy version (just v001-alt.png) stays visible', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/s/v001-alt.png`, `${EL}/sheets/pose/s/v001-alt2.png`]);
+    const s = await sheetsOf(root, 'pose', 's');
+    assert.equal(s.versions.length, 1);
+    assert.equal(s.versions[0].version, 'v001');
+    assert.deepEqual(s.versions[0].images, [`${EL}/sheets/pose/s/v001-alt.png`, `${EL}/sheets/pose/s/v001-alt2.png`]);
   });
 });
