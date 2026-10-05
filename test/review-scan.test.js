@@ -456,3 +456,18 @@ test('scanImages: loose images directly in a sheetType dir are candidates with e
     assert.deepEqual(s.versions.map((v) => v.version), ['ref1.png', 'ref2.png']);
   });
 });
+
+// ---- review findings: disk truth ----
+test('scanImages: panels from alias dirs (v1/, V01/, v001/) merge, canonical dir wins duplicates', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [
+      `${EL}/sheets/pose/s/v1/a.png`, `${EL}/sheets/pose/s/V01/b.png`,
+      `${EL}/sheets/pose/s/v001/c.png`, `${EL}/sheets/pose/s/v1/c.png`, `${EL}/sheets/pose/s/V01/c.png`,
+    ]);
+    const s = await sheetsOf(root, 'pose', 's');
+    assert.equal(s.versions.length, 1);
+    assert.deepEqual(s.versions[0].images, [
+      `${EL}/sheets/pose/s/v1/a.png`, `${EL}/sheets/pose/s/V01/b.png`, `${EL}/sheets/pose/s/v001/c.png`,
+    ]);
+  });
+});

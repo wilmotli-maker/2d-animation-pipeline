@@ -214,11 +214,26 @@ async function readSheetVersions(projectRoot, dir) {
     const ex = /^v(\d+)[-_].+\.[^.]+$/i.exec(f); // v001-alt.png: another image of that version
     if (ex) slot(ex[1]).extras.push(f);
   }
+  // Alias dirs (v1/, V001/, v001/) normalize to one version: merge their panels.
+  // Duplicate file name across alias dirs -> keep one, preferring the canonical
+  // `v001/` dir, then the others in sorted dir-name order.
+  const panelDirs = new Map(); // 'v001' -> [dirName]
   for (const d of await listDirs(dir)) {
     const m = /^v(\d+)$/i.exec(d); // also skips vNNN.upscaled-*/ panel dirs
     if (!m) continue;
-    const panels = sortNatural((await listFiles(path.join(dir, d))).filter((n) => IMG_RE.test(n)));
-    if (panels.length) slot(m[1]).panels = panels.map((n) => path.join(d, n));
+    const v = norm(m[1]);
+    if (!panelDirs.has(v)) panelDirs.set(v, []);
+    panelDirs.get(v).push(d);
+  }
+  for (const [v, names] of panelDirs) {
+    const ordered = [...names.filter((d) => d === v), ...names.filter((d) => d !== v).sort()];
+    const seen = new Map(); // file name -> relative path
+    for (const d of ordered) {
+      for (const n of (await listFiles(path.join(dir, d))).filter((f) => IMG_RE.test(f))) {
+        if (!seen.has(n)) seen.set(n, path.join(d, n));
+      }
+    }
+    if (seen.size) slot(v.slice(1)).panels = sortNatural([...seen.keys()]).map((n) => seen.get(n));
   }
 
   const versions = [...byV.entries()]
