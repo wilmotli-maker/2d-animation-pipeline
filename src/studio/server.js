@@ -106,6 +106,11 @@ async function handle({ root, previewer }, req, res) {
     if (!abs) return sendJson(res, 400, { error: 'invalid path' });
     if (!(await isWorkingFolderPath(shotsDir, rel))) return sendJson(res, 400, { error: 'not a working folder' });
     if (!(await isDirectory(abs))) return sendJson(res, 404, { error: 'not found' });
+    // Real-path containment: the folder (and every path component) must resolve inside
+    // the real shots/ dir, which itself must be inside the project.
+    if (!(await realWithin(root, shotsDir)) || !(await realWithin(shotsDir, abs))) {
+      return sendJson(res, 404, { error: 'not found' });
+    }
     return sendJson(res, 200, { shots: (await scanFolder(root, abs)).shots });
   }
 

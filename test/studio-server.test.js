@@ -99,6 +99,26 @@ test('GET /api/folder scans a working folder like `review --folder`', async () =
   assert.equal((await q('1', 'candidates/x-v001.mp4')).status, 404);   // a file, not a dir
 });
 
+test('GET /api/folder: symlinked folders resolving outside shots/ are rejected without scanning; tree skips them', async (t) => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const shots = path.join(root, 'episodes', '1', 'shots');
+  const ext = path.join(outer, 'ext-videos');
+  await mkdir(path.join(ext, 'deeper'), { recursive: true });
+  await writeFile(path.join(ext, 'EXTERNAL-CLIP.mp4'), 'v');
+  await writeFile(path.join(ext, 'deeper', 'EXTERNAL-DEEP.mp4'), 'v');
+  if (!await trySymlink(t, ext, path.join(shots, 'export'))) return;
+  await mkdir(path.join(shots, 'linkparent'), { recursive: true });
+  await symlink(ext, path.join(shots, 'linkparent', 'via'));
+  await symlink(ext, path.join(shots, 'viaintermediate'));
+  for (const p of ['export', 'linkparent/via', 'viaintermediate/deeper']) {
+    const r = await q('1', p);
+    assert.ok(r.status === 400 || r.status === 404, `${p}: ${r.status}`);
+    assert.doesNotMatch(await r.text(), /EXTERNAL/, p);
+  }
+  const tree = JSON.stringify(await fetch(base + 'api/tree').then((r) => r.json()));
+  assert.doesNotMatch(tree, /export|viaintermediate|linkparent/);
+});
+
 test('GET /api/element', async () => {
   const el = await fetch(base + 'api/element?type=characters&name=mira').then((r) => r.json());
   assert.equal(el.sheets[0].sheetType, 'pose');
