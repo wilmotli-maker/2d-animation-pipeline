@@ -293,8 +293,12 @@ async function walkSheets(projectRoot, elDir) {
 function logMetaMap(log) {
   const map = new Map();
   for (const e of log || []) {
-    if (!e.sheetType) continue;
-    const vm = /^v(\d+)$/i.exec(e.version ?? 'v001');
+    // Only successful generation rows with an explicit version describe a version;
+    // upscale rows (same sheet keys, no version) and failed attempts must not.
+    if (!e.sheetType || (e.kind != null && e.kind !== 'element')) continue;
+    if (typeof e.version !== 'string' || !e.version) continue;
+    if (e.status != null && e.status !== 'generated') continue;
+    const vm = /^v(\d+)$/i.exec(e.version);
     const version = vm ? formatVersion(Number(vm[1])) : e.version;
     map.set(`${e.sheetType}\u0000${e.sheetId ?? ''}\u0000${version}`,
       { model: e.model, prompt: e.prompt, ts: e.ts });

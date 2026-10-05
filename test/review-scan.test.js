@@ -499,3 +499,18 @@ test('scanImages: candidate ids are encoded, valid, distinct, stable and round-t
     assert.equal(first.find((v) => v.meta.label === 'a%b.png').version, 'a%25b.png');
   });
 });
+
+test('scanImages: upscale rows (ok or failed) never overwrite a generation row\'s meta', async () => {
+  await withTempRoot(async (root) => {
+    await seedFiles(root, [`${EL}/sheets/pose/s/v001.png`]);
+    const key = { sheetType: 'pose', sheetId: 's' };
+    await writeFile(path.join(root, EL, 'generations.jsonl'),
+      logLine({ ...key, kind: 'element', version: 'v001', model: 'gen', prompt: 'gp', ts: 'T1', status: 'generated' }) +
+      logLine({ ...key, kind: 'upscale', model: 'topaz', prompt: 'up', ts: 'T2', status: 'generated' }) +
+      logLine({ ...key, kind: 'upscale', model: 'topaz', ts: 'T3', status: 'failed' }) +
+      logLine({ ...key, kind: 'element', version: 'v001', model: 'bad', prompt: 'bp', ts: 'T4', status: 'failed' }) +
+      logLine({ ...key, model: 'noversion', ts: 'T5' }));
+    const s = await sheetsOf(root, 'pose', 's');
+    assert.deepEqual(s.versions[0].meta, { model: 'gen', prompt: 'gp', ts: 'T1' });
+  });
+});
