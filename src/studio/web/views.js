@@ -133,10 +133,23 @@ export function filterCountText(f) {
 
 // Regex selecting exactly character `c`: other characters that extend it with '-'
 // (ai -> ai-alt1, ai-alt2) are excluded by a negative lookahead on their remainders.
-function characterRegex(c, all) {
-  const rest = [...new Set(all.filter((d) => d.startsWith(`${c}-`)).map((d) => d.slice(c.length + 1)))].sort();
-  const ahead = rest.length ? `(?!${rest.map((r) => `${escapeRegex(r)}(?:-|$)`).join('|')})` : '';
-  return `^${escapeRegex(c)}-${ahead}`;
+// Shot ids the value would still match whose character is not `c` (e.g. ai-x-y, which
+// has no character) are excluded too, by their exact remainder anchored with `$`, so the
+// value matches exactly the shots owned by `c`.
+function characterRegex(c, all, ids = []) {
+  const rest = [...new Set(all.filter((d) => d.startsWith(`${c}-`)).map((d) => d.slice(c.length + 1)))];
+  const alts = new Map(rest.map((r) => [r, `${escapeRegex(r)}(?:-|$)`]));
+  const build = () => {
+    const keys = [...alts.keys()].sort();
+    return `^${escapeRegex(c)}-${keys.length ? `(?!${keys.map((k) => alts.get(k)).join('|')})` : ''}`;
+  };
+  const re = new RegExp(build(), 'i');
+  for (const id of new Set(ids.map((x) => String(x).toLowerCase()))) {
+    if (!re.test(id) || shotCharacter(id)?.toLowerCase() === c) continue;
+    const r = id.slice(c.length + 1);
+    if (!alts.has(r)) alts.set(r, `${escapeRegex(r)}$`);
+  }
+  return build();
 }
 
 // Each suggestion: `label` (character/element name, shown and used as the chip),
@@ -151,7 +164,7 @@ export function filterSuggestions(tree) {
   return {
     // The meta counts are what the value actually matches (shots and folders, same 'i' flag as filterTree).
     shots: chars.sort(ci).map((c) => {
-      const value = characterRegex(c, chars);
+      const value = characterRegex(c, chars, shots.map((s) => s.shotId));
       const re = new RegExp(value, 'i');
       const nS = shots.filter((s) => re.test(s.shotId)).length;
       const nF = allFolders(tree).filter((f) => re.test(f.path)).length;

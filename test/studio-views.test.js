@@ -200,6 +200,31 @@ test('filterSuggestions: a character extended by longer ones excludes them via n
   }
 });
 
+test('filterSuggestions: ids with no character (ai-x-y) are excluded from the character that prefixes them', async () => {
+  const { filterSuggestions, filterTree, shotCharacter } = await import('../src/studio/web/views.js');
+  const t = { project: 'p', elements: [], folders: [], shots: [], episodes: [{ id: '1', folders: [], shots:
+    ['ai-1', 'ai-x-y', 'ai-x.z', 'AI-X-Y2'].map((shotId) => ({ shotId, versions: 1 })) }] };
+  assert.equal(shotCharacter('ai-x-y'), null);
+  const ai = filterSuggestions(t).shots.find((x) => x.label === 'ai');
+  assert.deepEqual(matchedIds(filterTree, t, ai.value), ['ai-1']);
+  assert.equal(ai.meta, '1 shot');
+  assert.match(ai.value, /x-y\$/);
+  assert.match(ai.value, /x\\\.z\$/);   // escaped
+});
+
+test('filterSuggestions: every suggestion value matches exactly the shots whose character it is', async () => {
+  const { filterSuggestions, filterTree, shotCharacter } = await import('../src/studio/web/views.js');
+  const t = { project: 'p', elements: [], folders: [], shots: [{ shotId: 'ai-react-1', versions: 1 }], episodes: [{ id: '1', folders: [], shots:
+    ['ai-1', 'ai-x-y', 'ai-alt1-talk-01', 'AI-ALT1-idle', 'ai-alt1-q-r', 'art-idle', 'art-1', 'art-z-z', 'monster-4', 'ai-alt2-idle']
+      .map((shotId) => ({ shotId, versions: 1 })) }] };
+  const all = ['ai-1', 'ai-x-y', 'ai-alt1-talk-01', 'AI-ALT1-idle', 'ai-alt1-q-r', 'art-idle', 'art-1', 'art-z-z', 'monster-4', 'ai-alt2-idle', 'ai-react-1'];
+  for (const sug of filterSuggestions(t).shots) {
+    const want = all.filter((id) => shotCharacter(id)?.toLowerCase() === sug.label).sort();
+    assert.deepEqual(matchedIds(filterTree, t, sug.value).sort(), want, sug.label);
+    assert.match(sug.meta, new RegExp(`^${want.length} shots?$`), sug.label);
+  }
+});
+
 test('filterSuggestions: label pluralizes and counts matching folders', async () => {
   const { filterSuggestions } = await import('../src/studio/web/views.js');
   const t = { project: 'p', elements: [], episodes: [], folders: [{ path: 'zed-stuff', clips: 1 }, { path: 'zed-more', clips: 1 }],
