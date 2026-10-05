@@ -36,6 +36,18 @@ export async function isWorkingFolderPath(shotsDir, relPath) {
   return true;
 }
 
+// Number of video files directly in `ents` (Dirents); the one "holds videos" rule.
+function countClips(ents) {
+  return ents.filter((e) => e.isFile() && VIDEO_RE.test(e.name)).length;
+}
+
+// The single predicate for "the tree lists this folder": a working folder path that
+// directly holds at least one video. Used by the walk's rule and the server.
+export async function isListableFolder(shotsDir, relPath) {
+  if (!(await isWorkingFolderPath(shotsDir, relPath))) return false;
+  return countClips(await listEntries(path.join(shotsDir, relPath))) > 0;
+}
+
 // Working folders under <shotRoot>/shots/ (candidates/, assembled/, …): any non-shot
 // dir that directly holds videos, found recursively up to FOLDER_DEPTH. Shot dirs are
 // never entered; a non-shot dir without videos is not listed but is still walked.
@@ -44,7 +56,7 @@ async function scanWorkingFolders(shotsDir) {
   const walk = async (rel, depth) => {
     const ents = await listEntries(rel ? path.join(shotsDir, rel) : shotsDir);
     if (rel) {
-      const clips = ents.filter((e) => e.isFile() && VIDEO_RE.test(e.name)).length;
+      const clips = countClips(ents);
       if (clips) out.push({ path: rel, clips });
     }
     if (depth >= FOLDER_DEPTH) return;

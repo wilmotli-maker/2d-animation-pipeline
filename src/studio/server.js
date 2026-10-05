@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { stat } from 'node:fs/promises';
 import { scanShots, scanImages, scanFolder, discoverShotRoots } from '../review-scan.js';
 import { REVIEW_STYLE } from '../review-render.js';
-import { scanProjectTree, isWorkingFolderPath } from './tree.js';
+import { scanProjectTree, isWorkingFolderPath, isListableFolder } from './tree.js';
 import { resolveWithin, sendFile } from './media.js';
 import { realWithin } from './contain.js';
 import { readSelections, setSelection } from './selections.js';
@@ -104,8 +104,12 @@ async function handle({ root, previewer }, req, res) {
     const shotsDir = path.join(shotRoot.root, 'shots');
     const abs = resolveWithin(shotsDir, rel);
     if (!abs) return sendJson(res, 400, { error: 'invalid path' });
-    if (!(await isWorkingFolderPath(shotsDir, rel))) return sendJson(res, 400, { error: 'not a working folder' });
-    if (!(await isDirectory(abs))) return sendJson(res, 404, { error: 'not found' });
+    if (!(await isDirectory(abs))) {
+      return (await isWorkingFolderPath(shotsDir, rel))
+        ? sendJson(res, 404, { error: 'not found' })
+        : sendJson(res, 400, { error: 'not a working folder' });
+    }
+    if (!(await isListableFolder(shotsDir, rel))) return sendJson(res, 400, { error: 'not a working folder' });
     // Real-path containment: the folder (and every path component) must resolve inside
     // the real shots/ dir, which itself must be inside the project.
     if (!(await realWithin(root, shotsDir)) || !(await realWithin(shotsDir, abs))) {

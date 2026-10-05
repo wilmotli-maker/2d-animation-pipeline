@@ -119,6 +119,15 @@ test('GET /api/folder: symlinked folders resolving outside shots/ are rejected w
   assert.doesNotMatch(tree, /export|viaintermediate|linkparent/);
 });
 
+test('GET /api/folder: only folders that directly hold videos (same rule as the tree)', async () => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const inner = path.join(root, 'episodes', '1', 'shots', 'wrapper', 'inner');
+  await mkdir(inner, { recursive: true });
+  await writeFile(path.join(inner, 'a.mp4'), 'v');
+  assert.equal((await q('1', 'wrapper')).status, 400);
+  assert.equal((await q('1', 'wrapper/inner')).status, 200);
+});
+
 test('GET /api/element', async () => {
   const el = await fetch(base + 'api/element?type=characters&name=mira').then((r) => r.json());
   assert.equal(el.sheets[0].sheetType, 'pose');
