@@ -17,9 +17,14 @@ async function contained(root, p) {
 }
 
 // The single rule for what a selection key / version may be, on read and write.
-export function isValidVersion(v) { return typeof v === 'string' && /^v\d+$/.test(v); }
+// A version id is `vNNN` (shots, sheet versions) or a candidate's file name.
+export function isValidVersion(v) {
+  return typeof v === 'string' && v.length >= 1 && v.length <= 200 && !v.includes('::')
+    && !/[\u0000-\u001f\u007f]/.test(v) && v !== '__proto__';
+}
 function isValidKey(key) { return typeof key === 'string' && !!key && key.length <= 512 && key !== '__proto__'; }
-function sortVersions(vs) { return [...new Set(vs)].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))); }
+const naturalCompare = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+function sortVersions(vs) { return [...new Set(vs)].sort(naturalCompare); }
 function isPlainObject(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
 
 const UNTOUCHED = 'starting empty (file left untouched until the next save)';
