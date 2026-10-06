@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(here, '..', '..', '..', '..');
 export const CANDIDATES = '/Users/wilmotli/Projects/Seedance Animation/ArtAI/episodes/2/shots/candidates';
+export const SHOTS_DIR = path.dirname(CANDIDATES); // .../episodes/2/shots — where the per-shot dirs live
 export const DOWNLOADS = '/Users/wilmotli/Downloads';
 export const EVAL_ROOT = path.join(REPO_ROOT, 'evaluation', 'video-editing-eval', 'keyframe-edit');
 export const SCRATCH = path.join(EVAL_ROOT, 'scratch'); // pipeline project root for generation
@@ -92,6 +93,70 @@ export const SHOTS = [
   { shot: 'monster-5-v002', char: 'monster', edits: { first: 'enjoying', middle: 'upset', last: 'agreeing' } },
 ];
 export const PILOT = 'ai-13-v003';
+
+// --- lip-sync variant (hybrid splice) --------------------------------------
+// The same 8 source shots were originally generated with mode omni_reference AND a
+// `speech-ref.mp4` video reference (a blank mid-gray clip carrying the speech wav) +
+// generate_audio true, which gave the source its lip sync. The lip-sync variant re-adds
+// that speech-ref video to the keyframe-edit generation so the raw (pre-splice) output
+// carries the original lip sync in addition to the injected key pose.
+
+// Exact spoken line per source shot (verbatim from each source prompt.md, so the eval
+// prompt quotes the same words the speech-ref audio carries).
+export const SPEECH_LINE = {
+  'ai-13-v003': 'Yeah!',
+  'ai-9-v002': 'Yeah, that sounds like a lot of work. I usually take the laziest shortcut way out.',
+  'ai-4-v013': 'Alright, I just bought some more clip to a point. I mean credits.',
+  'art-9-v003': 'Guess not!',
+  'art-7-v002': 'Whoa!',
+  'art-5-v003': 'Hm. Acceptable.',
+  'monster-1-v006': 'Oh, hey there. I\'m Nazgorn the Annihilator.',
+  'monster-5-v002': 'Yeah!',
+};
+
+// Resolve the original speech-ref.mp4 used to generate a source shot: the candidate name
+// `<base>-vNNN` maps to `<SHOTS_DIR>/<base>/drafts/vNNN/speech-ref.mp4`.
+export function speechRefSource(shot) {
+  const m = /^(.*)-v(\d+)$/.exec(shot);
+  if (!m) throw new Error(`cannot parse shot/version from "${shot}"`);
+  const [, base, num] = m;
+  return path.join(SHOTS_DIR, base, 'drafts', `v${num}`, 'speech-ref.mp4');
+}
+
+// Stage-2 (two-stage) lip-sync prompt. The silent keyframe-edit output is muxed with the
+// speech wav into ONE video (video_edit requires exactly one video reference), and this
+// prompt tells Seedance to preserve every frame and only re-animate the mouth to the source
+// video's own audio. This avoids the omni_reference nsfw ceiling (speech-ref + >1 image ref),
+// since video_edit carries 0 image refs. See keyframe-lipsync-nsfw-ceiling in memory.
+export function buildLipsyncStage2Prompt({ line }) {
+  return [
+    `Edit the attached source video. Preserve every frame exactly: the character's pose, body motion, gestures, timing, framing, colors, flat line art and the even mid-gray background all stay identical to the source. Do not restyle, re-pose, re-time, zoom, crop, or move the character.`,
+    `Change ONLY the mouth. Re-animate the lips so the character lip-syncs the speech carried in the source video's own audio track, saying, "${line}" Full lip-sync is required and must be tightly time-aligned to that audio: the mouth opens and closes to match the spoken words at the exact instants they are heard, then closes cleanly and holds completely still for the rest of the clip after the line ends. Keep the source audio unchanged.`,
+    `Flat cartoon children's-book illustration: bold clean dark outlines of constant weight, flat color fills, minimal shading, no gradients, no photorealism, no 3D.`,
+  ].join('\n\n');
+}
+
+// build the lip-sync prompt for a case. Mirrors buildPrompt's structure (design lock,
+// wide framing, keyframe list) but re-enables dialogue and points lip-sync at the attached
+// speech-reference VIDEO while keeping the visual keyframes as the still IMAGE references.
+export function buildLipsyncPrompt({ char, times, index, pose, line }) {
+  const n = times.length;
+  const uniform = times.every((f, i) => Math.abs(f - i / (n - 1)) < 1e-6);
+  const kfLines = times.map((f, i) => {
+    const at = `at ${(f * 100).toFixed(0)}% of the timeline`;
+    return i === index
+      ? `keyframe ${i + 1} (${at}): the character is ${POSE_DESC[pose]}`
+      : `keyframe ${i + 1} (${at}): matches attached reference image ${i + 1}`;
+  }).join('; ');
+  const spacing = uniform ? 'evenly spaced across the runtime' : 'placed at the specific times below (not evenly spaced)';
+  return [
+    `Flat cartoon children's-book illustration, a single continuous fully-animated talking performance. ${DESIGN[char]}. The character stays turned three-quarter-left throughout, matching the attached reference images.`,
+    `The character speaks directly to camera, saying, "${line}" Say exactly and only this line, speaking each word once — no repeats, no doubled syllables, no stutter. Full lip-sync is REQUIRED and must be tightly time-aligned to the attached speech-reference video: the mouth opens and closes to match the spoken words at the exact instants they are heard in that video's audio, then closes cleanly and holds still once the line ends. Take ONLY the audio and speech timing from the speech-reference video; take all visual appearance, pose and framing from the still keyframe reference images.`,
+    `Full-body WIDE shot in a portrait 3:4 frame: the entire figure from the top of the head down through the torso, hips, knees and both feet is visible at all times, with a generous margin of empty mid-gray background on all sides. Never crop or push in past the knees; the character does not drift toward the camera. Locked camera, even mid-gray seamless background.`,
+    `The ${n} attached still reference images are keyframes of this one shot, in order, ${spacing}. Move continuously and naturally between and beyond them with no held freezes: ${kfLines}.`,
+    `Bold clean dark outlines of constant weight, flat color fills, minimal shading, no gradients, no photorealism, no 3D.`,
+  ].join('\n\n');
+}
 
 // enumerate the 48 cases (8 shots x 3 positions x 2 variants)
 export function cases() {
