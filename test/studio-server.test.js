@@ -17,6 +17,18 @@ before(async () => {
   await mkdir(path.join(root, 'elements', 'characters', 'mira', 'sheets', 'pose', 'wave'), { recursive: true });
   await writeFile(path.join(root, 'elements', 'characters', 'mira', 'sheets', 'pose', 'wave', 'v001.png'), 'png');
   await writeFile(path.join(outer, 'secret.txt'), 'nope');
+  const cand = path.join(root, 'episodes', '1', 'shots', 'candidates');
+  await mkdir(cand, { recursive: true });
+  for (const f of ['x-v001.mp4', 'x-v002.mp4', 'y.mp4', 'notes.txt']) await writeFile(path.join(cand, f), 'v');
+  await mkdir(path.join(cand, 'nested'), { recursive: true });
+  await writeFile(path.join(cand, 'nested', 'n.mp4'), 'v');
+  const deep = path.join(cand, 'a', 'b', 'c', 'd');
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(deep, 'd.mp4'), 'v');
+  await mkdir(path.join(cand, '.hidden'), { recursive: true });
+  await writeFile(path.join(cand, '.hidden', 'h.mp4'), 'v');
+  await mkdir(path.join(root, 'shots', 'assembled'), { recursive: true });
+  await writeFile(path.join(root, 'shots', 'assembled', 'TEST2.mp4'), 'v');
   // Stub previewer: the endpoint's validation + passthrough is what's under test here
   // (rendering is covered by test/studio-matte-preview.test.js).
   const previewer = { request: async (src, bg) => ({ state: 'pending', src, bg }) };
@@ -59,6 +71,61 @@ test('GET /api/shots filters by episode and id', async () => {
   assert.equal(none.shots.length, 0);
   const one = await fetch(base + 'api/shots?episode=1&id=nope').then((r) => r.json());
   assert.equal(one.shots.length, 0);
+});
+
+test('GET /api/folder scans a working folder like `review --folder`', async () => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const r = await q('1', 'candidates');
+  assert.equal(r.status, 200);
+  const { shots } = await r.json();
+  assert.deepEqual(shots.map((s) => s.shotId), ['x', 'y']);
+  assert.deepEqual(shots[0].versions.map((v) => v.version), ['v001', 'v002']);
+  assert.equal(shots[0].versions[0].video, path.join('episodes', '1', 'shots', 'candidates', 'x-v001.mp4'));
+  const flat = await q('_', 'assembled').then((x) => x.json());
+  assert.deepEqual(flat.shots.map((s) => s.shotId), ['TEST2']);
+  assert.equal((await q('1', '../../..')).status, 400);         // traversal
+  assert.equal((await q('1', '')).status, 400);                 // missing path
+  assert.equal((await q('9', 'candidates')).status, 404);       // unknown episode
+  assert.equal((await q('..', 'candidates')).status, 404);
+  assert.equal((await q('1', 'ai-1')).status, 400);             // a real shot dir
+  assert.equal((await q('1', 'nope')).status, 404);             // nonexistent
+  // Same rules as the tree walk: only paths the tree can list.
+  assert.equal((await q('1', 'ai-1/drafts/v001')).status, 400);   // inside a shot
+  assert.equal((await q('1', 'ai-1/drafts')).status, 400);
+  assert.equal((await q('1', 'ai-1/final')).status, 400);
+  assert.equal((await q('1', 'candidates/.hidden')).status, 400); // hidden segment
+  assert.equal((await q('1', 'candidates/a/b/c/d')).status, 400); // deeper than the walker goes
+  assert.equal((await q('1', 'candidates/nested')).status, 200);  // listed nested folder
+  assert.equal((await q('1', 'candidates/x-v001.mp4')).status, 404);   // a file, not a dir
+});
+
+test('GET /api/folder: symlinked folders resolving outside shots/ are rejected without scanning; tree skips them', async (t) => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const shots = path.join(root, 'episodes', '1', 'shots');
+  const ext = path.join(outer, 'ext-videos');
+  await mkdir(path.join(ext, 'deeper'), { recursive: true });
+  await writeFile(path.join(ext, 'EXTERNAL-CLIP.mp4'), 'v');
+  await writeFile(path.join(ext, 'deeper', 'EXTERNAL-DEEP.mp4'), 'v');
+  if (!await trySymlink(t, ext, path.join(shots, 'export'))) return;
+  await mkdir(path.join(shots, 'linkparent'), { recursive: true });
+  await symlink(ext, path.join(shots, 'linkparent', 'via'));
+  await symlink(ext, path.join(shots, 'viaintermediate'));
+  for (const p of ['export', 'linkparent/via', 'viaintermediate/deeper']) {
+    const r = await q('1', p);
+    assert.ok(r.status === 400 || r.status === 404, `${p}: ${r.status}`);
+    assert.doesNotMatch(await r.text(), /EXTERNAL/, p);
+  }
+  const tree = JSON.stringify(await fetch(base + 'api/tree').then((r) => r.json()));
+  assert.doesNotMatch(tree, /export|viaintermediate|linkparent/);
+});
+
+test('GET /api/folder: only folders that directly hold videos (same rule as the tree)', async () => {
+  const q = (ep, p) => fetch(`${base}api/folder?episode=${encodeURIComponent(ep)}&path=${encodeURIComponent(p)}`);
+  const inner = path.join(root, 'episodes', '1', 'shots', 'wrapper', 'inner');
+  await mkdir(inner, { recursive: true });
+  await writeFile(path.join(inner, 'a.mp4'), 'v');
+  assert.equal((await q('1', 'wrapper')).status, 400);
+  assert.equal((await q('1', 'wrapper/inner')).status, 200);
 });
 
 test('GET /api/element', async () => {
