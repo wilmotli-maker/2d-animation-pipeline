@@ -51,7 +51,7 @@ async function fileExists(p) {
 async function readVariants(versionDir) {
   const out = { alpha: null, upscaled: [], qc: [] };
   for (const name of await listFiles(versionDir)) {
-    if (name === 'alpha.mov' || name === 'alpha.mp4') out.alpha = path.join(versionDir, name);
+    if (name === 'alpha.mov' || name === 'alpha.mp4' || name === 'alpha.webm') out.alpha = path.join(versionDir, name);
     else if (/^upscaled-.*\.mp4$/.test(name)) out.upscaled.push(path.join(versionDir, name));
   }
   const qcDir = path.join(versionDir, 'qc');

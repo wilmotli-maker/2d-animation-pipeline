@@ -518,6 +518,15 @@ async function main() {
       since: f.since, until: f.until,
     });
     console.log(`backfilled ${result.updated} entries (${result.skipped} skipped — already set or variable model)`);
+  } else if (cmd === 'studio') {
+    // Single-word command; `sub` may carry the first flag (like sync-skills).
+    const f = parseFlags([sub, ...rest].filter((x) => x != null));
+    const root = projectRoot(f.root);
+    const port = f.port != null ? Number(f.port) : 4870;
+    if (!Number.isInteger(port) || port < 0 || port > 65535) fail(`studio: invalid --port "${f.port}"`);
+    const { startStudio } = await import('../src/studio/server.js');
+    const { url } = await startStudio({ root, port });
+    console.log(`studio: ${url}  (project: ${root})  — Ctrl+C to stop`);
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -539,6 +548,7 @@ async function main() {
       'usage:',
       '  pipeline init <dir>                        # scaffold a new project folder',
       '  pipeline sync-skills [--root <dir>]        # refresh a project\'s .claude/skills/ from the current templates',
+      '  pipeline studio [--port <n=4870>] [--root <dir>]   # local web UI: browse the project tree, compare + select versions',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
