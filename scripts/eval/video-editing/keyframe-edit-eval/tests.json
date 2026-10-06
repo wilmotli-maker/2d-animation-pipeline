@@ -1,0 +1,854 @@
+{
+  "suite": "keyframe-edit-eval",
+  "evalRoot": "evaluation/video-editing-eval/keyframe-edit",
+  "cases": [
+    {
+      "id": "ai-13-v003__kf5__first",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "depressed",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-13-v003__kf5__middle",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "angry",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-13-v003__kf5__last",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "dismissive",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-13-v003__nu__first",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "depressed",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-13-v003__nu__middle",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "angry",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-13-v003__nu__last",
+      "shot": "ai-13-v003",
+      "char": "ai",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "dismissive",
+      "source": "sources/ai-13-v003.mp4",
+      "output": "scratch/shots/ai-13-v003__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__kf5__first",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "confident",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__kf5__middle",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "angrypoint",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__kf5__last",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "embarrassed2",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__nu__first",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "confident",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__nu__middle",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "angrypoint",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-9-v002__nu__last",
+      "shot": "ai-9-v002",
+      "char": "ai",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "embarrassed2",
+      "source": "sources/ai-9-v002.mp4",
+      "output": "scratch/shots/ai-9-v002__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__kf5__first",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "shocked",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__kf5__middle",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "happy2",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__kf5__last",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "sad2",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__nu__first",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "shocked",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__nu__middle",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "happy2",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "ai-4-v013__nu__last",
+      "shot": "ai-4-v013",
+      "char": "ai",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "sad2",
+      "source": "sources/ai-4-v013.mp4",
+      "output": "scratch/shots/ai-4-v013__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__kf5__first",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "sad",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__kf5__middle",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "holierthanthou",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__kf5__last",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "thinking",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__nu__first",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "sad",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__nu__middle",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "holierthanthou",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-9-v003__nu__last",
+      "shot": "art-9-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "thinking",
+      "source": "sources/art-9-v003.mp4",
+      "output": "scratch/shots/art-9-v003__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__kf5__first",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "angry",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__kf5__middle",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "fistsraised",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__kf5__last",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "skepticalidle",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__nu__first",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "angry",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__nu__middle",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "fistsraised",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-7-v002__nu__last",
+      "shot": "art-7-v002",
+      "char": "art",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "skepticalidle",
+      "source": "sources/art-7-v002.mp4",
+      "output": "scratch/shots/art-7-v002__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__kf5__first",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "bragging",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__kf5__middle",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "armsraised",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__kf5__last",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "uppity",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__nu__first",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "bragging",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__nu__middle",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "armsraised",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "art-5-v003__nu__last",
+      "shot": "art-5-v003",
+      "char": "art",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "uppity",
+      "source": "sources/art-5-v003.mp4",
+      "output": "scratch/shots/art-5-v003__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__kf5__first",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "annoyed",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__kf5__middle",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "firebreath",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__kf5__last",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "thinking",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__nu__first",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "annoyed",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__nu__middle",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "firebreath",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-1-v006__nu__last",
+      "shot": "monster-1-v006",
+      "char": "monster",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "thinking",
+      "source": "sources/monster-1-v006.mp4",
+      "output": "scratch/shots/monster-1-v006__nu__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__kf5__first",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "head",
+      "pose": "enjoying",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__kf5__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__kf5__middle",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "middle",
+      "index": 2,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "mid",
+      "pose": "upset",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__kf5__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__kf5__last",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "kf5",
+      "position": "last",
+      "index": 4,
+      "times": [
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1
+      ],
+      "seam": "tail",
+      "pose": "agreeing",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__kf5__last/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__nu__first",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "nu",
+      "position": "first",
+      "index": 0,
+      "times": [
+        0,
+        0.1111111111111111
+      ],
+      "seam": "head",
+      "pose": "enjoying",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__nu__first/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__nu__middle",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "nu",
+      "position": "middle",
+      "index": 1,
+      "times": [
+        0.3888888888888889,
+        0.5,
+        0.6111111111111112
+      ],
+      "seam": "mid",
+      "pose": "upset",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__nu__middle/drafts/v001/output.mp4"
+    },
+    {
+      "id": "monster-5-v002__nu__last",
+      "shot": "monster-5-v002",
+      "char": "monster",
+      "variant": "nu",
+      "position": "last",
+      "index": 1,
+      "times": [
+        0.8888888888888888,
+        1
+      ],
+      "seam": "tail",
+      "pose": "agreeing",
+      "source": "sources/monster-5-v002.mp4",
+      "output": "scratch/shots/monster-5-v002__nu__last/drafts/v001/output.mp4"
+    }
+  ]
+}
