@@ -36,6 +36,10 @@ test('GET /static serves bundled web files (real-path checked), blocks traversal
   const r = await fetch(base + 'static/index.html');
   assert.equal(r.status, 200);
   assert.match(await r.text(), /<!doctype html>/i);
+  const mod = await fetch(base + 'static/selection-sync.js');   // imported by app.js
+  assert.equal(mod.status, 200);
+  assert.match(mod.headers.get('content-type'), /javascript/);
+  assert.match(await mod.text(), /export function createSelectionSync/);
   const esc = await fetch(base + 'static/..%2Fserver.js');
   assert.equal(esc.status, 404);
   await esc.arrayBuffer();
@@ -235,10 +239,10 @@ test('rejects cross-site requests (Sec-Fetch-Site / Origin)', async () => {
   assert.equal(await rawGet('/api/tree', { Origin: `http://${u.host}` }), 200);
 });
 
-test('PUT /api/selections: storage failure (corrupt file) -> 500, not 400', async () => {
+test('PUT /api/selections: storage failure (unreadable store) -> 500, not 400', async () => {
   const proj = path.join(outer, 'corrupt');
-  await mkdir(path.join(proj, '.pipeline', 'studio'), { recursive: true });
-  await writeFile(path.join(proj, '.pipeline', 'studio', 'selections.json'), '{not json');
+  // A directory where the file should be: a real I/O failure, not malformed content.
+  await mkdir(path.join(proj, '.pipeline', 'studio', 'selections.json'), { recursive: true });
   const { server: s2, url: b2 } = await startStudio({ root: proj, port: 0, previewer: {} });
   try {
     const r = await fetch(b2 + 'api/selections', { method: 'PUT',
@@ -248,4 +252,55 @@ test('PUT /api/selections: storage failure (corrupt file) -> 500, not 400', asyn
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'a', versions: ['x'] }) });
     assert.equal(bad.status, 400);
   } finally { s2.close(); }
+});
+
+// Malformed stores must not brick startup: GET normalizes (file untouched), PUT rewrites cleanly.
+async function withSelectionsFile(name, content, fn) {
+  const proj = path.join(outer, name);
+  const file = path.join(proj, '.pipeline', 'studio', 'selections.json');
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, content);
+  const { server: s2, url: b2 } = await startStudio({ root: proj, port: 0, previewer: {} });
+  try { await fn(b2, file); } finally { s2.close(); }
+}
+const putSel = (b, body) => fetch(b + 'api/selections', { method: 'PUT',
+  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+test('GET /api/selections: invalid entries dropped with a warning; file untouched', async () => {
+  const raw = '{"selected":{"shot-1":null,"ok":["v001", 5, "bad::x"]}}';
+  await withSelectionsFile('malformed-entries', raw, async (b2, file) => {
+    const r = await fetch(b2 + 'api/selections');
+    assert.equal(r.status, 200);
+    const doc = await r.json();
+    assert.deepEqual(doc.selected, { ok: ['v001'] });
+    assert.deepEqual(doc.warnings, ['ignored 3 invalid selection entries']);
+    assert.equal(await readFile(file, 'utf8'), raw);
+  });
+});
+
+test('GET /api/selections: invalid JSON -> 200 empty + warning; next PUT writes a clean doc', async () => {
+  await withSelectionsFile('malformed-json', '{not json', async (b2, file) => {
+    const doc = await fetch(b2 + 'api/selections').then((r) => r.json());
+    assert.deepEqual(doc.selected, {});
+    assert.equal(doc.warnings.length, 1);
+    assert.match(doc.warnings[0], /not valid JSON.*starting empty.*untouched until the next save/);
+    assert.equal(await readFile(file, 'utf8'), '{not json');
+    const put = await putSel(b2, { key: 'a', versions: ['v001'] });
+    assert.equal(put.status, 200);
+    assert.deepEqual(await put.json(), { version: 1, selected: { a: ['v001'] } });
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { version: 1, selected: { a: ['v001'] } });
+    assert.equal((await fetch(b2 + 'api/selections').then((r) => r.json())).warnings, undefined);
+  });
+});
+
+test('GET /api/selections: non-object "selected" -> empty + warning; PUT keeps only valid entries', async () => {
+  await withSelectionsFile('malformed-array', '{"version":1,"selected":[]}', async (b2) => {
+    const doc = await fetch(b2 + 'api/selections').then((r) => r.json());
+    assert.deepEqual(doc.selected, {});
+    assert.equal(doc.warnings.length, 1);
+  });
+  await withSelectionsFile('malformed-mixed', '{"selected":{"x":"v001","y":["v002"]}}', async (b2, file) => {
+    assert.equal((await putSel(b2, { key: 'z', versions: ['v003'] })).status, 200);
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).selected, { y: ['v002'], z: ['v003'] });
+  });
 });
