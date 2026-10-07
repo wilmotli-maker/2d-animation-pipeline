@@ -207,6 +207,42 @@ async function previztest() {
   console.log('\nprevz-test complete. Compare previz.mp4 (old) vs previz-test.mp4 (new).');
 }
 
+// Restyle the IMPROVED previz (previz-test.mp4) for the three refined test clips,
+// producing two finals each: 2-ref (first + pre-transition) and 3-ref (+ end), the
+// higher-adherence configs. Outputs: styled-new-2ref.mp4 / styled-new-3ref.mp4.
+const FINAL_TEST_CLIPS = [
+  'monster-4-v002__to__monster-1-v006__v1',
+  'ai-2-v003__to__ai-8-v006__v1',
+  'art-3-v002__to__art-7-v002__v1',
+];
+const FINAL_VARIANTS = [
+  { tag: '2ref', frames: ['f0', 'fmid'] },
+  { tag: '3ref', frames: ['f0', 'fmid', 'fend'] },
+];
+async function finaltest() {
+  const go = has('go');
+  const only = arg('only');
+  let ids = FINAL_TEST_CLIPS;
+  if (only && only !== true) ids = ids.filter((id) => id === String(only));
+  const total = ids.length * FINAL_VARIANTS.length;
+  if (!go) { console.log(`DRY RUN — ${total} restyles ≈ ${total * CREDITS_PER_GEN} cr. Add --go.`); return; }
+  for (const id of ids) {
+    const work = path.join(expRoot, id);
+    const previz = path.join(work, 'previz-test.mp4');
+    if (!(await exists(previz))) { console.error(`  missing previz-test: ${id}`); continue; }
+    console.log(`\n=== ${id} ===`);
+    for (const v of FINAL_VARIANTS) {
+      const dest = path.join(work, `styled-new-${v.tag}.mp4`);
+      if (await exists(dest)) { console.log(`  styled-new-${v.tag}: exists, skip`); continue; }
+      const images = v.frames.map((f) => path.join(work, `${f}.png`));
+      const out = await seedanceGen({ work, shotId: `styled-new-${v.tag}`, video: previz, images, prompt: STYLE_PROMPT, label: `styled-new-${v.tag} (refs=${v.frames.join('+')})` });
+      await copyFile(out, dest);
+      console.log(`  -> ${id}/styled-new-${v.tag}.mp4`);
+    }
+  }
+  console.log('\nfinaltest complete.');
+}
+
 async function run() {
   const go = has('go');
   const only = arg('only');
@@ -263,11 +299,14 @@ async function report() {
 
 // Stage a flat folder the pipeline's `review shots --folder` understands (files
 // named "<shotId>-vNNN.ext") and build the review page. Each experiment clip is one
-// "shot"; its five stages become versions v001..v005:
-//   v001 source · v002 previz · v003 styled-v1 (1 ref) · v004 styled-v2 (2 refs) · v005 styled-v3 (3 refs)
+// "shot"; its stages become versions. v006 (improved-prompt previz) only exists for
+// the clips re-run via `previztest`, so it simply appears where available.
+//   v001 source · v002 previz · v003/4/5 styled (1/2/3 ref) · v006 previz (new prompt)
 const STAGES = [
   ['source.mp4', 'v001'], ['previz.mp4', 'v002'],
   ['styled-v1.mp4', 'v003'], ['styled-v2.mp4', 'v004'], ['styled-v3.mp4', 'v005'],
+  ['previz-test.mp4', 'v006'],
+  ['styled-new-2ref.mp4', 'v007'], ['styled-new-3ref.mp4', 'v008'],
 ];
 async function review() {
   const srcDir = path.join(expRoot, 'review-src');
@@ -281,7 +320,7 @@ async function review() {
     }
   }
   console.log(`staged ${staged} clips into ${path.relative(repoRoot, srcDir)}`);
-  const legend = 'Versions:  v001 source  ·  v002 previz  ·  v003 styled (1 ref)  ·  v004 styled (2 refs)  ·  v005 styled (3 refs)';
+  const legend = 'Versions:  v001 source  ·  v002 previz (old prompt)  ·  v003 styled (1 ref)  ·  v004 styled (2 refs)  ·  v005 styled (3 refs)  ·  v006 previz (new prompt)  ·  v007 final from new previz (2 refs)  ·  v008 final from new previz (3 refs)';
   console.log(legend + '\n');
   const out = await exec('node', [pipeline, 'review', 'shots', '--folder', srcDir,
     '--slug', 'harmonize-experiment', '--layout', 'side-by-side', '--update'], { capture: true });
@@ -311,6 +350,6 @@ function list() {
   console.log(`\ntotal ${CLIPS.length} clips × (1 previz + ${VARIANTS.length} styled) = ${CLIPS.length * (1 + VARIANTS.length)} generations ≈ ${CLIPS.length * (1 + VARIANTS.length) * CREDITS_PER_GEN} credits`);
 }
 
-const main = { list, run, report, review, previztest }[cmd];
+const main = { list, run, report, review, previztest, finaltest }[cmd];
 if (typeof main === 'function') Promise.resolve(main()).catch((e) => { console.error(e.stack || String(e)); process.exit(1); });
 else { console.log('usage: node experiment.js <list|run|report|review> [--go] [--only <clipId>] [--limit N]'); process.exit(cmd ? 2 : 0); }
