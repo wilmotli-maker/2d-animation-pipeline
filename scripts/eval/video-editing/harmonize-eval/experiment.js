@@ -263,11 +263,13 @@ async function report() {
 
 // Stage a flat folder the pipeline's `review shots --folder` understands (files
 // named "<shotId>-vNNN.ext") and build the review page. Each experiment clip is one
-// "shot"; its five stages become versions v001..v005:
-//   v001 source · v002 previz · v003 styled-v1 (1 ref) · v004 styled-v2 (2 refs) · v005 styled-v3 (3 refs)
+// "shot"; its stages become versions. v006 (improved-prompt previz) only exists for
+// the clips re-run via `previztest`, so it simply appears where available.
+//   v001 source · v002 previz · v003/4/5 styled (1/2/3 ref) · v006 previz (new prompt)
 const STAGES = [
   ['source.mp4', 'v001'], ['previz.mp4', 'v002'],
   ['styled-v1.mp4', 'v003'], ['styled-v2.mp4', 'v004'], ['styled-v3.mp4', 'v005'],
+  ['previz-test.mp4', 'v006'],
 ];
 async function review() {
   const srcDir = path.join(expRoot, 'review-src');
@@ -281,7 +283,7 @@ async function review() {
     }
   }
   console.log(`staged ${staged} clips into ${path.relative(repoRoot, srcDir)}`);
-  const legend = 'Versions:  v001 source  ·  v002 previz  ·  v003 styled (1 ref)  ·  v004 styled (2 refs)  ·  v005 styled (3 refs)';
+  const legend = 'Versions:  v001 source  ·  v002 previz (old prompt)  ·  v003 styled (1 ref)  ·  v004 styled (2 refs)  ·  v005 styled (3 refs)  ·  v006 previz (new prompt, 5 test clips only)';
   console.log(legend + '\n');
   const out = await exec('node', [pipeline, 'review', 'shots', '--folder', srcDir,
     '--slug', 'harmonize-experiment', '--layout', 'side-by-side', '--update'], { capture: true });
