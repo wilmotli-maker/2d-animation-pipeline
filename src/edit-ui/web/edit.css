@@ -32,7 +32,8 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .tools .group { display: flex; align-items: center; gap: 6px; }
 .tools .group.right { margin-left: auto; }
 .inline { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); }
-.swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.inline.blend { margin-left: 14px; }
+.swatch {width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .swatch.on { border-color: var(--text); }
 
 .stage-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px; background: #0b0c0e; }
