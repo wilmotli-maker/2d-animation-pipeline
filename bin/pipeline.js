@@ -4,6 +4,7 @@ import { projectRoot, whisperModelPath, matteModelPath, matteThreads, MATTE_DEFA
 import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
+import { createMuapiRunner } from '../src/muapi.js';
 import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -34,6 +35,23 @@ const [, , cmd, sub, ...rest] = process.argv;
 function fail(msg) {
   console.error(msg);
   process.exit(1);
+}
+
+// Pick the generation backend for shot generate / generate-batch.
+//   --runner higgsfield (default) -> the higgsfield CLI runner (createRunner)
+//   --runner muapi                -> the direct MuAPI Seedance 2.5 runner (bypasses HF's
+//                                    moderation wrapper). --spicy uses the relaxed route.
+// MUAPI_KEY + FAL_KEY come from the environment (.env is loaded at startup).
+function pickGenerationRunner(f) {
+  const r = (f.runner && f.runner !== true) ? String(f.runner).toLowerCase() : 'higgsfield';
+  if (r === 'higgsfield' || r === 'hf') return createRunner();
+  if (r === 'muapi') {
+    return createMuapiRunner({
+      spicy: f.spicy === true || f.spicy === 'true',
+      resolution: (f.resolution && f.resolution !== true) ? String(f.resolution) : '480p',
+    });
+  }
+  fail(`--runner must be one of: higgsfield, muapi (got "${r}")`);
 }
 
 // Print a ✓/⚠/✗ checklist and return true if there are no failures.
@@ -173,7 +191,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--root <dir>]');
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner higgsfield|muapi] [--spicy] [--root <dir>]');
     }
     const genVersion = Number(f.version);
     if (!Number.isInteger(genVersion) || genVersion < 1) {
@@ -185,12 +203,12 @@ async function main() {
       speechAudio: f['speech-audio'], videos: collectFlag(rest, 'video'), audios: collectFlag(rest, 'audio'),
       resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
       generateAudio: f['generate-audio'], mode: f.mode, task: f.task,
-    }, { runner: createRunner() });
+    }, { runner: pickGenerationRunner(f) });
     console.log(`saved shot draft output: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
   } else if (cmd === 'shot' && sub === 'generate-batch') {
     const f = parseFlags(rest);
     if (!f.manifest) {
-      fail('usage: pipeline shot generate-batch --manifest <file.json> [--concurrency <n>] [--root <dir>]\n' +
+      fail('usage: pipeline shot generate-batch --manifest <file.json> [--concurrency <n>] [--runner higgsfield|muapi] [--spicy] [--root <dir>]\n' +
         '  manifest: JSON array of { id, version, model, prompt|prompt-file|promptFile, images?, speechAudio?, videos?, audios?, resolution?, duration?, aspectRatio?, generateAudio?, mode?, task? }');
     }
     const { items, concurrency: manifestConc } = await loadManifest(f.manifest);
@@ -212,7 +230,7 @@ async function main() {
       };
     });
     const results = await generateShotDraftsBatch(projectRoot(f.root), specs, {
-      runner: createRunner(), concurrency,
+      runner: pickGenerationRunner(f), concurrency,
     });
     reportBatch('shot generate-batch', results);
   } else if (cmd === 'shot' && sub === 'matte') {
@@ -561,8 +579,8 @@ async function main() {
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--task <label>]',
-      '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner higgsfield|muapi] [--spicy] [--task <label>]',
+      '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--runner higgsfield|muapi] [--spicy] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
       '  pipeline element sheet-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many element sheets in parallel from one JSON manifest',
       '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
       '  pipeline credits backfill [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>]',
@@ -578,6 +596,11 @@ async function main() {
       'speech recording via --speech-audio <wav>: it is wrapped into a blank',
       'mid-gray video and sent as a video reference, which reproduces the',
       "recording's exact words and pacing. Needs ffmpeg on PATH.",
+      '--runner muapi routes shot generation through the direct MuAPI Seedance 2.5',
+      'API instead of higgsfield (bypasses HF moderation packaging; --spicy uses the',
+      'relaxed route). Needs MUAPI_KEY + FAL_KEY in the environment. Local image/video',
+      'refs are uploaded to fal storage (MuAPI takes URLs); use @Image1/@Video1 tags',
+      'in the prompt to assign reference roles.',
       'Project data (elements/, shots/) is written under --root, else',
       '$ANIMATION_PIPELINE_ROOT, else the current directory.',
     ].join('\n'));
