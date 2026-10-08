@@ -52,6 +52,8 @@ Nothing to copy by hand. The skill lives under `templates/skills/seedance-stitch
 - For the bridge: `MUAPI_KEY` + `FAL_KEY` (the pipeline's existing MuAPI Seedance runner — fal is
   used only to upload the keyframes to public URLs). Bridges are generated at 480p and billed in
   MuAPI USD; the skill says the cost before a second try.
-- For the WaveSpeed VACE joiner (optional, preferred when framings differ): a WaveSpeed API key in
-  `~/.wavespeed/key` (about $0.20 a join, paid in WaveSpeed cash). Not required — the free push-in
-  and the Seedance bridge cover the same job without it.
+- For the WaveSpeed VACE joiner (optional, preferred when framings differ): a WaveSpeed API key,
+  from `WAVESPEED_API_KEY` (the pipeline's `.env` or your shell) **or** `~/.wavespeed/key` as a
+  fallback (about $0.20 a join, paid in WaveSpeed cash). Not required — the free push-in and the
+  Seedance bridge cover the same job without it. Pipeline-side the key location is resolved by
+  `src/wavespeed.js` (`resolveWavespeedKey`); `vace_join.py` mirrors the same order.

@@ -58,7 +58,8 @@ Check the sheet yourself: the script measures pixels, you judge story. If the ha
 > B-head + mask, inpaint the gap) over that endpoint, which inherits fal Wan VACE's fixed
 > 81-frame @16fps budget. That reimplementation is a documented follow-up (see README), not wired
 > yet. Until then: if you don't have a WaveSpeed key, skip step 1a and use the free push-in (1b)
-> then the Seedance bridge (step 2).
+> then the Seedance bridge (step 2). The key is read from `WAVESPEED_API_KEY` (pipeline `.env` or
+> shell) first, then `~/.wavespeed/key`.
 
 ### 1b. Free option — digital push-in (`--reframe`)
 Matches features between A's last frame and B's first (SIFT + RANSAC), works out the exact zoom/shift/rotation from A's framing to B's, and eases that move over A's last N seconds of REAL footage (the subject keeps moving — no freeze frame), then optical-flow-morphs into B. Nothing is regenerated, so faces, cloth and texture can't drift; costs nothing. Tested 22 Sep on the church Start→End pair: 1.7× push, 125 matched points, join clean — preferred over the Seedance bridge.

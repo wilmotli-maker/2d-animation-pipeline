@@ -12,11 +12,17 @@ API = "https://api.wavespeed.ai/api/v3"
 KEY_FILE = os.path.expanduser("~/.wavespeed/key")
 
 def key():
+    # Pipeline amendment: honour WAVESPEED_API_KEY from the environment first (set in the shell
+    # or the pipeline's .env), then fall back to Jordie's ~/.wavespeed/key file. Mirrors
+    # src/wavespeed.js resolveWavespeedKey().
+    env_k = (os.environ.get("WAVESPEED_API_KEY") or "").strip()
+    if env_k:
+        return env_k
     try:
         k = open(KEY_FILE).read().strip()
     except FileNotFoundError:
-        sys.exit(f"No WaveSpeed key at {KEY_FILE}. Save your WaveSpeed API key in that file first.")
-    if not k: sys.exit("WaveSpeed key file is empty.")
+        sys.exit(f"No WaveSpeed key: set WAVESPEED_API_KEY or save your key in {KEY_FILE}.")
+    if not k: sys.exit("WaveSpeed key file is empty (and WAVESPEED_API_KEY is unset).")
     return k
 
 def curl_json(args):
