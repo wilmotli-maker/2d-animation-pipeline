@@ -17,6 +17,8 @@ import { pipeline } from 'node:stream/promises';
 import { resolveWithin, sendFile } from '../studio/media.js';
 import { realWithin } from '../studio/contain.js';
 import { createStubGenerator, probeVideo, audioPeaks } from './generator.js';
+import { videoDirs, writeJsonAtomic, ensureTranscript, createRun, updateRun, listRuns } from './workspace.js';
+import { spawn } from 'node:child_process';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -100,10 +102,38 @@ export async function listRecent(workspace, limit = 20) {
   return metas.sort((a, b) => b.openedAt.localeCompare(a.openedAt)).slice(0, limit);
 }
 
-async function writeJsonAtomic(file, obj) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(obj, null, 2));
-  await rename(tmp, file);
+// Whole-video generate: gather derived inputs (transcription failing is a
+// warning, not an error), freeze everything into runs/vNNN, run the generator
+// there, and record the outcome in the manifest.
+async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
+  const { workspace, generator } = ctx;
+  const probe = await probeVideo(videoPath);
+  const warnings = []; const derived = {};
+  if (probe.hasAudio) {
+    try {
+      derived.transcript = await ensureTranscript(workspace, meta, { hasAudio: true, ...ctx.derivers });
+      derived.audio = path.join(videoDirs(workspace, meta.id).derived, 'audio.wav');
+    } catch (err) { warnings.push(`transcription unavailable: ${err.message}`); }
+  }
+  const { error: _e, ...probeMeta } = probe;
+  const run = await createRun(workspace, meta, { request, probe: probeMeta, generator: generator.name, derived, warnings });
+  job.run = run.name;
+  try {
+    const result = await generator.run({
+      root: workspace, videoPath, outDir: path.join(workspace, meta.id), runDir: run.dir, run: run.manifest, jobId, request,
+    });
+    await updateRun(run.dir, { status: 'done', finishedAt: new Date().toISOString(), output: result.output || null, stub: !!result.stub, note: result.note || null });
+    return { ...result, run: run.name };
+  } catch (err) {
+    await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });
+    throw err;
+  }
+}
+
+function defaultReveal(target) {
+  const [cmd, args] = process.platform === 'darwin' ? ['open', [target]]
+    : process.platform === 'win32' ? ['explorer', [target]] : ['xdg-open', [target]];
+  spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
 }
 
 async function handle(ctx, req, res) {
@@ -163,11 +193,40 @@ async function handle(ctx, req, res) {
 
   if (get && p === '/api/waveform') {
     if (!meta) return sendJson(res, 404, { error: 'unknown video' });
-    const cache = path.join(dir, 'waveform.json');
+    const { derived } = videoDirs(workspace, meta.id);
+    const cache = path.join(derived, 'waveform.json');
     try { return sendJson(res, 200, JSON.parse(await readFile(cache, 'utf8'))); } catch { /* compute */ }
     const out = { peaks: await audioPeaks(source).catch(() => null) };
+    await mkdir(derived, { recursive: true });
     await writeFile(cache, JSON.stringify(out));
     return sendJson(res, 200, out);
+  }
+
+  // Full-clip transcript (derived/transcript.json), computed on first request.
+  if (get && p === '/api/transcript') {
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    const { hasAudio } = await probeVideo(source);
+    try {
+      return sendJson(res, 200, { transcript: await ensureTranscript(workspace, meta, { hasAudio, ...ctx.derivers }) });
+    } catch (err) { return sendJson(res, 502, { error: err.message }); }
+  }
+
+  if (get && p === '/api/runs') {
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    return sendJson(res, 200, { runs: await listRuns(workspace, meta.id) });
+  }
+
+  // Show a run's folder (or the video's workspace folder) in Finder.
+  if (req.method === 'POST' && p === '/api/reveal') {
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const m = await readMeta(workspace, body && body.id);
+    if (!m) return sendJson(res, 404, { error: 'unknown video' });
+    const base = videoDirs(workspace, m.id);
+    const target = body.run ? resolveWithin(base.runs, String(body.run)) : base.dir;
+    if (!target || !(await realWithin(base.dir, target))) return sendJson(res, 404, { error: 'unknown run' });
+    ctx.reveal(target);
+    return sendJson(res, 200, { ok: true, path: target });
   }
 
   if (p === '/api/session') {
@@ -214,8 +273,11 @@ async function handle(ctx, req, res) {
     const jobId = `${body.kind}-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
     const job = { id: jobId, kind: body.kind, status: 'running', createdAt: new Date().toISOString() };
     ctx.jobs.set(jobId, job);
-    generator.run({ root: workspace, videoPath: path.join(workspace, m.id, m.file), outDir: path.join(workspace, m.id), jobId, request: body })
-      .then((result) => Object.assign(job, { status: 'done', ...result }))
+    const videoPath = path.join(workspace, m.id, m.file);
+    const work = body.kind === 'video'
+      ? runVideoJob(ctx, m, videoPath, jobId, body, job)
+      : generator.run({ root: workspace, videoPath, outDir: path.join(workspace, m.id), jobId, request: body });
+    work.then((result) => Object.assign(job, { status: 'done', ...result }))
       .catch((err) => Object.assign(job, { status: 'error', error: err.message }));
     return sendJson(res, 202, { jobId });
   }
@@ -228,8 +290,11 @@ async function handle(ctx, req, res) {
   return sendJson(res, 404, { error: 'not found' });
 }
 
-export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null }) {
-  const ctx = { workspace, generator, initialId, jobs: new Map() };
+// `derivers`: optional { transcriber, extractAudio } overrides (tests).
+// `reveal(path)`: opens a folder in the OS file browser.
+export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null,
+  derivers = {}, reveal = defaultReveal }) {
+  const ctx = { workspace, generator, initialId, derivers, reveal, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -239,9 +304,9 @@ export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = cr
 }
 
 // `video`: optional path to open at startup (imported into the workspace).
-export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video }) {
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, reveal }) {
   const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
-  const server = createEditServer({ workspace, generator, initialId });
+  const server = createEditServer({ workspace, generator, initialId, derivers, reveal });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
