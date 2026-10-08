@@ -35,6 +35,9 @@ export class MuapiError extends Error {
 function routeBase(mode, { hasImages, hasVideos }) {
   if (mode === 'video_edit') return 'video-edit';
   if (mode === 'video_extension') return 'video-extend';
+  // first/last-frame keyframe transition: images_list carries exactly [first, last].
+  // Used by the seedance-stitch skill to generate a bridge clip between two shots.
+  if (mode === 'first_last_frame') return 'first-last-frame';
   if (hasImages || hasVideos) return 'omni-reference';
   return 'text-to-video';
 }
