@@ -173,6 +173,28 @@ export function cases() {
   return out;
 }
 
+// @-tag lip-sync prompt for the DIRECT MuAPI path (muapi-seedance.js). Mirrors buildLipsyncPrompt
+// but names references with @Image1../@Video1 role tags, which is how MuAPI/Seedance maps each
+// reference to a role (images_list/videos_list are separate arrays with no cross-array ordering).
+export function buildLipsyncAttagPrompt({ char, times, index, pose, line }) {
+  const n = times.length;
+  const kf = times.map((f, i) => {
+    const tag = `@Image${i + 1}`;
+    const at = `at ${(f * 100).toFixed(0)}%`;
+    return i === index
+      ? `${tag} ${at} — here the character is ${POSE_DESC[pose]}`
+      : `${tag} ${at}`;
+  }).join('; ');
+  const tags = times.map((_, i) => `@Image${i + 1}`).join(', ');
+  return [
+    `Flat cartoon children's-book illustration, a single continuous fully-animated talking performance. ${DESIGN[char]}. The character stays turned three-quarter-left throughout, matching the reference images.`,
+    `@Video1 is the speech/lip-sync source. The character speaks directly to camera, saying, "${line}" Full lip-sync is REQUIRED and tightly time-aligned to @Video1: the mouth opens and closes to match the spoken words at the exact instants they are heard in @Video1's audio, then closes cleanly and holds still once the line ends. Take ONLY the audio and speech timing from @Video1; take all visual appearance, pose and framing from the still reference images ${tags}.`,
+    `Full-body WIDE shot in a portrait 3:4 frame: the entire figure from the top of the head down through the torso, hips, knees and both feet is visible at all times, with a generous margin of empty mid-gray background on all sides. Never crop or push in past the knees; the character does not drift toward the camera. Locked camera, even mid-gray seamless background.`,
+    `The ${n} still reference images are keyframes of this one shot, in order, evenly spaced across the runtime. Move continuously and naturally between them with no held freezes: ${kf}.`,
+    `Bold clean dark outlines of constant weight, flat color fills, minimal shading, no gradients, no photorealism, no 3D.`,
+  ].join('\n\n');
+}
+
 // build the visual-only prompt for a case; `times` are keyframe fractions [0..1], `index` the pose.
 export function buildPrompt({ char, times, index, pose }) {
   const n = times.length;
