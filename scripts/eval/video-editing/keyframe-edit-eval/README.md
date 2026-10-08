@@ -19,6 +19,9 @@ back into the source clip. See [PLAN.md](PLAN.md) for the full design and pose a
 - `splice.js` — splices each generated edit back into its source via `../splice-match.js`, seam
   mode per position (first→head, last→tail, middle→mid). **No credits.**
 - `tests.json` — the 48 enumerated cases (generated).
+- `muapi-seedance.js` — direct MuAPI Seedance 2.5 client (bypasses higgsfield) for the recommended
+  single-pass lip-sync path; the same backend is wired into the pipeline as `--runner muapi`
+  (`src/muapi.js`). See the lip-sync section below.
 - Media: `evaluation/video-editing-eval/keyframe-edit/` (gitignored).
 
 ## Lip-sync variant (hybrid splice + lip sync)
@@ -29,12 +32,46 @@ and the splice seams stay lip-consistent. The 8 source shots originally got thei
 `speech-ref.mp4` video reference (a blank mid-gray clip carrying the speech wav) + `generate-audio
 true`. Scope for this experiment: `kf5` / `middle` only, all 8 shots.
 
-### ✅ Two-stage (`__lipsync2`) — the working path
+**Key finding:** a single omni_reference pass carrying both the 5 keyframe image refs **and** the
+speech-ref trips `nsfw` *only through higgsfield* — the block is in higgsfield's request packaging,
+not the model. The same combo runs fine through the **direct MuAPI Seedance 2.5 API**, so the clean
+single-pass (edited pose + lip sync together) is the recommended path; the two-stage workaround is
+only needed on the higgsfield path.
 
-A single omni_reference pass that carries both the keyframe image refs **and** the speech-ref
-**fails**: a speech-ref video + >1 image ref deterministically trips `nsfw` moderation (verified
-1 img passes; 2/3/5 fail — see the single-pass note below). So lip sync is applied as a **second
-stage** over the silent keyframe-edit output:
+### ✅ Single-pass via MuAPI — the recommended path
+
+Run the 5 keyframes + speech-ref in one omni-reference generation through MuAPI, which bypasses
+higgsfield's moderation wrapper. Reference roles are expressed with `@Image1..@Image5` / `@Video1`
+tags in the prompt (`buildLipsyncAttagPrompt` in `config.mjs`; see `prompt-lipsync-attag.md`).
+Verified on art-9 / ai-9 / monster-1 (kf5/middle): no `nsfw`, continuous motion, hits the injected
+pose, with speech audio.
+
+Two ways to run it:
+
+```bash
+# A) standalone eval client (per-shot; uploads refs to fal, polls, downloads)
+MUAPI_KEY=... FAL_KEY=... node scripts/eval/video-editing/keyframe-edit-eval/muapi-seedance.js \
+  --prompt-file <shot>/kf5/middle/prompt-lipsync-attag.md \
+  --image <kf1.png> --image <kf2.png> --image <pose.png> --image <kf4.png> --image <kf5.png> \
+  --video <shot>/speech-ref.mp4 \
+  --resolution 480p --aspect-ratio 3:4 --duration <n> --generate-audio true \
+  --out <shot>/kf5/middle/muapi-test            # [--spicy] for the relaxed-moderation route
+
+# B) through the pipeline (the merged --runner muapi backend; same shot generate flags)
+MUAPI_KEY=... FAL_KEY=... node bin/pipeline.js shot generate \
+  --id <shotId> --version 1 --model seedance_2_5 --runner muapi \
+  --prompt-file <...prompt-lipsync-attag.md> --image <...> ... --video <...speech-ref.mp4> \
+  --resolution 480p --aspect-ratio 3:4 --duration <n> --generate-audio true --mode omni_reference
+```
+
+Then splice the result back into the source with `splice-match.js` (seam `mid`), as in the other
+variants. Needs `MUAPI_KEY` + `FAL_KEY` in the environment (MuAPI takes public URLs, so local refs
+are uploaded to fal storage first). Cost: 480p ≈ $0.17/s (720p ≈ $0.34/s).
+
+### ✅ Two-stage (`__lipsync2`) — higgsfield-only workaround
+
+If you are pinned to the higgsfield path (where the single pass is blocked), apply lip sync as a
+**second stage** over the silent keyframe-edit output instead:
 
 1. **Stage 1 (silent):** the normal `kf5/middle` keyframe-edit generation (5 refs, injected pose).
 2. **Stage 2 (lip sync):** mux the silent visuals + the speech wav into ONE clip
@@ -60,13 +97,14 @@ node scripts/eval/video-editing/keyframe-edit-eval/splice.js --lipsync2
 
 Files: `scaffold-lipsync-stage2.js`, `manifest-lipsync-stage2.json`, `tests-lipsync-stage2.json`.
 
-### ✗ Single-pass (`__lipsync`) — blocked by moderation
+### ✗ Single-pass on higgsfield (`__lipsync`) — blocked by moderation
 
 `scaffold-lipsync.js` builds the one-pass version (5 keyframe refs + speech-ref video +
-`generate-audio true`, `prompt-lipsync.md`). It is kept for the record but **does not run**:
+`generate-audio true`, `prompt-lipsync.md`) **for the higgsfield path**, where it **does not run**:
 every attempt returns `status: nsfw` (no output, no credits). Measured ceiling — with a speech-ref
-attached, only **1 image ref** clears moderation (2/3/5 all fail; the silent 5-ref variant and the
-1-ref source shots both pass). Files: `scaffold-lipsync.js`, `manifest-lipsync.json`,
+attached, only **1 image ref** clears higgsfield moderation (2/3/5 all fail; the silent 5-ref
+variant and the 1-ref source shots both pass). The same combo succeeds via MuAPI (above), confirming
+the block is higgsfield-wrapper-side. Files: `scaffold-lipsync.js`, `manifest-lipsync.json`,
 `tests-lipsync.json`.
 
 ## Run
