@@ -7,18 +7,21 @@
 <body>
 <header class="top">
   <h1>Edit</h1>
-  <select id="video-pick" title="Video"></select>
+  <button id="open-btn" title="Open a video file">Open video…</button>
+  <span class="file" id="file-name"></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
   <span class="save" id="save-state"></span>
   <button id="gen-video" class="primary" title="Generate the whole edited video">Generate video</button>
+  <input type="file" id="open-input" accept="video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm" hidden>
+  <input type="file" id="kf-input" accept="image/png,image/jpeg,image/webp" hidden>
 </header>
 
 <div class="layout">
   <section class="main">
     <div class="tools" id="tools">
       <div class="group">
-        <button data-tool="none" title="Select / scrub (V)">Select</button>
+        <button data-tool="none" title="Select / play (V)">Select</button>
         <button data-tool="pen" title="Scribble on the frame (B)">Pen</button>
         <button data-tool="erase" title="Erase strokes (E)">Erase</button>
       </div>
@@ -37,13 +40,21 @@
       </div>
     </div>
 
-    <div class="stage-wrap">
+    <div class="stage-wrap" id="stage-wrap">
       <div class="stage" id="stage">
-        <video id="video" playsinline preload="auto" muted></video>
+        <video id="video" playsinline preload="auto"></video>
         <img id="kf-overlay" alt="">
         <canvas id="ink"></canvas>
         <div class="badge" id="view-badge"></div>
       </div>
+      <div class="welcome" id="welcome">
+        <h2>Open a video to edit</h2>
+        <p class="dim">Drop a video file anywhere, or</p>
+        <button class="primary" id="welcome-open">Choose a file…</button>
+        <div id="recent"></div>
+      </div>
+      <div class="dropzone" id="dropzone">Drop to open</div>
+      <div class="progress" id="progress"><div></div><span></span></div>
     </div>
 
     <div class="transport">
@@ -53,6 +64,7 @@
       <button id="step-fwd" title="Next frame (→)">|▶︎</button>
       <button id="to-end" title="End (End)">⏭</button>
       <button id="loop" class="toggle" title="Loop (L) — loops the selected range if one is selected">Loop</button>
+      <button id="mute" class="toggle" title="Mute (U)">🔊</button>
       <span class="tc" id="tc">00:00.000</span>
       <span class="tc dim" id="fc">f 0</span>
       <span class="spacer"></span>
@@ -68,11 +80,12 @@
 
     <div class="timeline" id="timeline">
       <div class="lane-labels">
-        <div>Time</div><div>Marks</div><div>Ink</div><div>Keys</div>
+        <div class="l-ruler">Time</div><div class="l-wave">Audio</div><div class="l-lane">Marks</div><div class="l-lane">Ink</div><div class="l-lane">Keys</div>
       </div>
       <div class="lanes" id="lanes">
         <div class="lane ruler" id="ruler"></div>
-        <div class="lane marks" id="lane-marks" title="Drag to create a range · click a mark to select"></div>
+        <div class="lane wave" id="wave-lane"><canvas id="wave"></canvas><span class="dim no-audio" id="no-audio">no audio</span></div>
+        <div class="lane marks" id="track" title="Drag to mark a range · click a mark to select"></div>
         <div class="lane ann" id="lane-ann"></div>
         <div class="lane kf" id="lane-kf"></div>
         <div class="pending-in" id="pending-in"></div>
@@ -82,21 +95,14 @@
   </section>
 
   <aside class="side">
+    <section class="panel inspector" id="inspector"></section>
     <section class="panel">
       <header><h2>Marks</h2></header>
       <ul class="list" id="marks-list"></ul>
     </section>
     <section class="panel">
-      <header><h2>Annotations</h2></header>
-      <ul class="list" id="ann-list"></ul>
-    </section>
-    <section class="panel">
-      <header><h2>Prompts</h2><button id="add-prompt" title="New prompt linked to the selected mark / annotation">+ Prompt</button></header>
-      <div id="prompt-list"></div>
-    </section>
-    <section class="panel">
-      <header><h2>Keyframes</h2></header>
-      <div id="kf-list" class="kf-grid"></div>
+      <header><h2>Whole-video prompts</h2><button id="add-global-prompt">+ Prompt</button></header>
+      <div id="global-prompts"></div>
     </section>
     <section class="panel">
       <header><h2>Results</h2></header>

@@ -1,13 +1,15 @@
 // src/edit-ui/generator.js
 // Generation backend for the edit UI. A generator is `{ name, run(job) }` where
 // run({ root, videoPath, outDir, jobId, request }) resolves to
-// `{ output: <project-relative path>, stub?: boolean, note?: string }`.
+// `{ output: <workspace-relative path>, stub?: boolean, note?: string }`.
+// `root` is the edit-ui workspace; `outDir` is this video's dir inside it.
 //
 // `request` is what the UI sends:
-//   keyframe: { kind, video, time, frame, prompts[], annotations[], marks[] }
-//   video:    { kind, video, prompts[], annotations[], marks[], keyframes[] }
-// prompts carry their linked annotation/mark ids; annotations carry normalized
-// [0..1] stroke points; marks are { kind: 'frame'|'range', start, end } seconds.
+//   keyframe: { kind, id, time, frame, fps, mark, prompts[], annotations[] }
+//   video:    { kind, id, fps, marks[], prompts[], annotations[], keyframes[] }
+// marks are { id, kind: 'frame'|'range', start, end } in frames; prompts carry
+// `markId` (null = whole video); annotations carry `markId`, `frame` and
+// normalized [0..1] stroke points; keyframes are { frame, time, image, markId }.
 //
 // The stub records every request as JSON and returns a placeholder (the source
 // frame for a keyframe, the source clip for a video) so the UI loop is usable
@@ -27,21 +29,51 @@ function run(cmd, args) {
   });
 }
 
-// { fps, duration, width, height, frames } — fps falls back to 24 if unknown.
+// { fps, duration, width, height, frames, hasAudio } — fps falls back to 24 if unknown.
 export async function probeVideo(abs) {
   try {
-    const out = await run('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
-      '-show_entries', 'stream=width,height,r_frame_rate,nb_frames:format=duration', '-of', 'json', abs]);
+    const out = await run('ffprobe', ['-v', 'error',
+      '-show_entries', 'stream=codec_type,width,height,r_frame_rate,nb_frames:format=duration', '-of', 'json', abs]);
     const j = JSON.parse(out);
-    const s = (j.streams && j.streams[0]) || {};
+    const streams = j.streams || [];
+    const s = streams.find((x) => x.codec_type === 'video') || {};
     const [n, d] = String(s.r_frame_rate || '24/1').split('/').map(Number);
     const fps = n && d ? n / d : 24;
     const duration = Number(j.format && j.format.duration) || null;
     const frames = Number(s.nb_frames) || (duration ? Math.round(duration * fps) : null);
-    return { fps, duration, width: s.width || null, height: s.height || null, frames };
+    const hasAudio = streams.some((x) => x.codec_type === 'audio');
+    return { fps, duration, width: s.width || null, height: s.height || null, frames, hasAudio };
   } catch (err) {
-    return { fps: 24, duration: null, width: null, height: null, frames: null, error: err.message };
+    return { fps: 24, duration: null, width: null, height: null, frames: null, hasAudio: false, error: err.message };
   }
+}
+
+// Peak envelope of the first audio track: `buckets` values in [0, 1], or null
+// if there is no audio. Decodes mono 8 kHz s16le through ffmpeg.
+export function audioPeaks(abs, buckets = 2000) {
+  return new Promise((resolve, reject) => {
+    const p = spawn('ffmpeg', ['-v', 'error', '-i', abs, '-map', '0:a:0', '-ac', '1', '-ar', '8000', '-f', 's16le', '-'],
+      { stdio: ['ignore', 'pipe', 'pipe'] });
+    const chunks = []; let err = '';
+    p.stdout.on('data', (d) => chunks.push(d));
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('error', reject);
+    p.on('close', (code) => {
+      if (code !== 0) return /matches no streams|does not contain any stream/i.test(err) ? resolve(null) : reject(new Error(err.slice(-400)));
+      const buf = Buffer.concat(chunks);
+      const n = Math.floor(buf.length / 2);
+      if (!n) return resolve(null);
+      const count = Math.min(buckets, n);
+      const peaks = new Array(count).fill(0);
+      for (let i = 0; i < n; i++) {
+        const b = Math.min(count - 1, Math.floor((i / n) * count));
+        const v = Math.abs(buf.readInt16LE(i * 2)) / 32768;
+        if (v > peaks[b]) peaks[b] = v;
+      }
+      const max = Math.max(...peaks) || 1;
+      resolve(peaks.map((v) => +(v / max).toFixed(3)));
+    });
+  });
 }
 
 export function createStubGenerator() {

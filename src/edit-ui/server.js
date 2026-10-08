@@ -1,23 +1,31 @@
 // src/edit-ui/server.js
-// Local-only server for the targeted-edit UI (`pipeline edit-ui`). Separate from
-// the studio: one video at a time, spatial/temporal annotations, prompts, and
-// keyframe / whole-video generation requests. Generation goes through a pluggable
-// `generator` (see generator.js); the default is a stub until the pipeline side
-// is decided. Same local-only + same-origin guards as the studio server.
+// Local-only server for the targeted-edit UI (`pipeline edit-ui`). Standalone —
+// not tied to a project: the user opens a video (upload from the page, or a path
+// on the command line), which is imported into a workspace dir keyed by content
+// hash, so reopening the same file resumes its session. Per video:
+//   <workspace>/<id>/source.<ext>   meta.json   session.json   waveform.json
+//   <workspace>/<id>/keyframes/…    jobs/…      (generator outputs)
+// Generation goes through a pluggable `generator` (see generator.js).
 import http from 'node:http';
 import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readdir, readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { readdir, readFile, writeFile, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { resolveWithin, sendFile } from '../studio/media.js';
 import { realWithin } from '../studio/contain.js';
-import { createStubGenerator, probeVideo } from './generator.js';
+import { createStubGenerator, probeVideo, audioPeaks } from './generator.js';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-const MAX_BODY = 1024 * 1024; // sessions carry stroke point lists
-const VIDEO_RE = /\.(mp4|m4v|mov|webm)$/i;
-const SKIP_DIRS = new Set(['node_modules', '.git', '.venv', '__pycache__']);
-export const SESSION_DIR = path.join('.pipeline', 'edit-sessions');
+const MAX_JSON = 1024 * 1024; // sessions carry stroke point lists
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.webm']);
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const ID_RE = /^[0-9a-f]{16}$/;
+
+export const DEFAULT_WORKSPACE = path.join(os.homedir(), '.pipeline', 'edit-ui');
 
 function sendJson(res, status, obj, extra = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra });
@@ -29,8 +37,8 @@ function safeDecode(s) { try { return decodeURIComponent(s); } catch { return nu
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
-    req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
-    req.on('end', () => (size > MAX_BODY
+    req.on('data', (c) => { size += c.length; if (size <= MAX_JSON) chunks.push(c); });
+    req.on('end', () => (size > MAX_JSON
       ? reject(Object.assign(new Error('body too large'), { status: 413 }))
       : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
@@ -49,40 +57,57 @@ async function readJsonBody(req, res) {
   }
 }
 
-// Session files are keyed by the video's project-relative path, flattened.
-export function sessionKey(rel) {
-  return rel.split(/[\\/]/).join('__').replace(/[^\w.-]/g, '_');
+// Binary uploads: octet-stream + a custom X-Filename header (both force a preflight).
+function uploadName(req) {
+  if (!/^application\/octet-stream\b/.test(req.headers['content-type'] || '')) return null;
+  const name = safeDecode(req.headers['x-filename'] || '');
+  return name ? path.basename(name) : null;
 }
 
-// Video files under the project, skipping dot-dirs (incl. .pipeline) and deps.
-export async function listVideos(root, { maxDepth = 8, limit = 1000 } = {}) {
-  const out = [];
-  async function walk(dir, depth) {
-    if (depth > maxDepth || out.length >= limit) return;
-    let entries;
-    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
-    entries.sort((a, b) => a.name.localeCompare(b.name));
-    for (const e of entries) {
-      if (e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue;
-      const abs = path.join(dir, e.name);
-      if (e.isDirectory()) await walk(abs, depth + 1);
-      else if (e.isFile() && VIDEO_RE.test(e.name)) out.push(path.relative(root, abs).split(path.sep).join('/'));
-      if (out.length >= limit) return;
-    }
-  }
-  await walk(root, 0);
-  return out;
+// Stream `src` into the workspace, hashing as it goes. The id is the content
+// hash, so the same file always maps to the same workspace dir (and session).
+export async function importVideo(workspace, src, name) {
+  const ext = path.extname(name).toLowerCase();
+  if (!VIDEO_EXT.has(ext)) throw Object.assign(new Error(`unsupported video type "${ext}"`), { status: 400 });
+  await mkdir(workspace, { recursive: true });
+  const tmp = path.join(workspace, `.import-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
+  const hash = crypto.createHash('sha256');
+  src.on('data', (c) => hash.update(c));
+  try { await pipeline(src, createWriteStream(tmp)); } catch (err) { await rm(tmp, { force: true }); throw err; }
+  const id = hash.digest('hex').slice(0, 16);
+  const dir = path.join(workspace, id);
+  const file = `source${ext}`;
+  await mkdir(dir, { recursive: true });
+  try { await stat(path.join(dir, file)); await rm(tmp, { force: true }); } catch { await rename(tmp, path.join(dir, file)); }
+  const meta = { id, name, file, openedAt: new Date().toISOString() };
+  await writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
+  return meta;
 }
 
-// Resolve a client-supplied video path to its real path inside the project, or null.
-async function resolveVideo(root, rel) {
-  if (!rel || !VIDEO_RE.test(rel)) return null;
-  const abs = resolveWithin(root, rel);
-  return abs && realWithin(root, abs);
+export function importVideoFile(workspace, abs) {
+  return importVideo(workspace, createReadStream(abs), path.basename(abs));
+}
+
+async function readMeta(workspace, id) {
+  if (!ID_RE.test(id || '')) return null;
+  try { return JSON.parse(await readFile(path.join(workspace, id, 'meta.json'), 'utf8')); } catch { return null; }
+}
+
+export async function listRecent(workspace, limit = 20) {
+  let ids = [];
+  try { ids = (await readdir(workspace)).filter((d) => ID_RE.test(d)); } catch { return []; }
+  const metas = (await Promise.all(ids.map((id) => readMeta(workspace, id)))).filter(Boolean);
+  return metas.sort((a, b) => b.openedAt.localeCompare(a.openedAt)).slice(0, limit);
+}
+
+async function writeJsonAtomic(file, obj) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(obj, null, 2));
+  await rename(tmp, file);
 }
 
 async function handle(ctx, req, res) {
-  const { root, generator } = ctx;
+  const { workspace, generator } = ctx;
   const host = (req.headers.host || '').replace(/:\d+$/, '');
   if (!LOCAL_HOSTS.has(host)) return sendJson(res, 403, { error: 'forbidden host' });
   const pathOnly = (req.url || '').split('?')[0];
@@ -107,27 +132,50 @@ async function handle(ctx, req, res) {
     const abs = resolveWithin(WEB, safeDecode(p.slice('/static/'.length)));
     return abs ? sendFile(req, res, abs) : sendJson(res, 404, { error: 'not found' });
   }
-  if (get && p.startsWith('/media/')) {
-    const abs = resolveWithin(root, safeDecode(p.slice('/media/'.length)));
-    const real = abs && await realWithin(root, abs);
+  // Workspace files: /files/<id>/<path>
+  if (get && p.startsWith('/files/')) {
+    const rel = safeDecode(p.slice('/files/'.length));
+    const abs = rel && ID_RE.test(rel.split('/')[0]) ? resolveWithin(workspace, rel) : null;
+    const real = abs && await realWithin(workspace, abs);
     return real ? sendFile(req, res, real, { noFollow: true }) : sendJson(res, 404, { error: 'not found' });
   }
 
-  if (get && p === '/api/videos') return sendJson(res, 200, { videos: await listVideos(root), initial: ctx.initialVideo || null });
+  if (get && p === '/api/recent') return sendJson(res, 200, { recent: await listRecent(workspace), initial: ctx.initialId || null });
 
-  if (get && p === '/api/probe') {
-    const real = await resolveVideo(root, url.searchParams.get('video'));
-    if (!real) return sendJson(res, 404, { error: 'not found' });
-    return sendJson(res, 200, await probeVideo(real));
+  if (req.method === 'POST' && p === '/api/open') {
+    const name = uploadName(req);
+    if (!name) return sendJson(res, 400, { error: 'expected application/octet-stream with X-Filename' });
+    try { return sendJson(res, 200, await importVideo(workspace, req, name)); } catch (err) {
+      return sendJson(res, err.status || 500, { error: err.message });
+    }
+  }
+
+  // Everything below is per-video.
+  const id = url.searchParams.get('id');
+  const meta = p.startsWith('/api/') && p !== '/api/jobs' && !p.startsWith('/api/jobs/') ? await readMeta(workspace, id) : null;
+  const dir = meta && path.join(workspace, meta.id);
+  const source = meta && path.join(dir, meta.file);
+
+  if (get && p === '/api/video') {
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    return sendJson(res, 200, { ...meta, src: `/files/${meta.id}/${meta.file}`, ...(await probeVideo(source)) });
+  }
+
+  if (get && p === '/api/waveform') {
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    const cache = path.join(dir, 'waveform.json');
+    try { return sendJson(res, 200, JSON.parse(await readFile(cache, 'utf8'))); } catch { /* compute */ }
+    const out = { peaks: await audioPeaks(source).catch(() => null) };
+    await writeFile(cache, JSON.stringify(out));
+    return sendJson(res, 200, out);
   }
 
   if (p === '/api/session') {
-    const rel = url.searchParams.get('video');
-    if (!(await resolveVideo(root, rel))) return sendJson(res, 404, { error: 'unknown video' });
-    const file = path.join(root, SESSION_DIR, `${sessionKey(rel)}.json`);
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    const file = path.join(dir, 'session.json');
     if (get) {
       try { return sendJson(res, 200, JSON.parse(await readFile(file, 'utf8'))); } catch (err) {
-        if (err.code === 'ENOENT') return sendJson(res, 200, { video: rel, version: 1 });
+        if (err.code === 'ENOENT') return sendJson(res, 200, { version: 2 });
         return sendJson(res, 500, { error: err.message });
       }
     }
@@ -135,35 +183,41 @@ async function handle(ctx, req, res) {
       const body = await readJsonBody(req, res);
       if (body === undefined) return;
       if (!body || typeof body !== 'object' || Array.isArray(body)) return sendJson(res, 400, { error: 'expected object' });
-      const dir = await realWithin(root, path.dirname(file), { forWrite: true });
-      if (!dir) return sendJson(res, 400, { error: 'invalid session dir' });
-      await mkdir(dir, { recursive: true });
-      const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.tmp`);
-      await writeFile(tmp, JSON.stringify({ ...body, video: rel, savedAt: new Date().toISOString() }, null, 2));
-      await rename(tmp, path.join(dir, path.basename(file)));
+      await writeJsonAtomic(file, { ...body, savedAt: new Date().toISOString() });
       return sendJson(res, 200, { ok: true });
     }
   }
 
-  // Generation: POST {kind: 'keyframe'|'video', video, ...request} -> {jobId}.
+  // Upload a predefined keyframe image: octet-stream body, X-Filename header.
+  if (req.method === 'POST' && p === '/api/keyframe-upload') {
+    if (!meta) return sendJson(res, 404, { error: 'unknown video' });
+    const name = uploadName(req);
+    const ext = name && path.extname(name).toLowerCase();
+    if (!name || !IMAGE_EXT.has(ext)) return sendJson(res, 400, { error: 'expected a png/jpg/webp upload' });
+    const kfDir = path.join(dir, 'keyframes');
+    await mkdir(kfDir, { recursive: true });
+    const file = `upload-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}${ext}`;
+    await pipeline(req, createWriteStream(path.join(kfDir, file)));
+    return sendJson(res, 200, { output: `${meta.id}/keyframes/${file}` });
+  }
+
+  // Generation: POST {kind: 'keyframe'|'video', id, ...request} -> {jobId}.
   if (req.method === 'POST' && p === '/api/generate') {
     const body = await readJsonBody(req, res);
     if (body === undefined) return;
-    if (!body || (body.kind !== 'keyframe' && body.kind !== 'video')) return sendJson(res, 400, { error: 'kind must be keyframe or video' });
-    const real = await resolveVideo(root, body.video);
-    if (!real) return sendJson(res, 404, { error: 'unknown video' });
+    const m = await readMeta(workspace, body && body.id);
+    if (!m) return sendJson(res, 404, { error: 'unknown video' });
+    if (body.kind !== 'keyframe' && body.kind !== 'video') return sendJson(res, 400, { error: 'kind must be keyframe or video' });
     if (body.kind === 'keyframe' && !(Number.isFinite(body.time) && body.time >= 0)) {
       return sendJson(res, 400, { error: 'keyframe needs a time' });
     }
-    const outDir = await realWithin(root, path.join(root, SESSION_DIR, sessionKey(body.video)), { forWrite: true });
-    if (!outDir) return sendJson(res, 400, { error: 'invalid output dir' });
-    const id = `${body.kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const job = { id, kind: body.kind, status: 'running', createdAt: new Date().toISOString() };
-    ctx.jobs.set(id, job);
-    generator.run({ root, videoPath: real, outDir, jobId: id, request: body })
+    const jobId = `${body.kind}-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
+    const job = { id: jobId, kind: body.kind, status: 'running', createdAt: new Date().toISOString() };
+    ctx.jobs.set(jobId, job);
+    generator.run({ root: workspace, videoPath: path.join(workspace, m.id, m.file), outDir: path.join(workspace, m.id), jobId, request: body })
       .then((result) => Object.assign(job, { status: 'done', ...result }))
       .catch((err) => Object.assign(job, { status: 'error', error: err.message }));
-    return sendJson(res, 202, { jobId: id });
+    return sendJson(res, 202, { jobId });
   }
 
   if (get && p.startsWith('/api/jobs/')) {
@@ -174,8 +228,8 @@ async function handle(ctx, req, res) {
   return sendJson(res, 404, { error: 'not found' });
 }
 
-export function createEditServer({ root, generator = createStubGenerator(), initialVideo = null }) {
-  const ctx = { root, generator, initialVideo, jobs: new Map() };
+export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null }) {
+  const ctx = { workspace, generator, initialId, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -184,13 +238,15 @@ export function createEditServer({ root, generator = createStubGenerator(), init
   });
 }
 
-export function startEditUi({ root, port = 4880, host = '127.0.0.1', generator, initialVideo }) {
-  const server = createEditServer({ root, generator, initialVideo });
+// `video`: optional path to open at startup (imported into the workspace).
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video }) {
+  const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
+  const server = createEditServer({ workspace, generator, initialId });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
       server.off('error', reject);
-      resolve({ server, url: `http://${host}:${server.address().port}/` });
+      resolve({ server, url: `http://${host}:${server.address().port}/`, initialId });
     });
   });
 }
