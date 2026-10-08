@@ -3,6 +3,9 @@
 // run({ root, videoPath, outDir, jobId, request }) resolves to
 // `{ output: <workspace-relative path>, stub?: boolean, note?: string }`.
 // `root` is the edit-ui workspace; `outDir` is this video's dir inside it.
+// For kind 'video' the job also gets `runDir` (runs/vNNN, already holding
+// prompt.txt and frozen keyframes) and `run` (its manifest — see workspace.js);
+// a real generator should write its output and any extra inputs there.
 //
 // `request` is what the UI sends:
 //   keyframe: { kind, id, time, frame, fps, mark, prompts[], annotations[] }

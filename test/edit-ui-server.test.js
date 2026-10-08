@@ -7,6 +7,7 @@ import path from 'node:path';
 import { startEditUi, listRecent } from '../src/edit-ui/server.js';
 
 let outer, workspace, server, base, initialId;
+const revealed = [];
 const calls = [];
 const fakeGen = {
   name: 'fake',
@@ -17,7 +18,7 @@ before(async () => {
   outer = await mkdtemp(path.join(tmpdir(), 'edit-ui-'));
   workspace = path.join(outer, 'ws');
   await writeFile(path.join(outer, 'clip.mp4'), 'video-bytes');
-  ({ server, url: base, initialId } = await startEditUi({ workspace, port: 0, generator: fakeGen, video: path.join(outer, 'clip.mp4') }));
+  ({ server, url: base, initialId } = await startEditUi({ workspace, port: 0, generator: fakeGen, video: path.join(outer, 'clip.mp4'), reveal: (p) => revealed.push(p) }));
 });
 after(async () => { server.close(); await rm(outer, { recursive: true, force: true }); });
 
@@ -81,6 +82,39 @@ test('generate validates, runs the generator, and exposes the job', async () => 
   for (let i = 0; i < 20; i++) { job = await (await fetch(`${base}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
   assert.equal(job.status, 'done');
   assert.equal(calls.at(-1).time, 0.5);
+});
+
+async function waitJob(jobId) {
+  let job;
+  for (let i = 0; i < 50; i++) { job = await (await fetch(`${base}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
+  return job;
+}
+
+test('a video generate creates a numbered run with a manifest and prompt', async () => {
+  const req = { kind: 'video', id: initialId, fps: 24, marks: [{ id: 'm', start: 0, end: 4 }],
+    prompts: [{ id: 'p', markId: 'm', text: 'wave hello' }], annotations: [], keyframes: [] };
+  const job = await waitJob((await (await fetch(`${base}api/generate`, json(req))).json()).jobId);
+  assert.equal(job.status, 'done');
+  assert.equal(job.run, 'v001');
+  const runDir = path.join(workspace, initialId, 'runs', 'v001');
+  assert.match(await readFile(path.join(runDir, 'prompt.txt'), 'utf8'), /wave hello/);
+  const { runs } = await (await fetch(`${base}api/runs?id=${initialId}`)).json();
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].status, 'done');
+  assert.equal(runs[0].generator.name, 'fake');
+  assert.ok(runs[0].finishedAt);
+  assert.equal(calls.at(-1).kind, 'video');
+});
+
+test('reveal opens only this video\'s folders', async () => {
+  assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: 'v001' }))).status, 200);
+  assert.equal(revealed.at(-1), path.join(workspace, initialId, 'runs', 'v001'));
+  assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: '../../..' }))).status, 404);
+  assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: 'v999' }))).status, 404);
+});
+
+test('transcript is null for a clip without audio', async () => {
+  assert.deepEqual(await (await fetch(`${base}api/transcript?id=${initialId}`)).json(), { transcript: null });
 });
 
 test('cross-site requests are refused', async () => {
