@@ -68,6 +68,20 @@ test('video_edit maps to video + reference_images', async () => {
   assert.equal(post.body.images_list, undefined);
 });
 
+test('first_last_frame maps to the first-last-frame route with images_list [first, last]', async () => {
+  const fetchImpl = fakeFetch([['seedance-2.5-first-last-frame-480p', { body: { request_id: 'r4' } }]]);
+  const r = runner(fetchImpl);
+  await r.generate('seedance_2_5', {
+    prompt: 'one continuous shot, camera continues its push', mode: 'first_last_frame',
+    resolution: '480p', duration: 4, imageReferences: ['/s/A_out.png', '/s/B_in.png'],
+  });
+  const post = fetchImpl.calls.find((c) => c.url.includes('first-last-frame'));
+  assert.ok(post, 'posted to the first-last-frame route');
+  assert.deepEqual(post.body.images_list, ['https://cdn/A_out.png', 'https://cdn/B_in.png'], 'first then last, order preserved');
+  assert.equal(post.body.video, undefined, 'not treated as a video-edit route');
+  assert.equal(post.body.duration, 4);
+});
+
 test('get maps statuses and extracts output url', async () => {
   const seq = [{ status: 'processing' }, { status: 'completed', outputs: ['https://cdn/out.mp4'] }];
   let i = 0;
