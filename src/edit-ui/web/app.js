@@ -17,8 +17,10 @@ const ICONS = {
 // annotations: { id, markId, frame, strokes: [{ color, width, pts }] }
 // prompts:     { id, markId | null, text }
 // keyframes:   { id, markId, frame, versions: [{ output, source, stub, note, at }], current, status, error }
-// renders:     { id, status, output, stub, note, at }
-const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [] }; // persisted
+// renders:     { id, status, run, output, stub, note, at }
+// dialogue:    null | { original, text, include }   (transcript; text is the user's edit)
+// settings:    { autoKeyframes }
+const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 4 } }; // persisted
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
@@ -134,7 +136,10 @@ async function loadVideo(id) {
   ]);
   Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null });
   history.replaceState(null, '', `?id=${id}`);
-  for (const k of Object.keys(data)) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
+  for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
+  data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
+  data.settings = { autoKeyframes: 4, ...(sess.settings || {}) };
+  ui.transcribing = false;
   // Jobs don't survive a server restart; anything left "running" is stale.
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
   data.renders = data.renders.filter((r) => r.status !== 'running');
@@ -143,6 +148,7 @@ async function loadVideo(id) {
   document.title = `${meta.name} — Edit`;
   $('meta').textContent = [meta.width && `${meta.width}×${meta.height}`, `${+fps().toFixed(3)} fps`,
     meta.frames && `${meta.frames} frames`, meta.hasAudio ? 'audio' : 'no audio'].filter(Boolean).join(' · ');
+  $('auto-kf').value = data.settings.autoKeyframes;
   $('welcome').style.display = 'none';
   $('save-state').textContent = sess.savedAt ? 'saved' : '';
   setSource(meta.src);
@@ -528,12 +534,14 @@ async function generateVideo() {
   data.renders.unshift(r); renderAll();
   try {
     const res = await startJob({
-      kind: 'video', fps: fps(), marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
+      kind: 'video', fps: fps(), autoKeyframes: data.settings.autoKeyframes,
+      transcript: data.dialogue ? { text: data.dialogue.text, include: data.dialogue.include !== false } : null, marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
       keyframes: data.keyframes.filter((k) => k.current >= 0).map((k) => ({ frame: k.frame, time: timeOf(k.frame), markId: k.markId, image: k.versions[k.current].output })),
     });
     Object.assign(r, { status: 'done', run: res.run || null, output: res.output, stub: !!res.stub, note: res.note || '' });
     showResult(r);
-    if (res.note) toast(res.note);
+    if (res.warnings && res.warnings.length) toast(`Run ${res.run}: ${res.warnings.join('; ')}`, 7000);
+    else if (res.note) toast(res.note);
   } catch (err) { Object.assign(r, { status: 'error', error: err.message }); }
   renderAll(); scheduleSave();
 }
@@ -589,6 +597,36 @@ function renderMarksList() {
       counts.map(([c, k]) => el('span', { class: `mini ${k}`, html: `${ICONS[k]}${c > 1 ? c : ''}` }))));
   }
 }
+async function transcribe() {
+  if (!ui.id || ui.transcribing) return;
+  const id = ui.id; ui.transcribing = true; renderDialogue();
+  try {
+    const r = await fetch(`/api/transcript?id=${id}`); const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    if (ui.id !== id) return;
+    if (!j.transcript) toast('This video has no audio');
+    else mutate(() => { data.dialogue = { original: j.transcript.text, text: j.transcript.text, include: true }; });
+  } catch (err) { toast(`transcription failed: ${err.message}`, 6000); }
+  if (ui.id === id) { ui.transcribing = false; renderDialogue(); }
+}
+function renderDialogue() {
+  const box = $('dialogue'); box.replaceChildren();
+  const btn = $('transcribe-btn');
+  $('dialogue-panel').style.display = !ui.src || (ui.meta.hasAudio === false) ? 'none' : '';
+  btn.disabled = ui.transcribing; btn.textContent = ui.transcribing ? 'Transcribing…' : data.dialogue ? 'Re-transcribe' : 'Transcribe';
+  const d = data.dialogue;
+  if (!d) { box.append(el('div', { class: 'empty' }, 'Transcribe the speech to include the exact words in the prompt. Without this, a transcript is still made at generate time.')); return; }
+  const ta = el('textarea', { placeholder: 'Spoken words…' }); ta.value = d.text;
+  ta.addEventListener('focus', () => commit());
+  ta.addEventListener('input', () => { d.text = ta.value; sync(); scheduleSave(); });
+  const edited = el('span', { class: 'badge-edited' }, 'edited ');
+  const reset = el('button', { class: 'x', title: 'Restore the Whisper transcript', onclick: () => mutate(() => { d.text = d.original; }) }, 'Reset');
+  const sync = () => { edited.hidden = reset.hidden = d.text.trim() === d.original.trim(); };
+  sync();
+  const inc = el('input', { type: 'checkbox' }); inc.checked = d.include !== false;
+  inc.addEventListener('change', () => mutate(() => { d.include = inc.checked; }));
+  box.append(ta, el('div', { class: 'row' }, el('label', { class: 'inline' }, inc, ' Include in prompt'), el('span', {}, edited, reset)));
+}
 function renderGlobalPrompts() {
   const box = $('global-prompts'); box.replaceChildren();
   const ps = data.prompts.filter((p) => !p.markId);
@@ -642,7 +680,7 @@ function renderAll() {
   $('view-result').disabled = !data.renders.some((r) => r.status === 'done');
   $('view-badge').textContent = ui.view === 'result' ? 'Result' : '';
   $('undo').disabled = !ui.undo.length; $('redo').disabled = !ui.redo.length;
-  renderTimeline(); renderInspector(); renderMarksList(); renderGlobalPrompts(); renderRenders(); renderFrameState();
+  renderTimeline(); renderInspector(); renderMarksList(); renderDialogue(); renderGlobalPrompts(); renderRenders(); renderFrameState();
 }
 
 // ---- wiring --------------------------------------------------------------
@@ -665,6 +703,11 @@ $('mark-out').addEventListener('click', setOut);
 $('add-kf').addEventListener('click', addKeyframe);
 $('add-global-prompt').addEventListener('click', () => addPrompt(null));
 $('gen-video').addEventListener('click', generateVideo);
+$('transcribe-btn').addEventListener('click', transcribe);
+$('auto-kf').addEventListener('change', (e) => {
+  const n = Math.max(0, Math.min(12, Math.floor(Number(e.target.value) || 0)));
+  e.target.value = n; data.settings.autoKeyframes = n; scheduleSave();
+});
 $('view-source').addEventListener('click', () => ui.view !== 'source' && showSource());
 $('view-result').addEventListener('click', () => { const r = data.renders.find((x) => x.status === 'done'); if (r && ui.view !== 'result') showResult(r); });
 $('undo').addEventListener('click', undo);
