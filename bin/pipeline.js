@@ -5,6 +5,7 @@ import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
 import { createMuapiRunner } from '../src/muapi.js';
+import { resolveWavespeedKey, wavespeedKeyStatus } from '../src/wavespeed.js';
 import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -572,11 +573,27 @@ async function main() {
     }
     const changed = results.filter((r) => r.status !== 'unchanged').length;
     console.log(`synced ${results.length} skill(s), ${changed} added/updated.`);
+  } else if (cmd === 'wavespeed-key') {
+    // Emit the resolved WaveSpeed key so the seedance-stitch skill can bridge the pipeline's
+    // .env into the standalone Python joiner: `export WAVESPEED_API_KEY=$(pipeline wavespeed-key)`.
+    // .env is loaded by loadEnv() at startup, so WAVESPEED_API_KEY from .env resolves here even
+    // though a bare `python3 vace_join.py` would not see it. --status prints the source, no value.
+    const wantStatus = [sub, ...rest].includes('--status');
+    if (wantStatus) {
+      const s = wavespeedKeyStatus();
+      console.log(s.configured ? `configured (source: ${s.source})` : `not configured (checked env WAVESPEED_API_KEY and ${s.keyFile})`);
+      if (!s.configured) process.exit(1);
+    } else {
+      const key = resolveWavespeedKey();
+      if (!key) { process.stderr.write(`no WaveSpeed key: set WAVESPEED_API_KEY (.env or shell) or save it in ${wavespeedKeyStatus().keyFile}\n`); process.exit(1); }
+      process.stdout.write(key); // no trailing newline: clean for $(...) capture
+    }
   } else {
     fail([
       'usage:',
       '  pipeline init <dir>                        # scaffold a new project folder',
       '  pipeline sync-skills [--root <dir>]        # refresh a project\'s .claude/skills/ from the current templates',
+      '  pipeline wavespeed-key [--status]          # print the resolved WaveSpeed key (for the seedance-stitch joiner); --status prints only the source',
       '  pipeline studio [--port <n=4870>] [--root <dir>]   # local web UI: browse the project tree, compare + select versions',
       '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',

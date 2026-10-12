@@ -23,6 +23,16 @@ async function scaffold(base, { skills }) {
   return { templatesDir, project };
 }
 
+test('syncSkills skips a stray non-dir entry (e.g. .DS_Store) under templates/skills', async () => {
+  await withTemp(async (base) => {
+    const { templatesDir, project } = await scaffold(base, { skills: { 'build-element': 'BUILD v2\n' } });
+    // a macOS .DS_Store file sitting beside the skill dirs — reading .DS_Store/SKILL.md is ENOTDIR
+    await writeFile(path.join(templatesDir, 'skills', '.DS_Store'), '\0\0');
+    const results = await syncSkills(project, { templatesDir });
+    assert.deepEqual(results.map((r) => r.name), ['build-element'], 'only the real skill, no throw on .DS_Store');
+  });
+});
+
 test('syncSkills adds skills that are missing from the project', async () => {
   await withTemp(async (base) => {
     const { templatesDir, project } = await scaffold(base, {

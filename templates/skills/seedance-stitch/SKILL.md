@@ -49,7 +49,13 @@ Then READ `JOBDIR/prep_sheet.jpg` (A's exit frame | B's entry frame | difference
 Check the sheet yourself: the script measures pixels, you judge story. If the hand-off frames are wrong for the action (e.g. mid-blink, a hand half out of frame), rerun prep with a different `--search`, or pick frames by eye and overwrite `A_out.png` / `B_in.png` and the cut numbers in `plan.json`.
 
 ### 1a. PREFERRED (tested 22 Sep 2026, the best result so far) — push-in + WaveSpeed VACE joiner
-`python3 scripts/vace_join.py A.mp4 B.mp4 --pushin 1.7 --out JOBDIR/vace/joined.mp4` (~$0.20 cash, ~4 min), then conform to 23.976/1080 with ffmpeg and QA. Use `--pushin` whenever A and B are framed differently; leave it off if they already match. Fall back to the options below only if this fails.
+The joiner reads `WAVESPEED_API_KEY` from the environment, but a bare `python3` does **not** see the
+pipeline's `.env`. Export it first with the pipeline helper (resolves `.env` → `~/.wavespeed/key`):
+```
+export WAVESPEED_API_KEY="$(pipeline wavespeed-key)"
+python3 scripts/vace_join.py A.mp4 B.mp4 --pushin 1.7 --out JOBDIR/vace/joined.mp4
+```
+(~$0.20 cash, ~4 min), then conform to 23.976/1080 with ffmpeg and QA. Use `--pushin` whenever A and B are framed differently; leave it off if they already match. `pipeline wavespeed-key` exits non-zero if no key is set (then skip to 1b). Fall back to the options below only if the join fails.
 
 > **Key note for this pipeline.** The VACE joiner (`vace_join.py`) still talks to **WaveSpeed**
 > (`~/.wavespeed/key`, ~$0.20/join in WaveSpeed cash). fal has **no drop-in joiner endpoint** —
@@ -58,7 +64,9 @@ Check the sheet yourself: the script measures pixels, you judge story. If the ha
 > B-head + mask, inpaint the gap) over that endpoint, which inherits fal Wan VACE's fixed
 > 81-frame @16fps budget. That reimplementation is a documented follow-up (see README), not wired
 > yet. Until then: if you don't have a WaveSpeed key, skip step 1a and use the free push-in (1b)
-> then the Seedance bridge (step 2).
+> then the Seedance bridge (step 2). The key is read from `WAVESPEED_API_KEY` (pipeline `.env` or
+> shell) first, then `~/.wavespeed/key` — resolve + export it with `pipeline wavespeed-key` (above),
+> since a bare `python3` won't load `.env`.
 
 ### 1b. Free option — digital push-in (`--reframe`)
 Matches features between A's last frame and B's first (SIFT + RANSAC), works out the exact zoom/shift/rotation from A's framing to B's, and eases that move over A's last N seconds of REAL footage (the subject keeps moving — no freeze frame), then optical-flow-morphs into B. Nothing is regenerated, so faces, cloth and texture can't drift; costs nothing. Tested 22 Sep on the church Start→End pair: 1.7× push, 125 matched points, join clean — preferred over the Seedance bridge.

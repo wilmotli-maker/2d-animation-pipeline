@@ -11,7 +11,9 @@ async function exists(p) {
 }
 
 async function readOrNull(p) {
-  try { return await readFile(p, 'utf8'); } catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+  // ENOENT: no SKILL.md here. ENOTDIR: the entry is a file, not a skill dir (e.g. a stray
+  // .DS_Store under templates/skills/) — both mean "not a skill", skip it.
+  try { return await readFile(p, 'utf8'); } catch (err) { if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null; throw err; }
 }
 
 // Refresh a project's .claude/skills/ from the tool's current skill templates.
