@@ -56,4 +56,6 @@ Nothing to copy by hand. The skill lives under `templates/skills/seedance-stitch
   from `WAVESPEED_API_KEY` (the pipeline's `.env` or your shell) **or** `~/.wavespeed/key` as a
   fallback (about $0.20 a join, paid in WaveSpeed cash). Not required — the free push-in and the
   Seedance bridge cover the same job without it. Pipeline-side the key location is resolved by
-  `src/wavespeed.js` (`resolveWavespeedKey`); `vace_join.py` mirrors the same order.
+  `src/wavespeed.js` (`resolveWavespeedKey`); `vace_join.py` mirrors the same order. Because a bare
+  `python3` doesn't load `.env`, the skill exports the key with `pipeline wavespeed-key` before the
+  join (`export WAVESPEED_API_KEY="$(pipeline wavespeed-key)"`).
