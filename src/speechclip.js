@@ -33,6 +33,25 @@ async function defaultRun(bin, args) {
   }
 }
 
+// Pull the first audio track out of a video as a 16 kHz mono PCM .wav — the
+// format whisper.cpp expects, and a clean input for makeBlankSpeechVideo.
+// `start`/`end` (seconds) optionally trim to a window.
+export async function extractAudio(videoPath, outPath, { start = null, end = null, run = defaultRun } = {}) {
+  await mkdir(path.dirname(outPath), { recursive: true });
+  const trim = [];
+  if (start != null) trim.push('-ss', String(start));
+  if (end != null) trim.push('-to', String(end));
+  await run('ffmpeg', [
+    '-y', '-v', 'error',
+    '-i', videoPath,
+    ...trim,
+    '-map', '0:a:0', '-vn',
+    '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le',
+    outPath,
+  ]);
+  return outPath;
+}
+
 // Wrap a speech .wav into a blank mid-gray video whose audio IS the wav and
 // whose length matches it (-shortest). Passing speech as a VIDEO reference is
 // the trick that makes Seedance 2.0 reproduce the recording's exact words AND

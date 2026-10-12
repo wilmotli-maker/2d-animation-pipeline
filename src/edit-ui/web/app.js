@@ -531,7 +531,7 @@ async function generateVideo() {
       kind: 'video', fps: fps(), marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
       keyframes: data.keyframes.filter((k) => k.current >= 0).map((k) => ({ frame: k.frame, time: timeOf(k.frame), markId: k.markId, image: k.versions[k.current].output })),
     });
-    Object.assign(r, { status: 'done', output: res.output, stub: !!res.stub, note: res.note || '' });
+    Object.assign(r, { status: 'done', run: res.run || null, output: res.output, stub: !!res.stub, note: res.note || '' });
     showResult(r);
     if (res.note) toast(res.note);
   } catch (err) { Object.assign(r, { status: 'error', error: err.message }); }
@@ -595,15 +595,20 @@ function renderGlobalPrompts() {
   box.append(...(ps.length ? ps.map(promptCard) : [el('div', { class: 'empty' }, 'Prompts here apply to the whole video.')]));
   $('add-global-prompt').disabled = !ui.src;
 }
+function reveal(run) {
+  fetch('/api/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: ui.id, run }) })
+    .then((r) => (r.ok ? null : r.json().then((j) => toast(`reveal failed: ${j.error}`))));
+}
 function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
     const on = ui.view === 'result' && r.output && ui.resultSrc === r.output;
     ul.append(el('li', { class: on ? 'sel' : '', onclick: () => r.status === 'done' && showResult(r) },
-      el('span', { class: 'grow' }, `Result v${data.renders.length - i}`),
+      el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
         r.status === 'running' ? 'generating…' : r.status === 'error' ? r.error : r.stub ? 'stub' : new Date(r.at).toLocaleTimeString()),
+      r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×')));
   });
   $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running');
