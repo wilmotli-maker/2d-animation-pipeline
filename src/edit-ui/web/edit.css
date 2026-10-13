@@ -158,3 +158,8 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
   .stage-wrap { height: 50vh; }
   .side { border-left: 0; border-top: 1px solid var(--line); }
 }
+
+#auto-kf { width: 4.5ch; }
+#dialogue textarea { width: 100%; min-height: 64px; resize: vertical; }
+#dialogue .row { display: flex; align-items: center; gap: 8px; margin-top: 4px; justify-content: space-between; }
+#dialogue .badge-edited { color: var(--sel); font-size: 11px; }

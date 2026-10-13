@@ -94,7 +94,9 @@ async function reserveRunDir(runsDir) {
 
 // The prompt text for a run: whole-video prompts first, then each mark's
 // prompts under a frame/time header, in timeline order.
-export function composePrompt({ marks = [], prompts = [], fps = 24 }) {
+// A non-empty `dialogue` is appended as the exact spoken line, matching the
+// speech reference's audio.
+export function composePrompt({ marks = [], prompts = [], fps = 24, dialogue = '' }) {
   const live = prompts.filter((p) => p && String(p.text || '').trim());
   const blocks = live.filter((p) => !p.markId).map((p) => p.text.trim());
   const t = (f) => (f / fps).toFixed(2);
@@ -104,7 +106,17 @@ export function composePrompt({ marks = [], prompts = [], fps = 24 }) {
     const where = m.start === m.end ? `frame ${m.start} (${t(m.start)}s)` : `frames ${m.start}–${m.end} (${t(m.start)}s–${t(m.end + 1)}s)`;
     blocks.push(`[${m.label ? `${m.label}, ` : ''}${where}]\n${mine.join('\n')}`);
   }
+  if (String(dialogue).trim()) blocks.push(`Dialogue (spoken word for word, exactly as written): "${String(dialogue).trim()}"`);
   return blocks.join('\n\n');
+}
+
+// The dialogue a run carries: the user's (possibly edited) text if the UI sent
+// one, else the clip's raw transcript; included unless the user turned it off.
+export function resolveDialogue(request, transcript) {
+  const sent = request.transcript && typeof request.transcript.text === 'string' ? request.transcript : null;
+  const text = (sent ? sent.text : transcript && transcript.text) || '';
+  const include = sent ? sent.include !== false : true;
+  return { text: text.trim(), include: include && !!text.trim(), edited: !!(sent && transcript && sent.text.trim() !== transcript.text.trim()) };
 }
 
 // Create runs/vNNN with prompt.txt, copies of the chosen edited keyframes, and
@@ -119,7 +131,8 @@ export async function createRun(workspace, meta, { request, probe = {}, generato
   const inputs = [{ role: 'source', path: rel(workspace, path.join(dir, meta.file)) }];
   if (derived.audio) inputs.push({ role: 'audio', path: rel(workspace, derived.audio) });
 
-  const promptText = composePrompt({ marks: request.marks, prompts: request.prompts, fps });
+  const dialogue = resolveDialogue(request, derived.transcript);
+  const promptText = composePrompt({ marks: request.marks, prompts: request.prompts, fps, dialogue: dialogue.include ? dialogue.text : '' });
   await writeFile(path.join(runDir, 'prompt.txt'), promptText ? `${promptText}\n` : '');
   inputs.push({ role: 'prompt', path: rel(workspace, path.join(runDir, 'prompt.txt')) });
 
@@ -147,7 +160,9 @@ export async function createRun(workspace, meta, { request, probe = {}, generato
     generator: { name: generator },
     settings: { fps },
     prompt: { file: 'prompt.txt', text: promptText },
-    transcript: derived.transcript ? { text: derived.transcript.text, engine: derived.transcript.engine } : null,
+    transcript: derived.transcript
+      ? { original: derived.transcript.text, text: dialogue.text, edited: dialogue.edited, included: dialogue.include, engine: derived.transcript.engine }
+      : null,
     marks: request.marks || [],
     prompts: request.prompts || [],
     annotations: (request.annotations || []).map((a) => ({ id: a.id, markId: a.markId, frame: a.frame, strokes: a.strokes })),

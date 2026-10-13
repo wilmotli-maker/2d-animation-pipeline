@@ -19,6 +19,7 @@ import { realWithin } from '../studio/contain.js';
 import { createStubGenerator, probeVideo, audioPeaks } from './generator.js';
 import { videoDirs, writeJsonAtomic, ensureTranscript, createRun, updateRun, listRuns } from './workspace.js';
 import { spawn } from 'node:child_process';
+import { prepareRunInputs } from './inputs.js';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -119,11 +120,12 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
   const run = await createRun(workspace, meta, { request, probe: probeMeta, generator: generator.name, derived, warnings });
   job.run = run.name;
   try {
+    const prepared = await prepareRunInputs(workspace, run, { videoPath, probe: probeMeta, request, derived, tools: ctx.tools });
     const result = await generator.run({
-      root: workspace, videoPath, outDir: path.join(workspace, meta.id), runDir: run.dir, run: run.manifest, jobId, request,
+      root: workspace, videoPath, outDir: path.join(workspace, meta.id), runDir: run.dir, run: prepared, jobId, request,
     });
     await updateRun(run.dir, { status: 'done', finishedAt: new Date().toISOString(), output: result.output || null, stub: !!result.stub, note: result.note || null });
-    return { ...result, run: run.name };
+    return { ...result, run: run.name, warnings: prepared.warnings };
   } catch (err) {
     await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });
     throw err;
@@ -291,10 +293,11 @@ async function handle(ctx, req, res) {
 }
 
 // `derivers`: optional { transcriber, extractAudio } overrides (tests).
+// `tools`: optional { speechRef, frame, annotate } media-tool overrides (tests).
 // `reveal(path)`: opens a folder in the OS file browser.
 export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null,
-  derivers = {}, reveal = defaultReveal }) {
-  const ctx = { workspace, generator, initialId, derivers, reveal, jobs: new Map() };
+  derivers = {}, tools = {}, reveal = defaultReveal }) {
+  const ctx = { workspace, generator, initialId, derivers, tools, reveal, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -304,9 +307,9 @@ export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = cr
 }
 
 // `video`: optional path to open at startup (imported into the workspace).
-export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, reveal }) {
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal }) {
   const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
-  const server = createEditServer({ workspace, generator, initialId, derivers, reveal });
+  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
