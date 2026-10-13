@@ -66,8 +66,21 @@ export function createTrimGenerator(deps = {}) {
       }
 
       const aspect = nearestAspect(run.source && run.source.width, run.source && run.source.height);
-      const userPrompt = (run.prompt && run.prompt.text) || '';
       const styleLock = (request && request.styleLock) || '';
+      // Raw per-mark prompt text for a window — NOT run.prompt.text, which is composePrompt's
+      // blob (frame headers + a Dialogue block) and would pollute the gesture clause. Prefer the
+      // prompts whose mark falls in the window; fall back to whole-video prompts (markId null).
+      const markTime = (id) => {
+        const m = (run.marks || []).find((x) => x.id === id);
+        if (!m) return null;
+        return (m.kind === 'range' ? (m.start + m.end) / 2 : m.start) / fps;
+      };
+      const windowPrompt = (w) => {
+        const texts = (run.prompts || []).map((p) => ({ markId: p.markId, text: (p.text || '').trim() })).filter((p) => p.text);
+        const inWin = texts.filter((p) => p.markId && (() => { const t = markTime(p.markId); return t != null && t >= w.window[0] && t <= w.window[1]; })());
+        const global = texts.filter((p) => !p.markId);
+        return (inWin.length ? inWin : global).map((p) => p.text).join(' ');
+      };
       const results = [];
       for (let i = 0; i < windows.length; i++) {
         const w = windows[i];
@@ -108,7 +121,7 @@ export function createTrimGenerator(deps = {}) {
           entry.keyframeCount = poses.length;
 
           const gestureOffset = w.editCenters.length ? w.editCenters[0] - w.window[0] : undefined;
-          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: userPrompt, gestureOffset, styleLock });
+          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: windowPrompt(w), gestureOffset, styleLock });
           await writeFile(path.join(wDir, 'prompt.md'), prompt + '\n');
 
           const opts = {

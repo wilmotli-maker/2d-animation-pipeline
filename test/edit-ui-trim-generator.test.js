@@ -117,6 +117,20 @@ test('request.styleLock and the text-pose gesture clause reach the submitted pro
   }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
 });
 
+test('the gesture uses the raw per-mark prompt, not the composed prompt.text (no frame headers or duplicated dialogue)', async () => {
+  await scaffold(async ({ gen, job, deps }) => {
+    // Simulate what createRun/composePrompt produces: a composed blob with a frame header and a
+    // trailing Dialogue block. The generator must NOT splice this into the gesture clause.
+    job.run.prompt = { text: '[frame 48 (2.00s)]\nraises one fist proudly.\n\nDialogue (spoken word for word, exactly as written): "Oh, hey there."' };
+    job.run.prompts = [{ markId: 'm1', text: 'raises one fist proudly.' }];
+    await gen.run(job);
+    const prompt = deps.submissions[0].opts.prompt;
+    assert.match(prompt, /peaking at about 2\.0s, the subject raises one fist proudly/);
+    assert.doesNotMatch(prompt, /\[frame 48/);
+    assert.doesNotMatch(prompt, /Dialogue \(spoken word/);
+  }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
+});
+
 test('no regions falls back to one whole-clip window', async () => {
   await scaffold(async ({ gen, job, deps }) => {
     await gen.run(job);
