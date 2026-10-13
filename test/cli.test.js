@@ -84,6 +84,11 @@ test('buildGenerateArgs emits scalar model params and stringifies booleans', () 
   ]);
 });
 
+test('buildGenerateArgs emits --draft (Seedance draft/preview path)', () => {
+  const args = buildGenerateArgs('seedance_2_5', { prompt: 'x', draft: true, wait: false });
+  assert.deepEqual(args, ['generate', 'create', 'seedance_2_5', '--prompt', 'x', '--draft', 'true']);
+});
+
 test('buildGenerateArgs stringifies generateAudio:false rather than dropping it', () => {
   const args = buildGenerateArgs('seedance_2_0', { prompt: 'x', generateAudio: false, wait: false });
   assert.deepEqual(args, [

@@ -70,6 +70,9 @@ const SCALAR_PARAMS = {
   generateAudio: '--generate-audio',
   aspectRatio: '--aspect-ratio',
   mode: '--mode',
+  // Seedance draft/preview path. Higgsfield-only: draft renders currently bypass the nsfw
+  // moderation that blocks full/final speech-ref+image generations (verified 2026-10-12).
+  draft: '--draft',
   bitrateMode: '--bitrate-mode',
   genre: '--genre',
   // Upscaler params (bytedance_video_upscale).

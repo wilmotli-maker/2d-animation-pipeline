@@ -138,7 +138,7 @@ export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defa
   const {
     shotId, version, model, prompt, promptFile, images = [],
     speechAudio, videos = [], audios = [],
-    resolution, duration, aspectRatio, generateAudio, mode,
+    resolution, duration, aspectRatio, generateAudio, mode, draft,
   } = spec;
   const task = await resolveActiveTask(root, spec);
 
@@ -169,6 +169,7 @@ export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defa
   if (aspectRatio != null) opts.aspectRatio = aspectRatio;
   if (generateAudio != null) opts.generateAudio = generateAudio;
   if (mode != null) opts.mode = mode;
+  if (draft != null) opts.draft = draft;
 
   const { credits, source: creditsSource } = await estimateCredits({
     runner: spec.runner, model, prompt: v.promptText, images,
@@ -183,7 +184,7 @@ export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defa
     request: { ref: `${shotId}/v${version}`, model, opts },
     ctx: {
       shotId, version, model, dir, images, videoReferences, audios,
-      resolution, duration, aspectRatio, generateAudio, mode,
+      resolution, duration, aspectRatio, generateAudio, mode, draft: draft ?? null,
       speechAudio: speechAudio || null, promptText: v.promptText,
       task, credits, creditsSource,
     },
@@ -193,7 +194,7 @@ export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defa
 async function finalizeShotDraft(root, prepared, result, { downloadTo }) {
   const {
     shotId, version, model, dir, images, videoReferences, audios,
-    resolution, duration, aspectRatio, generateAudio, mode, speechAudio,
+    resolution, duration, aspectRatio, generateAudio, mode, draft, speechAudio,
     promptText, task, credits, creditsSource,
   } = prepared.ctx;
   const location = { kind: 'shot', shotId };
@@ -217,7 +218,7 @@ async function finalizeShotDraft(root, prepared, result, { downloadTo }) {
     const successEntry = {
       model, jobId: result.id, prompt: promptText,
       imageReferences: images, videoReferences, audioReferences: audios,
-      resolution, duration, aspectRatio, generateAudio, mode,
+      resolution, duration, aspectRatio, generateAudio, mode, draft: draft ?? null,
       speechAudio: speechAudio || null, output: outputPath,
       version: formatVersion(version),
       status: 'generated', ...creditFields,
