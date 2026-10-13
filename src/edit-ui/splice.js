@@ -93,7 +93,7 @@ function optimise(P0, ps, active, O, G, size) {
 // Build the ffmpeg filter_complex that composes orig_head + gen_middle + orig_tail (ported from
 // splice-match.js). Returns { filter, expectedOutputFrames, k }. seam mid=two seams, head=keep tail
 // only, tail=keep head only. blend>0 (mid only) crossfades; retime stretches the gen segment.
-export function buildSpliceFilter({ seam = 'mid', blend = 0, retime = false, inPt, outPt, origLen, genLen, fps }) {
+export function buildSpliceFilter({ seam = 'mid', blend = 0, retime = false, inPt, outPt, origLen, genLen, fps, audio = false }) {
   const N = blend;
   const t = (f) => (f / fps).toFixed(4);
   const a = inPt.i, a2 = inPt.j, b = outPt.i, b2 = outPt.j;
@@ -123,8 +123,23 @@ export function buildSpliceFilter({ seam = 'mid', blend = 0, retime = false, inP
     const n = (keepPre ? 1 : 0) + 1 + (keepPost ? 1 : 0);
     filter = parts.join(';') + `;${labels}concat=n=${n}:v=1:a=0[v]`;
   }
+  // Audio: splice it at the SAME cut points as the video (orig head/tail + gen middle), so the
+  // regenerated middle's lip-synced audio sits between the original head/tail on the same timeline.
+  // Only for hard cuts with no retime (xfade would need acrossfade; retime would need atempo).
+  const maps = ['[v]'];
+  if (audio && N === 0 && !retime) {
+    const ta = (f) => (f / fps).toFixed(4);
+    const ap = [];
+    if (keepPre) ap.push(`[0:a]atrim=end=${ta(spanStart)},asetpts=PTS-STARTPTS[aa1]`);
+    ap.push(`[1:a]atrim=start=${ta(genStart)}:end=${ta(genEnd + 1)},asetpts=PTS-STARTPTS[aa2]`);
+    if (keepPost) ap.push(`[0:a]atrim=start=${ta(spanEnd + 1)},asetpts=PTS-STARTPTS[aa3]`);
+    const alabels = [keepPre ? '[aa1]' : '', '[aa2]', keepPost ? '[aa3]' : ''].join('');
+    const an = (keepPre ? 1 : 0) + 1 + (keepPost ? 1 : 0);
+    filter += `;${ap.join(';')};${alabels}concat=n=${an}:v=0:a=1[a]`;
+    maps.push('[a]');
+  }
   const expectedOutputFrames = (keepPre ? spanStart : 0) + segLen + (keepPost ? (origLen - spanEnd - 1) : 0);
-  return { filter, expectedOutputFrames, k };
+  return { filter, expectedOutputFrames, k, maps };
 }
 
 export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }) {
@@ -167,6 +182,9 @@ export async function probeSize(file, { ffprobe = defaultFfprobe }) {
   const [w, h] = (await ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', file])).split(',').map(Number);
   return { w, h };
 }
+export async function probeHasAudio(file, { ffprobe = defaultFfprobe }) {
+  return /audio/.test(await ffprobe(['-select_streams', 'a:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file]));
+}
 
 export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
@@ -180,6 +198,9 @@ export async function spliceClip(opts, deps = {}) {
   const outRange = opts.outRange || [edit + 0.5, edit + 1.8];
 
   const [O, G] = await Promise.all([decode(orig), decode(gen)]);
+  // Carry audio through when both inputs have it (orig head/tail + gen middle). Auto-detect unless
+  // the caller forces it. The gen clip's audio is its lip-synced speech for the window.
+  const useAudio = opts.audio ?? ((await probeHasAudio(orig, { ffprobe })) && (await probeHasAudio(gen, { ffprobe })));
   const find = { inRange, outRange, fps, shift, genInHi, genOutLo, genOffset };
   const { P, pairs } = fitTransform(O, G, { mode: align, seam, W, H, ...find });
   let { inPt, outPt } = pairs;
@@ -197,11 +218,15 @@ export async function spliceClip(opts, deps = {}) {
     await ffmpeg(['-y', '-i', gen, '-filter_complex',
       `[0:v]rotate=${th}:ow=iw:oh=ih:c=${fill},scale=iw*${P.s}:ih*${P.s}:flags=bicubic[g];` +
       `color=c=${fill}:s=${W0}x${H0}:r=${fps}[cv];[cv][g]overlay=x=(W-w)/2+${(P.tx * sx).toFixed(3)}:y=(H-h)/2+${(P.ty * (H0 / H)).toFixed(3)}:shortest=1:format=auto[v]`,
-      '-map', '[v]', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', genFile]);
+      '-map', '[v]', '-map', '0:a?', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', '-c:a', 'copy', genFile]);
   }
 
-  const { filter, expectedOutputFrames } = buildSpliceFilter({ seam, blend, retime, inPt, outPt, origLen: O.length, genLen: G.length, fps });
-  await ffmpeg(['-y', '-i', orig, '-i', genFile, '-filter_complex', filter, '-map', '[v]', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', out]);
+  const { filter, expectedOutputFrames, maps } = buildSpliceFilter({ seam, blend, retime, inPt, outPt, origLen: O.length, genLen: G.length, fps, audio: useAudio });
+  const renderArgs = ['-y', '-i', orig, '-i', genFile, '-filter_complex', filter];
+  for (const mp of maps) renderArgs.push('-map', mp);
+  renderArgs.push('-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p');
+  if (maps.includes('[a]')) renderArgs.push('-c:a', 'aac');
+  await ffmpeg([...renderArgs, out]);
 
   return {
     output: out, seam, align, blendFrames: blend,

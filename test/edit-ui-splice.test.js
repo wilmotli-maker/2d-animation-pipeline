@@ -62,6 +62,24 @@ test('tail seam keeps the original head and drops the tail', () => {
   assert.doesNotMatch(filter, /\[s3\]/);
 });
 
+test('without audio the maps are video-only', () => {
+  const { maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+  assert.deepEqual(maps, ['[v]']);
+});
+
+test('with audio on a hard-cut edit, the filter concats audio and maps [a] too', () => {
+  const { filter, maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24, audio: true });
+  assert.deepEqual(maps, ['[v]', '[a]']);
+  assert.match(filter, /\[0:a\]atrim/);
+  assert.match(filter, /\[1:a\]atrim/);
+  assert.match(filter, /concat=n=3:v=0:a=1\[a\]/);
+});
+
+test('audio is skipped (video-only maps) when retiming, which would desync it', () => {
+  const { maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: true, ...pts, origLen: 96, genLen: 96, fps: 24, audio: true });
+  assert.deepEqual(maps, ['[v]']);
+});
+
 test('a positive blend produces an xfade graph for a mid edit', () => {
   const { filter } = buildSpliceFilter({ seam: 'mid', blend: 4, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
   assert.match(filter, /xfade=transition=fade/);
@@ -96,6 +114,15 @@ test('spliceClip finds pairs and renders a splice (align none)', async () => {
   const last = d.calls.at(-1).join(' ');
   assert.match(last, /filter_complex/);
   assert.match(last, /out\.mp4/);
+});
+
+test('spliceClip maps and encodes audio when audio:true', async () => {
+  const d = fakeDeps();
+  await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true }, d);
+  const last = d.calls.at(-1).join(' ');
+  assert.match(last, /-map \[a\]/);
+  assert.match(last, /-c:a aac/);
 });
 
 test('spliceClip throws when no valid in/out points (out not after in)', async () => {
