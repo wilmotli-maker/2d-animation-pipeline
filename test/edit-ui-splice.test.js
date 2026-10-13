@@ -62,22 +62,10 @@ test('tail seam keeps the original head and drops the tail', () => {
   assert.doesNotMatch(filter, /\[s3\]/);
 });
 
-test('without audio the maps are video-only', () => {
-  const { maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+test('buildSpliceFilter is video-only (maps [v]); audio is handled by the orchestrator', () => {
+  const { filter, maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
   assert.deepEqual(maps, ['[v]']);
-});
-
-test('with audio on a hard-cut edit, the filter concats audio and maps [a] too', () => {
-  const { filter, maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24, audio: true });
-  assert.deepEqual(maps, ['[v]', '[a]']);
-  assert.match(filter, /\[0:a\]atrim/);
-  assert.match(filter, /\[1:a\]atrim/);
-  assert.match(filter, /concat=n=3:v=0:a=1\[a\]/);
-});
-
-test('audio is skipped (video-only maps) when retiming, which would desync it', () => {
-  const { maps } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: true, ...pts, origLen: 96, genLen: 96, fps: 24, audio: true });
-  assert.deepEqual(maps, ['[v]']);
+  assert.doesNotMatch(filter, /\[0:a\]|concat=n=\d+:v=0:a=1/);
 });
 
 test('a positive blend produces an xfade graph for a mid edit', () => {
@@ -116,13 +104,26 @@ test('spliceClip finds pairs and renders a splice (align none)', async () => {
   assert.match(last, /out\.mp4/);
 });
 
-test('spliceClip maps and encodes audio when audio:true', async () => {
+test('with source audio, spliceClip muxes the ORIGINAL audio and retimes the middle', async () => {
   const d = fakeDeps();
-  await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
     align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true }, d);
   const last = d.calls.at(-1).join(' ');
-  assert.match(last, /-map \[a\]/);
+  assert.match(last, /-map 0:a\?/);           // original audio stream, not a filtered one
   assert.match(last, /-c:a aac/);
+  assert.doesNotMatch(last, /concat=n=\d+:v=0:a=1/); // no generated-audio splice
+  assert.equal(rep.audio, true);
+  assert.equal(rep.retime, true);             // middle retimed so length == source, audio aligns
+});
+
+test('with no source audio, spliceClip stays video-only and does not force retime', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: false }, d);
+  const last = d.calls.at(-1).join(' ');
+  assert.doesNotMatch(last, /-map 0:a/);
+  assert.equal(rep.audio, false);
+  assert.equal(rep.retime, false);
 });
 
 test('spliceClip throws when no valid in/out points (out not after in)', async () => {
