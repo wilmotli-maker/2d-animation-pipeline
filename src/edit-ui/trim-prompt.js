@@ -1,0 +1,50 @@
+// src/edit-ui/trim-prompt.js
+// Compose the targeted-edit prompt for one window, following the five-paragraph structure of
+// the `targeted-edit-author` skill (style/design lock, speech+lip-sync, framing, the edit,
+// render style). Unlike the shot-author flow, the edit-ui case EDITS an existing performance,
+// so the style/orientation/framing/render locks are worded to PRESERVE what the reference
+// frames already show (an optional `styleLock` string is folded into the opening paragraph);
+// only the marked beat changes. Keyframe windows pin stills to timestamps; text-pose windows
+// describe a mid-clip gesture instead of a middle keyframe.
+const s1 = (n) => Number(n).toFixed(1);
+
+export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '' } = {}) {
+  const end = s1(clipDuration);
+  const textPose = poses.length === 0;
+  const n = poses.length + 2;                       // first + poses + last
+  const imageTags = Array.from({ length: n }, (_, i) => `@Image${i + 1}`).join(', ');
+  const lines = [];
+
+  // 1. Style + design / orientation lock (preservation-worded; optional style lock folded in).
+  const p1 = ['A single continuous, fully-animated performance edited from an existing shot.'];
+  if (styleLock.trim()) p1.push(styleLock.trim());
+  p1.push('Preserve the subject’s exact appearance, costume, proportions and orientation as shown in the reference frames throughout — do not redesign or re-style them.');
+  lines.push(p1.join(' '));
+
+  // 2. Speech / lip-sync.
+  const sp = ['@Video1 is the speech/lip-sync source.'];
+  if (dialogue.trim()) sp.push(`The subject speaks directly to camera, saying, "${dialogue.trim()}"`);
+  sp.push(`Full lip-sync is REQUIRED for the ENTIRE ${end} seconds: the mouth moves continuously to match @Video1’s audio from the first frame to the last and NEVER stops, holds, or freezes. Take ONLY the audio and speech timing from @Video1; take appearance, framing and body from the still reference frames ${imageTags}.`);
+  lines.push(sp.join(' '));
+
+  // 3. Framing — preserve the source shot.
+  lines.push('Preserve the shot’s existing framing and composition: the same shot size, subject scale and position, and the same locked camera as the reference frames; keep the whole subject in frame exactly as the references do, with the same background. Do not crop, zoom, pan, or let the camera drift.');
+
+  // 4. The edit.
+  if (textPose) {
+    const mid = s1(gestureOffset != null ? gestureOffset : clipDuration / 2);
+    const act = gesture.trim().replace(/[.\s]+$/, '') || 'makes a distinct new gesture';
+    lines.push(`The clip STARTS on the first reference frame at 0.0s and ENDS on the last reference frame at ${end}s. In between, peaking at about ${mid}s, the subject ${act} — a distinct new gesture not present in the start or end frames — then eases back toward the ending frame by ${end}s. Move continuously and naturally with no held freezes; the mouth keeps lip-syncing to @Video1 the whole time.`);
+  } else {
+    const pins = ['@Image1 at 0.0s'];
+    poses.forEach((p, i) => pins.push(`@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY reaches the keyframe pose; this keyframe sets the BODY and EYES only, the MOUTH ignores the reference image’s mouth and keeps lip-syncing to @Video1`));
+    pins.push(`@Image${n} at ${end}s`);
+    let para = `The clip is exactly ${end} seconds long. The still reference images are keyframes pinned to SPECIFIC times — pass smoothly THROUGH each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
+    if (gesture.trim()) para += ` The injected pose: ${gesture.trim()}.`;
+    lines.push(para);
+  }
+
+  // 5. Render style — preserve the reference look.
+  lines.push('Match the exact art style of the reference frames — the same line work, color, shading and level of detail. Do not introduce gradients, 3D, or photorealism that are not already present in the references.');
+  return lines.join('\n\n');
+}

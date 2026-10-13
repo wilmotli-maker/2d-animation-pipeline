@@ -13,9 +13,14 @@ test('generatorNames lists stub among the registered backends', () => {
   assert.ok(generatorNames().includes('stub'));
 });
 
-test('resolveGenerator defaults to stub when no name is given', () => {
-  assert.equal(resolveGenerator().name, 'stub');
-  assert.equal(resolveGenerator(undefined).name, 'stub');
+test('seedance-draft is registered and is the default', () => {
+  assert.ok(generatorNames().includes('seedance-draft'));
+  assert.equal(resolveGenerator().name, 'seedance-draft');
+  assert.equal(resolveGenerator(undefined).name, 'seedance-draft');
+});
+
+test('stub is still selectable by name', () => {
+  assert.equal(resolveGenerator('stub').name, 'stub');
 });
 
 test('resolveGenerator throws a listing error for an unknown name', () => {

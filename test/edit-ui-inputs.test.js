@@ -79,6 +79,24 @@ test('prepareRunInputs records speechref, auto keyframes (skipping edited frames
   }, request, { audio: '/a.wav' });
 });
 
+test('with autoKeyframes 0 (the seedance-draft default) no auto keyframes are generated', async () => {
+  const made = [];
+  const tools = {
+    speechRef: async (wav, out) => { await writeFile(out, 's'); },
+    frame: async (_v, t, out) => { made.push(+t.toFixed(3)); await mkdir(path.dirname(out), { recursive: true }); await writeFile(out, 'f'); },
+    annotate: async () => ({ withFrame: '/x.png', only: '/y.png' }),
+  };
+  const request = { fps: 24, autoKeyframes: 0 };
+  await withRun(async (ws, run) => {
+    const m = await prepareRunInputs(ws, run, {
+      videoPath: '/v.mp4', probe: { fps: 24, frames: 100, duration: 100 / 24, width: 1280, height: 720 }, request, derived: { audio: '/a.wav' }, tools,
+    });
+    assert.deepEqual(m.autoKeyframes, []);
+    assert.ok(!m.inputs.some((i) => i.role === 'keyframe' && i.kind === 'auto'), 'no keyframe:auto inputs');
+    assert.deepEqual(made, [], 'no source frames were extracted for auto keyframes');
+  }, request, { audio: '/a.wav' });
+});
+
 test('a failing media tool becomes a warning, not a failed run', async () => {
   const tools = {
     speechRef: async () => { throw new Error('no ffmpeg'); },

@@ -600,7 +600,7 @@ async function main() {
       '  pipeline sync-skills [--root <dir>]        # refresh a project\'s .claude/skills/ from the current templates',
       '  pipeline wavespeed-key [--status]          # print the resolved WaveSpeed key (for the seedance-stitch joiner); --status prints only the source',
       '  pipeline studio [--port <n=4870>] [--root <dir>]   # local web UI: browse the project tree, compare + select versions',
-      '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>] [--generator <stub>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
+      '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>] [--generator <seedance-draft|stub>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
