@@ -135,3 +135,73 @@ export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }
   }
   return { P, pairs };
 }
+
+// --- I/O (ffmpeg/ffprobe shelled; injectable) + orchestrator ---------------------------------
+import { spawn } from 'node:child_process';
+
+function runFf(bin, args, collect) {
+  return new Promise((resolve, reject) => {
+    const c = spawn(bin, args, { stdio: ['ignore', collect ? 'pipe' : 'inherit', 'pipe'] });
+    const chunks = []; let err = '';
+    if (collect) c.stdout.on('data', (x) => chunks.push(x));
+    c.stderr.on('data', (x) => { err += x; });
+    c.on('error', reject);
+    c.on('close', (code) => (code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`${bin} exit ${code}\n${err.slice(-600)}`))));
+  });
+}
+const defaultFfmpeg = (args) => runFf('ffmpeg', ['-v', 'error', ...args], false);
+const defaultFfmpegOut = (args) => runFf('ffmpeg', ['-v', 'error', ...args], true);
+const defaultFfprobe = (args) => runFf('ffprobe', ['-v', 'error', ...args], true).then((b) => b.toString().trim());
+
+export async function decodeGrayFrames(file, { fps, W, H, ffmpeg = defaultFfmpegOut }) {
+  const buf = await ffmpeg(['-i', file, '-vf', `fps=${fps},scale=${W}:${H},format=gray`, '-f', 'rawvideo', '-']);
+  const n = Math.floor(buf.length / (W * H));
+  return Array.from({ length: n }, (_, i) => buf.subarray(i * W * H, (i + 1) * W * H));
+}
+export async function probeSize(file, { ffprobe = defaultFfprobe }) {
+  const [w, h] = (await ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', file])).split(',').map(Number);
+  return { w, h };
+}
+
+export async function spliceClip(opts, deps = {}) {
+  const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
+    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo } = opts;
+  const { W, H } = size;
+  const ffmpeg = deps.ffmpeg || defaultFfmpeg;
+  const ffmpegOut = deps.ffmpegOut || defaultFfmpegOut;
+  const ffprobe = deps.ffprobe || defaultFfprobe;
+  const decode = deps.decode || ((f) => decodeGrayFrames(f, { fps, W, H, ffmpeg: ffmpegOut }));
+  const inRange = opts.inRange || [edit - 1.7, edit - 0.5];
+  const outRange = opts.outRange || [edit + 0.5, edit + 1.8];
+
+  const [O, G] = await Promise.all([decode(orig), decode(gen)]);
+  const find = { inRange, outRange, fps, shift, genInHi, genOutLo };
+  const { P, pairs } = fitTransform(O, G, { mode: align, seam, W, H, ...find });
+  let { inPt, outPt } = pairs;
+  if (seam === 'head') inPt = { i: 0, j: 0, d: 0 };
+  if (seam === 'tail') outPt = { i: O.length - 1, j: G.length - 1, d: 0 };
+  if (!inPt || !outPt || outPt.j <= inPt.j + blend) throw new Error('no valid in/out points found; widen the search ranges');
+
+  let genFile = gen;
+  if (align !== 'none' && (P.tx || P.ty || P.rot || P.s !== 1)) {
+    const { w: W0, h: H0 } = await probeSize(orig, { ffprobe });
+    genFile = out.replace(/\.mp4$/, '') + '-gen-aligned.mp4';
+    const cbuf = await ffmpegOut(['-i', gen, '-frames:v', '1', '-vf', 'format=rgb24,crop=1:1:5:5', '-f', 'rawvideo', '-']);
+    const fill = '0x' + [...cbuf.subarray(0, 3)].map((x) => x.toString(16).padStart(2, '0')).join('');
+    const sx = W0 / W, th = (P.rot * Math.PI / 180).toFixed(6);
+    await ffmpeg(['-y', '-i', gen, '-filter_complex',
+      `[0:v]rotate=${th}:ow=iw:oh=ih:c=${fill},scale=iw*${P.s}:ih*${P.s}:flags=bicubic[g];` +
+      `color=c=${fill}:s=${W0}x${H0}:r=${fps}[cv];[cv][g]overlay=x=(W-w)/2+${(P.tx * sx).toFixed(3)}:y=(H-h)/2+${(P.ty * (H0 / H)).toFixed(3)}:shortest=1:format=auto[v]`,
+      '-map', '[v]', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', genFile]);
+  }
+
+  const { filter, expectedOutputFrames } = buildSpliceFilter({ seam, blend, retime, inPt, outPt, origLen: O.length, genLen: G.length, fps });
+  await ffmpeg(['-y', '-i', orig, '-i', genFile, '-filter_complex', filter, '-map', '[v]', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', out]);
+
+  return {
+    output: out, seam, align, blendFrames: blend,
+    transform: align === 'none' ? null : { tx: +P.tx.toFixed(3), ty: +P.ty.toFixed(3), rot: +P.rot.toFixed(3), s: +P.s.toFixed(4) },
+    inPoint: { origFrame: inPt.i, genFrame: inPt.j }, outPoint: { origFrame: outPt.i, genFrame: outPt.j },
+    expectedOutputFrames, originalFrames: O.length,
+  };
+}

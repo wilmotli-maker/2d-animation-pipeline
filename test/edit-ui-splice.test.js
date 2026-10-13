@@ -1,7 +1,7 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs, buildSpliceFilter } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter, spliceClip } from '../src/edit-ui/splice.js';
 
 const W = 4, H = 4;
 const frame = (fill) => Uint8Array.from({ length: W * H }, () => fill);
@@ -60,4 +60,36 @@ test('a positive blend produces an xfade graph for a mid edit', () => {
 test('retime stretches the gen segment to the original span length', () => {
   const { k } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: true, inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96, fps: 24 });
   assert.ok(Math.abs(k - (72 - 24) / (60 - 20)) < 1e-9);
+});
+
+const W2 = 4, H2 = 4;
+const gray = (v) => Uint8Array.from({ length: W2 * H2 }, () => v);
+const FR = [0, 30, 60, 90, 120, 150, 180, 210].map(gray);
+
+function fakeDeps() {
+  const calls = [];
+  return {
+    calls,
+    ffmpeg: async (args) => { calls.push(args); },
+    ffmpegOut: async () => Buffer.from([0, 0, 0]),
+    ffprobe: async () => '560,752',
+    decode: async () => FR,
+  };
+}
+
+test('spliceClip finds pairs and renders a splice (align none)', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9] }, d);
+  assert.ok(rep.inPoint && rep.outPoint);
+  assert.ok(rep.outPoint.genFrame > rep.inPoint.genFrame);
+  const last = d.calls.at(-1).join(' ');
+  assert.match(last, /filter_complex/);
+  assert.match(last, /out\.mp4/);
+});
+
+test('spliceClip throws when no valid in/out points (out not after in)', async () => {
+  const d = fakeDeps();
+  await assert.rejects(() => spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.5, 0.9], outRange: [0.1, 0.4] }, d), /widen/i);
 });
