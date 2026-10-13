@@ -9,7 +9,10 @@ export function trimArgs({ input, output, start, span, padStart = 0, padEnd = 0,
   const vf = [];
   if (padStart > 0) vf.push(`tpad=start_duration=${t3(padStart)}:start_mode=clone`);
   if (padEnd > 0) vf.push(`tpad=stop_duration=${t3(padEnd)}:stop_mode=clone`);
-  const args = ['-ss', t3(start), '-i', input, '-t', t3(span)];
+  // -ss/-t are INPUT options (before -i): they limit the real-footage read to `span`, so the
+  // tpad/apad padding below extends the output to the full clip rather than being truncated
+  // by an output-side -t (which would drop the real footage on a head-padded window).
+  const args = ['-ss', t3(start), '-t', t3(span), '-i', input];
   if (!audio) args.push('-an');
   if (vf.length) args.push('-vf', vf.join(','));
   if (audio) {

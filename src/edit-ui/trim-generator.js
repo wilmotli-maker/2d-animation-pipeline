@@ -134,7 +134,13 @@ export function createTrimGenerator(deps = {}) {
 
       await updateRun(runDir, { windows: results });
       const firstOk = results.find((w) => w.output);
-      return { output: firstOk ? firstOk.output : null, windows: results };
+      // Per-window failures are isolated, but a run where no window produced any output is a
+      // failed run — throw so the server records it as 'error' instead of a done run with no clip.
+      if (!firstOk) {
+        const why = results.map((w) => w.error).filter(Boolean).join('; ') || 'no output produced';
+        throw new Error(`all ${results.length} edit window(s) failed: ${why}`);
+      }
+      return { output: firstOk.output, windows: results };
     },
   };
 }

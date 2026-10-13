@@ -14,6 +14,15 @@ test('trimArgs seeks, limits span, and pads a silent-video clip at both ends', (
   assert.match(s, /out\.mp4$/);
 });
 
+test('the span limit is an input option (before -i) so edge padding is not truncated', () => {
+  // -t as an OUTPUT option (after -i) truncates the tpad-prepended padding, dropping the
+  // real footage on a head-padded window. It must limit the input read, before -i.
+  const args = trimArgs({ input: 'in.mp4', output: 'out.mp4', start: 0, span: 2, padStart: 2, padEnd: 0, video: true, audio: false });
+  const iIdx = args.indexOf('-i');
+  const tIdx = args.indexOf('-t');
+  assert.ok(tIdx !== -1 && tIdx < iIdx, `-t (${tIdx}) must come before -i (${iIdx})`);
+});
+
 test('trimArgs head-pads video and pads audio with silence for a speech clip', () => {
   const args = trimArgs({ input: 'sr.mp4', output: 'srt.mp4', start: 0, span: 3, padStart: 1, padEnd: 0, video: true, audio: true });
   const s = args.join(' ');

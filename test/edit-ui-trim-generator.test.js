@@ -99,6 +99,13 @@ test('a failing window is isolated; other windows still complete and an output r
   }, { inputs: baseInputs, marks: [{ id: 'a', kind: 'frame', start: 48, end: 48 }, { id: 'b', kind: 'frame', start: 216, end: 216 }], duration: 12 });
 });
 
+test('when every window fails, run() throws so the run is not marked done', async () => {
+  await scaffold(async ({ gen, job, deps }) => {
+    deps.runBatch = async (_r, items) => items.map(() => ({ status: 'failed', error: 'boom' }));
+    await assert.rejects(() => gen.run(job), /all .*window|generation failed|no window/i);
+  }, { inputs: baseInputs, marks: [{ id: 'a', kind: 'frame', start: 48, end: 48 }], duration: 10 });
+});
+
 test('no regions falls back to one whole-clip window', async () => {
   await scaffold(async ({ gen, job, deps }) => {
     await gen.run(job);
