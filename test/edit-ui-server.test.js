@@ -113,6 +113,34 @@ test('reveal opens only this video\'s folders', async () => {
   assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: 'v999' }))).status, 404);
 });
 
+test('POST /api/splice validates id and run (404)', async () => {
+  assert.equal((await fetch(`${base}api/splice`, json({ id: 'ffffffffffffffff', run: 'v001' }))).status, 404);
+  assert.equal((await fetch(`${base}api/splice`, json({ id: initialId, run: '../../..' }))).status, 404);
+  assert.equal((await fetch(`${base}api/splice`, json({ id: initialId, run: 'v999' }))).status, 404);
+});
+
+test('POST /api/splice runs the splice job and exposes its output', async () => {
+  const { mkdir } = await import('node:fs/promises');
+  const out2 = await mkdtemp(path.join(tmpdir(), 'edit-ui-splice-'));
+  await writeFile(path.join(out2, 'clip.mp4'), 'video-bytes-2');
+  const stubSplice = async (ws, meta, m) => ({ output: `${meta.id}/runs/${m.run}/spliced.mp4` });
+  const { server: srv, url: b, initialId: id2 } = await startEditUi({
+    workspace: path.join(out2, 'ws'), port: 0, generator: fakeGen, video: path.join(out2, 'clip.mp4'),
+    reveal: () => {}, splice: stubSplice,
+  });
+  try {
+    const runDir = path.join(out2, 'ws', id2, 'runs', 'v001');
+    await mkdir(runDir, { recursive: true });
+    await writeFile(path.join(runDir, 'manifest.json'), JSON.stringify({ run: 'v001', windows: [{ name: 'w01', status: 'done', output: 'x' }] }));
+    const r = await fetch(`${b}api/splice`, json({ id: id2, run: 'v001' }));
+    assert.equal(r.status, 202);
+    const jobId = (await r.json()).jobId;
+    let job; for (let i = 0; i < 50; i++) { job = await (await fetch(`${b}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
+    assert.equal(job.status, 'done');
+    assert.match(job.output, /spliced\.mp4$/);
+  } finally { srv.close(); await rm(out2, { recursive: true, force: true }); }
+});
+
 test('transcript is null for a clip without audio', async () => {
   assert.deepEqual(await (await fetch(`${base}api/transcript?id=${initialId}`)).json(), { transcript: null });
 });

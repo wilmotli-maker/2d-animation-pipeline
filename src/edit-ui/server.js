@@ -18,6 +18,7 @@ import { resolveWithin, sendFile } from '../studio/media.js';
 import { realWithin } from '../studio/contain.js';
 import { createStubGenerator, probeVideo, audioPeaks } from './generator.js';
 import { videoDirs, writeJsonAtomic, ensureTranscript, createRun, updateRun, listRuns } from './workspace.js';
+import { createSpliceRunner } from './splice-run.js';
 import { spawn } from 'node:child_process';
 import { prepareRunInputs } from './inputs.js';
 
@@ -284,6 +285,26 @@ async function handle(ctx, req, res) {
     return sendJson(res, 202, { jobId });
   }
 
+  // Splice a run's edited window(s) back into the source: POST {id, run} -> {jobId}.
+  if (req.method === 'POST' && p === '/api/splice') {
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const m = await readMeta(workspace, body && body.id);
+    if (!m) return sendJson(res, 404, { error: 'unknown video' });
+    const base = videoDirs(workspace, m.id);
+    const runDir = resolveWithin(base.runs, String(body.run || ''));
+    if (!runDir || !(await realWithin(base.dir, runDir))) return sendJson(res, 404, { error: 'unknown run' });
+    let manifest;
+    try { manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8')); } catch { return sendJson(res, 404, { error: 'unknown run' }); }
+    const jobId = `splice-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
+    const job = { id: jobId, kind: 'splice', status: 'running', createdAt: new Date().toISOString() };
+    ctx.jobs.set(jobId, job);
+    ctx.splice(workspace, m, manifest)
+      .then((result) => Object.assign(job, { status: 'done', ...result }))
+      .catch((err) => Object.assign(job, { status: 'error', error: err.message }));
+    return sendJson(res, 202, { jobId });
+  }
+
   if (get && p.startsWith('/api/jobs/')) {
     const job = ctx.jobs.get(p.slice('/api/jobs/'.length));
     return job ? sendJson(res, 200, job) : sendJson(res, 404, { error: 'unknown job' });
@@ -296,8 +317,8 @@ async function handle(ctx, req, res) {
 // `tools`: optional { speechRef, frame, annotate } media-tool overrides (tests).
 // `reveal(path)`: opens a folder in the OS file browser.
 export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null,
-  derivers = {}, tools = {}, reveal = defaultReveal }) {
-  const ctx = { workspace, generator, initialId, derivers, tools, reveal, jobs: new Map() };
+  derivers = {}, tools = {}, reveal = defaultReveal, splice = createSpliceRunner() }) {
+  const ctx = { workspace, generator, initialId, derivers, tools, reveal, splice, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -307,9 +328,9 @@ export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = cr
 }
 
 // `video`: optional path to open at startup (imported into the workspace).
-export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal }) {
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal, splice }) {
   const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
-  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal });
+  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal, splice });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {

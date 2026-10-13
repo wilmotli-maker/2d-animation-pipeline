@@ -562,6 +562,22 @@ async function main() {
     try { generator = resolveGenerator(f.generator || process.env.PIPELINE_EDIT_GENERATOR); } catch (e) { fail(`edit-ui: ${e.message}`); }
     const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator });
     console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name})  — Ctrl+C to stop`);
+  } else if (cmd === 'edit-ui-splice') {
+    const f = parseFlags([sub, ...rest].filter((x) => x != null));
+    if (!f.id || !f.run) fail('usage: pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]');
+    const nodePath = await import('node:path');
+    const { readFile } = await import('node:fs/promises');
+    const { DEFAULT_WORKSPACE } = await import('../src/edit-ui/server.js');
+    const { videoDirs } = await import('../src/edit-ui/workspace.js');
+    const { createSpliceRunner } = await import('../src/edit-ui/splice-run.js');
+    const workspace = f.workspace ? nodePath.resolve(f.workspace) : DEFAULT_WORKSPACE;
+    let meta;
+    try { meta = JSON.parse(await readFile(nodePath.join(workspace, f.id, 'meta.json'), 'utf8')); } catch { fail(`edit-ui-splice: unknown video "${f.id}"`); }
+    const runDir = nodePath.join(videoDirs(workspace, meta.id).runs, f.run);
+    let manifest;
+    try { manifest = JSON.parse(await readFile(nodePath.join(runDir, 'manifest.json'), 'utf8')); } catch { fail(`edit-ui-splice: unknown run "${f.run}"`); }
+    const res = await createSpliceRunner()(workspace, meta, manifest);
+    console.log(`spliced: ${nodePath.join(workspace, res.output)}`);
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -601,6 +617,7 @@ async function main() {
       '  pipeline wavespeed-key [--status]          # print the resolved WaveSpeed key (for the seedance-stitch joiner); --status prints only the source',
       '  pipeline studio [--port <n=4870>] [--root <dir>]   # local web UI: browse the project tree, compare + select versions',
       '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>] [--generator <seedance-draft|stub>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
+      '  pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]   # splice a run\'s edited window(s) back into the full source clip',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
