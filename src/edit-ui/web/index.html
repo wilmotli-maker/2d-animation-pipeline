@@ -12,7 +12,7 @@
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
   <span class="save" id="save-state"></span>
-  <label class="inline" title="Evenly spaced source frames passed to the generator alongside your edited keyframes">Auto keyframes <input type="number" id="auto-kf" min="0" max="12" value="4"></label>
+  <label class="inline" title="Extra evenly-spaced source frames added to the run. The seedance-draft generator ignores these (it uses start/end + your edited keyframes); leave at 0 unless experimenting.">Extra source frames <input type="number" id="auto-kf" min="0" max="12" value="0"></label>
   <button id="gen-video" class="primary" title="Generate the whole edited video">Generate video</button>
   <input type="file" id="open-input" accept="video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm" hidden>
   <input type="file" id="kf-input" accept="image/png,image/jpeg,image/webp" hidden>

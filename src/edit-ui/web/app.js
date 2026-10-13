@@ -20,7 +20,7 @@ const ICONS = {
 // renders:     { id, status, run, output, stub, note, at }
 // dialogue:    null | { original, text, include }   (transcript; text is the user's edit)
 // settings:    { autoKeyframes }
-const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 4 } }; // persisted
+const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0 } }; // persisted
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
@@ -138,7 +138,7 @@ async function loadVideo(id) {
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
-  data.settings = { autoKeyframes: 4, ...(sess.settings || {}) };
+  data.settings = { autoKeyframes: 0, ...(sess.settings || {}) };
   ui.transcribing = false;
   // Jobs don't survive a server restart; anything left "running" is stale.
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
