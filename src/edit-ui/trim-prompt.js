@@ -33,7 +33,7 @@ export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gestu
   // 4. The edit.
   if (textPose) {
     const mid = s1(gestureOffset != null ? gestureOffset : clipDuration / 2);
-    const act = gesture.trim() || 'makes a distinct new gesture';
+    const act = gesture.trim().replace(/[.\s]+$/, '') || 'makes a distinct new gesture';
     lines.push(`The clip STARTS on the first reference frame at 0.0s and ENDS on the last reference frame at ${end}s. In between, peaking at about ${mid}s, the subject ${act} — a distinct new gesture not present in the start or end frames — then eases back toward the ending frame by ${end}s. Move continuously and naturally with no held freezes; the mouth keeps lip-syncing to @Video1 the whole time.`);
   } else {
     const pins = ['@Image1 at 0.0s'];
