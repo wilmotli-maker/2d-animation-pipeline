@@ -5,14 +5,16 @@
 // exist: adding a real backend (MuAPI Seedance, Aleph) is a one-line entry here
 // plus a run() that consumes readRunView() from runview.js.
 import { createStubGenerator } from './generator.js';
+import { createTrimGenerator } from './trim-generator.js';
 
 // name -> factory(). Factories are lazy so a backend that needs credentials or a
 // heavy import isn't constructed until it's the one actually selected.
 const REGISTRY = {
+  'seedance-draft': createTrimGenerator,
   stub: createStubGenerator,
 };
 
-export const DEFAULT_GENERATOR = 'stub';
+export const DEFAULT_GENERATOR = 'seedance-draft';
 
 export function generatorNames() {
   return Object.keys(REGISTRY);
