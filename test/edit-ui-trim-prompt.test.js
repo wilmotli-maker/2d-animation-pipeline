@@ -25,11 +25,13 @@ test('text-pose prompt describes a mid-clip gesture peaking at its offset, not a
   assert.doesNotMatch(p, /@Image3/);            // only two stills in text-pose
 });
 
-test('the framing paragraph preserves the source shot composition and locks the camera', () => {
+test('the framing paragraph preserves the source shot, locks the camera, and keeps the full figure', () => {
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves' });
-  assert.match(p, /existing framing/i);
+  assert.match(p, /framing EXACTLY/i);
   assert.match(p, /locked camera/i);
-  assert.match(p, /Do not crop, zoom, pan/i);
+  assert.match(p, /must NOT zoom, push in, pan/i);
+  assert.match(p, /BOTH feet/);                        // enumerated full figure
+  assert.match(p, /never crop or cut off the legs or feet/i);
 });
 
 test('a style lock is folded into the opening paragraph when provided', () => {
