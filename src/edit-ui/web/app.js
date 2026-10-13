@@ -549,6 +549,19 @@ async function generateVideo() {
 function showResult(r) { ui.view = 'result'; ui.resultSrc = r.output; setSource(fileUrl(r.output, r.at)); renderAll(); }
 function showSource() { ui.view = 'source'; setSource(ui.src); renderAll(); }
 
+// Splice a run's edited window(s) back into the full source, then show the result.
+async function spliceRun(r) {
+  r.status = 'splicing'; renderAll();
+  try {
+    const { jobId } = await (await fetch('/api/splice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: ui.id, run: r.run }) })).json();
+    let s; do { await new Promise((z) => setTimeout(z, 700)); s = await (await fetch(`/api/jobs/${jobId}`)).json(); } while (s.status === 'running');
+    r.status = 'done';
+    if (s.status === 'done' && s.output) { r.output = s.output; r.at = new Date().toISOString(); r.spliced = true; showResult(r); }
+    else alert(`Splice failed: ${s.error || 'unknown error'}`);
+  } catch (err) { r.status = 'done'; alert(`Splice failed: ${err.message}`); }
+  renderAll();
+}
+
 // ---- sidebar -------------------------------------------------------------
 function renderInspector() {
   const box = $('inspector'); box.replaceChildren();
@@ -646,11 +659,13 @@ function renderRenders() {
     ul.append(el('li', { class: on ? 'sel' : '', onclick: () => r.status === 'done' && showResult(r) },
       el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
-        r.status === 'running' ? 'generating…' : r.status === 'error' ? r.error : r.stub ? 'stub' : new Date(r.at).toLocaleTimeString()),
+        r.status === 'running' ? 'generating…' : r.status === 'splicing' ? 'splicing…' : r.status === 'error' ? r.error
+          : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString()),
+      (r.run && r.status === 'done') ? el('button', { class: 'x', title: 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, 'Splice') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×')));
   });
-  $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running');
+  $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running' || r.status === 'splicing');
 }
 
 // ---- per-frame view ------------------------------------------------------
