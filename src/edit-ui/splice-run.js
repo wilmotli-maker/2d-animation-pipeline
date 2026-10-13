@@ -52,7 +52,7 @@ export function createSpliceRunner(deps = {}) {
       const edit = (w.editCenters && w.editCenters.length) ? w.editCenters[0] : (w.sourceSpan[0] + w.sourceSpan[1]) / 2;
       // The de-padded gen clip starts at source time sourceSpan[0]; genOffset re-centers the
       // seam search so gen frame j maps to orig frame j + sourceSpan[0]*fps.
-      const report = await splice({ orig: working, gen: depadded, out: target, edit, seam, fps, align: 'trs', genOffset: w.sourceSpan[0] });
+      const report = await splice({ orig: working, gen: depadded, out: target, edit, seam, fps, align: 'trs', genOffset: w.sourceSpan[0], morph: deps.morph ?? 6 });
       outWindows.push({ name: w.name, seam, report });
       working = target;
     }

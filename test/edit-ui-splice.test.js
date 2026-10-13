@@ -1,7 +1,46 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs, buildSpliceFilter, spliceClip } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs } from '../src/edit-ui/splice.js';
+
+const PP = { inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96 };
+
+test('segmentPlan for a mid seam = orig head + gen mid + orig tail', () => {
+  const segs = segmentPlan({ seam: 'mid', retime: false, ...PP });
+  assert.deepEqual(segs, [
+    { src: 'orig', from: 0, to: 24, retimeTo: null },
+    { src: 'gen', from: 20, to: 61, retimeTo: null },
+    { src: 'orig', from: 73, to: 96, retimeTo: null },
+  ]);
+});
+
+test('segmentPlan retime sets the mid target frame count to the original span length', () => {
+  const segs = segmentPlan({ seam: 'mid', retime: true, ...PP });
+  assert.equal(segs[1].retimeTo, 48); // spanEnd(72) - spanStart(24)
+});
+
+test('segmentPlan head seam drops the head, tail seam drops the tail', () => {
+  assert.deepEqual(segmentPlan({ seam: 'head', retime: false, ...PP }).map((s) => s.src), ['gen', 'orig']);
+  assert.deepEqual(segmentPlan({ seam: 'tail', retime: false, ...PP }).map((s) => s.src), ['orig', 'gen']);
+});
+
+test('morphJoinFilter inserts a minterpolate motion morph between the two clips', () => {
+  const { filter, map } = morphJoinFilter({ leftFrames: 24, morph: 6, fps: 24 });
+  assert.equal(map, '[v]');
+  assert.match(filter, /minterpolate=/);
+  assert.match(filter, /mi_mode=mci/);
+  assert.match(filter, /trim=start_frame=23:end_frame=24/); // left's last frame
+  assert.match(filter, /concat=n=3/);                        // left-rest + morph + right-rest
+});
+
+test('segmentRenderArgs trims the frame range; retime stretches to the target count', () => {
+  const plain = segmentRenderArgs({ src: 'orig', from: 0, to: 24, retimeTo: null }, { orig: 'o.mp4', gen: 'g.mp4', fps: 24, out: 's.mp4' });
+  assert.match(plain.join(' '), /-i o\.mp4/);
+  assert.match(plain.join(' '), /trim=start_frame=0:end_frame=24/);
+  const retimed = segmentRenderArgs({ src: 'gen', from: 20, to: 60, retimeTo: 48 }, { orig: 'o.mp4', gen: 'g.mp4', fps: 24, out: 'm.mp4' });
+  assert.match(retimed.join(' '), /-i g\.mp4/);
+  assert.match(retimed.join(' '), /setpts=1\.2000\*/); // 48/(60-20)=1.2
+});
 
 const W = 4, H = 4;
 const frame = (fill) => Uint8Array.from({ length: W * H }, () => fill);
@@ -124,6 +163,18 @@ test('with no source audio, spliceClip stays video-only and does not force retim
   assert.doesNotMatch(last, /-map 0:a/);
   assert.equal(rep.audio, false);
   assert.equal(rep.retime, false);
+});
+
+test('spliceClip morph>0 renders segments, morph-joins them, and muxes audio', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, morph: 4 }, d);
+  const cmds = d.calls.map((a) => a.join(' '));
+  assert.ok(cmds.some((c) => /-seg0\.mp4/.test(c)) && cmds.some((c) => /-seg2\.mp4/.test(c)), '3 segments rendered');
+  assert.ok(cmds.some((c) => /minterpolate=.*mi_mode=mci/.test(c)), 'morph join used');
+  assert.ok(cmds.at(-1).includes('-map 1:a?') || d.calls.at(-1).join(' ').includes('1:a?'), 'final mux maps original audio');
+  assert.equal(rep.morph, 4);
+  assert.equal(rep.segments, 3);
 });
 
 test('spliceClip throws when no valid in/out points (out not after in)', async () => {
