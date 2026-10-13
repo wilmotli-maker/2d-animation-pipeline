@@ -32,26 +32,31 @@ export function warp(src, P, { W, H }) {
 
 const frameRange = (lo, hi, fps) => [Math.max(1, Math.round(lo * fps)), Math.round(hi * fps)];
 
-export function bestPair(O, G, { lo, hi, fps, shift, jMin, jMax, offsetPenalty = OFFSET_PENALTY }) {
+// `offsetFrames` is the expected orig→gen frame offset: gen frame j corresponds to orig frame
+// j + offsetFrames (0 when orig and gen share a timeline, as in the original eval script; for the
+// edit-ui case it is sourceSpan.start*fps, since the de-padded gen clip starts at that source time).
+export function bestPair(O, G, { lo, hi, fps, shift, jMin, jMax, offsetFrames = 0, offsetPenalty = OFFSET_PENALTY }) {
   const sh = Math.round(shift * fps);
   const dist = (i, j) => mad(O[i], G[j]) + (i > 0 && j > 0 ? mad(O[i - 1], G[j - 1]) : 0);
   let b = null;
   const [a0, a1] = frameRange(lo, hi, fps);
   for (let i = a0; i <= Math.min(a1, O.length - 1); i++) {
-    for (let j = Math.max(1, i - sh, jMin ?? 0); j <= Math.min(i + sh, G.length - 1, jMax ?? Infinity); j++) {
-      const d = dist(i, j), score = d + offsetPenalty * Math.abs(i - j) / fps;
+    const centre = i - offsetFrames;
+    for (let j = Math.max(1, centre - sh, jMin ?? 0); j <= Math.min(centre + sh, G.length - 1, jMax ?? Infinity); j++) {
+      const d = dist(i, j), score = d + offsetPenalty * Math.abs(i - j - offsetFrames) / fps;
       if (!b || score < b.score) b = { i, j, d, score };
     }
   }
   return b;
 }
 
-export function findPairs(O, G, { inRange, outRange, fps, shift, offsetPenalty = OFFSET_PENALTY, genInHi, genOutLo } = {}) {
+export function findPairs(O, G, { inRange, outRange, fps, shift, offsetPenalty = OFFSET_PENALTY, genInHi, genOutLo, genOffset = 0 } = {}) {
   const jInMax = genInHi !== undefined ? Math.round(genInHi * fps) : undefined;
   const jOutMin = genOutLo !== undefined ? Math.round(genOutLo * fps) : undefined;
+  const offsetFrames = Math.round((genOffset || 0) * fps);
   return {
-    inPt: bestPair(O, G, { lo: inRange[0], hi: inRange[1], fps, shift, jMax: jInMax, offsetPenalty }),
-    outPt: bestPair(O, G, { lo: outRange[0], hi: outRange[1], fps, shift, jMin: jOutMin, offsetPenalty }),
+    inPt: bestPair(O, G, { lo: inRange[0], hi: inRange[1], fps, shift, jMax: jInMax, offsetFrames, offsetPenalty }),
+    outPt: bestPair(O, G, { lo: outRange[0], hi: outRange[1], fps, shift, jMin: jOutMin, offsetFrames, offsetPenalty }),
   };
 }
 
@@ -165,7 +170,7 @@ export async function probeSize(file, { ffprobe = defaultFfprobe }) {
 
 export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
-    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo } = opts;
+    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0 } = opts;
   const { W, H } = size;
   const ffmpeg = deps.ffmpeg || defaultFfmpeg;
   const ffmpegOut = deps.ffmpegOut || defaultFfmpegOut;
@@ -175,7 +180,7 @@ export async function spliceClip(opts, deps = {}) {
   const outRange = opts.outRange || [edit + 0.5, edit + 1.8];
 
   const [O, G] = await Promise.all([decode(orig), decode(gen)]);
-  const find = { inRange, outRange, fps, shift, genInHi, genOutLo };
+  const find = { inRange, outRange, fps, shift, genInHi, genOutLo, genOffset };
   const { P, pairs } = fitTransform(O, G, { mode: align, seam, W, H, ...find });
   let { inPt, outPt } = pairs;
   if (seam === 'head') inPt = { i: 0, j: 0, d: 0 };

@@ -41,6 +41,7 @@ test('a single interior window de-pads and splices with seam mid', async () => {
     assert.equal(spliceCalls.length, 1);
     assert.equal(spliceCalls[0].seam, 'mid');
     assert.equal(spliceCalls[0].edit, 6);
+    assert.equal(spliceCalls[0].genOffset, 4); // de-padded gen starts at source time sourceSpan[0]=4
     assert.ok(ff.some((a) => a.join(' ').includes('splice-src.mp4')), 'de-pad ffmpeg ran');
     assert.match(res.output, /spliced\.mp4$/);
     const m = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));

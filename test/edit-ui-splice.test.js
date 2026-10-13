@@ -30,6 +30,16 @@ test('findPairs picks the orig/gen frames that match, within the search ranges',
   assert.ok(outPt.i > inPt.i);
 });
 
+test('findPairs honors genOffset: gen frame j maps to orig frame j+offset', () => {
+  // orig 20 frames; gen 7 frames where G[j] === O[j+10]. Out-range (orig 14..16) has NO gen
+  // frame within ±shift of i unless the offset re-centers the gen search — this fails without it.
+  const O = Array.from({ length: 20 }, (_, i) => frame(i * 12));
+  const G = Array.from({ length: 7 }, (_, j) => frame((j + 10) * 12));
+  const r = findPairs(O, G, { inRange: [11, 13], outRange: [14, 16], fps: 1, shift: 3, genOffset: 10 });
+  assert.equal(r.inPt.i - r.inPt.j, 10);
+  assert.equal(r.outPt.i - r.outPt.j, 10);
+});
+
 const pts = { inPt: { i: 24, j: 24 }, outPt: { i: 72, j: 72 } };
 
 test('mid hard-cut keeps both original sides and concats three segments', () => {
