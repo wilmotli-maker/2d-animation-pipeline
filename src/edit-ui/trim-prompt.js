@@ -27,8 +27,9 @@ export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gestu
   sp.push(`Full lip-sync is REQUIRED for the ENTIRE ${end} seconds: the mouth moves continuously to match @Video1’s audio from the first frame to the last and NEVER stops, holds, or freezes. Take ONLY the audio and speech timing from @Video1; take appearance, framing and body from the still reference frames ${imageTags}.`);
   lines.push(sp.join(' '));
 
-  // 3. Framing — preserve the source shot.
-  lines.push('Preserve the shot’s existing framing and composition: the same shot size, subject scale and position, and the same locked camera as the reference frames; keep the whole subject in frame exactly as the references do, with the same background. Do not crop, zoom, pan, or let the camera drift.');
+  // 3. Framing — preserve the source shot. Enumerate the body and pin "at all times": an abstract
+  // "keep the subject in frame" lets the model tighten the shot and crop legs/feet (measured).
+  lines.push('Match the reference frames’ framing EXACTLY and hold it on every single frame: the same shot size, the same subject scale and position, the same headroom and side margins, the same locked camera and the same background. The subject must NOT move toward the camera and the camera must NOT zoom, push in, pan, or drift. If the reference frames show the full figure, the ENTIRE figure — the top of the head down through the torso, hips, knees and BOTH feet — stays fully inside the frame for the whole clip: never crop or cut off the legs or feet, and never tighten the shot.');
 
   // 4. The edit.
   if (textPose) {
