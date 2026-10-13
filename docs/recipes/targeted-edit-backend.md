@@ -7,6 +7,13 @@ the prompt grammar + findings); this doc is the integration contract for the gen
 Status (2026-10): HF full-quality Seedance is effectively unusable for lip-sync (nsfw ~14/15).
 Use **MuAPI** (`--runner muapi`) or **HF draft** (`--draft`). See the skill's "Runner choice".
 
+**`pipeline edit-ui` now implements this workflow** via the default `seedance-draft` generator
+(`src/edit-ui/trim-generator.js`): it plans centered, edge-padded, merged edit windows with
+`src/edit-ui/windows.js`, trims source + speech-ref per window (`src/edit-ui/trim-media.js`),
+builds the prompt (`src/edit-ui/trim-prompt.js`), and runs each window through the HF-draft
+Seedance path (`draft: true`, `mode omni_reference`). Splice-back (step 5 below) is deferred to
+phase 2; each window records `sourceSpan`/`pad` in the run manifest for it.
+
 ## Inputs the UI collects
 
 | Input | Notes |
