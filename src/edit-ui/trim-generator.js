@@ -67,6 +67,7 @@ export function createTrimGenerator(deps = {}) {
 
       const aspect = nearestAspect(run.source && run.source.width, run.source && run.source.height);
       const userPrompt = (run.prompt && run.prompt.text) || '';
+      const styleLock = (request && request.styleLock) || '';
       const results = [];
       for (let i = 0; i < windows.length; i++) {
         const w = windows[i];
@@ -106,7 +107,8 @@ export function createTrimGenerator(deps = {}) {
             .slice(0, 6);
           entry.keyframeCount = poses.length;
 
-          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, userPrompt });
+          const gestureOffset = w.editCenters.length ? w.editCenters[0] - w.window[0] : undefined;
+          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: userPrompt, gestureOffset, styleLock });
           await writeFile(path.join(wDir, 'prompt.md'), prompt + '\n');
 
           const opts = {

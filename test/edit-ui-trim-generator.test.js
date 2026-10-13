@@ -106,6 +106,17 @@ test('when every window fails, run() throws so the run is not marked done', asyn
   }, { inputs: baseInputs, marks: [{ id: 'a', kind: 'frame', start: 48, end: 48 }], duration: 10 });
 });
 
+test('request.styleLock and the text-pose gesture clause reach the submitted prompt', async () => {
+  await scaffold(async ({ gen, job, deps }) => {
+    job.request.styleLock = 'a red cartoon dragon';
+    await gen.run(job);
+    const prompt = deps.submissions[0].opts.prompt;
+    assert.match(prompt, /a red cartoon dragon/);               // style lock folded in
+    assert.match(prompt, /peaking at about 2\.0s/);             // mark at frame 48 / 24fps = 2s, centered
+    assert.match(prompt, /distinct new gesture/);
+  }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
+});
+
 test('no regions falls back to one whole-clip window', async () => {
   await scaffold(async ({ gen, job, deps }) => {
     await gen.run(job);

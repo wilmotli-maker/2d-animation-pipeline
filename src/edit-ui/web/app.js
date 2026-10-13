@@ -20,7 +20,7 @@ const ICONS = {
 // renders:     { id, status, run, output, stub, note, at }
 // dialogue:    null | { original, text, include }   (transcript; text is the user's edit)
 // settings:    { autoKeyframes }
-const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0 } }; // persisted
+const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0, styleLock: '' } }; // persisted
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
@@ -138,7 +138,7 @@ async function loadVideo(id) {
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
-  data.settings = { autoKeyframes: 0, ...(sess.settings || {}) };
+  data.settings = { autoKeyframes: 0, styleLock: '', ...(sess.settings || {}) };
   ui.transcribing = false;
   // Jobs don't survive a server restart; anything left "running" is stale.
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
@@ -149,6 +149,7 @@ async function loadVideo(id) {
   $('meta').textContent = [meta.width && `${meta.width}×${meta.height}`, `${+fps().toFixed(3)} fps`,
     meta.frames && `${meta.frames} frames`, meta.hasAudio ? 'audio' : 'no audio'].filter(Boolean).join(' · ');
   $('auto-kf').value = data.settings.autoKeyframes;
+  $('style-lock').value = data.settings.styleLock || '';
   $('welcome').style.display = 'none';
   $('save-state').textContent = sess.savedAt ? 'saved' : '';
   setSource(meta.src);
@@ -534,7 +535,7 @@ async function generateVideo() {
   data.renders.unshift(r); renderAll();
   try {
     const res = await startJob({
-      kind: 'video', fps: fps(), autoKeyframes: data.settings.autoKeyframes,
+      kind: 'video', fps: fps(), autoKeyframes: data.settings.autoKeyframes, styleLock: data.settings.styleLock || '',
       transcript: data.dialogue ? { text: data.dialogue.text, include: data.dialogue.include !== false } : null, marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
       keyframes: data.keyframes.filter((k) => k.current >= 0).map((k) => ({ frame: k.frame, time: timeOf(k.frame), markId: k.markId, image: k.versions[k.current].output })),
     });
@@ -702,6 +703,7 @@ $('mark-in').addEventListener('click', setIn);
 $('mark-out').addEventListener('click', setOut);
 $('add-kf').addEventListener('click', addKeyframe);
 $('add-global-prompt').addEventListener('click', () => addPrompt(null));
+$('style-lock').addEventListener('input', (e) => { data.settings.styleLock = e.target.value; scheduleSave(); });
 $('gen-video').addEventListener('click', generateVideo);
 $('transcribe-btn').addEventListener('click', transcribe);
 $('auto-kf').addEventListener('change', (e) => {
