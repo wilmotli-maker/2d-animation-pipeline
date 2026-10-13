@@ -21,6 +21,9 @@ export function createSpliceRunner(deps = {}) {
     const ffmpeg = deps.ffmpeg || defaultFfmpeg;
     const ffprobe = deps.ffprobe;
     const splice = deps.splice || (async (o) => { const { spliceClip } = await import('./splice.js'); return spliceClip(o, { ffmpeg, ffprobe }); });
+    const joiner = deps.joiner || 'morph';
+    const vaceJoin = deps.vaceJoin || (async (clips, o) => { const { vaceJoin: vj } = await import('../wavespeed.js'); return vj(clips, o); });
+    const download = deps.download || (async (url, out) => { const { downloadTo } = await import('../download.js'); return downloadTo(url, out); });
     const fps = (manifest.source && manifest.source.fps) || 24;
     const duration = (manifest.source && manifest.source.duration) || 0;
     const runDir = path.join(workspace, meta.id, 'runs', manifest.run);
@@ -30,6 +33,7 @@ export function createSpliceRunner(deps = {}) {
     const usable = (manifest.windows || []).filter((w) => w.status === 'done' && w.output);
     if (!usable.length) throw new Error('no usable edit window to splice');
     const sorted = [...usable].sort((a, b) => b.sourceSpan[0] - a.sourceSpan[0]); // right-to-left
+    if (joiner === 'wavespeed' && usable.length > 1) throw new Error('the wavespeed joiner supports a single edit window for now; use the default morph joiner for multi-window runs');
 
     let working = source;
     const outWindows = [];
@@ -49,10 +53,29 @@ export function createSpliceRunner(deps = {}) {
         continue;
       }
       const seam = w.pad.start > 0 ? 'head' : w.pad.end > 0 ? 'tail' : 'mid';
+
+      if (joiner === 'wavespeed') {
+        // Build the in-place pieces (source head/tail at the window boundaries + the de-padded edit)
+        // and let the VACE joiner find its own hand-off frames; then conform fps + mux the original
+        // audio. Key comes from .env via resolveWavespeedKey() inside vaceJoin.
+        const clips = [];
+        if (w.sourceSpan[0] > 0) { const h = path.join(wDir, 'ws-head.mp4'); await ffmpeg(['-t', t3(w.sourceSpan[0]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-y', h]); clips.push(h); }
+        clips.push(depadded);
+        if (w.sourceSpan[1] < duration) { const tl = path.join(wDir, 'ws-tail.mp4'); await ffmpeg(['-ss', t3(w.sourceSpan[1]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-y', tl]); clips.push(tl); }
+        const { outputUrl, id } = await vaceJoin(clips, {});
+        const joined = path.join(wDir, 'ws-joined.mp4');
+        await download(outputUrl, joined);
+        // conform to the source fps and mux the original audio (the joiner returns video-only, often 32fps).
+        await ffmpeg(['-i', joined, '-i', source, '-r', String(fps), '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-y', target]);
+        outWindows.push({ name: w.name, seam, report: { joiner: 'wavespeed', seam, clips: clips.length, jobId: id } });
+        working = target;
+        continue;
+      }
+
       const edit = (w.editCenters && w.editCenters.length) ? w.editCenters[0] : (w.sourceSpan[0] + w.sourceSpan[1]) / 2;
       // The de-padded gen clip starts at source time sourceSpan[0]; genOffset re-centers the
       // seam search so gen frame j maps to orig frame j + sourceSpan[0]*fps.
-      const report = await splice({ orig: working, gen: depadded, out: target, edit, seam, fps, align: 'trs', genOffset: w.sourceSpan[0] });
+      const report = await splice({ orig: working, gen: depadded, out: target, edit, seam, fps, align: 'trs', genOffset: w.sourceSpan[0], morph: deps.morph ?? 6 });
       outWindows.push({ name: w.name, seam, report });
       working = target;
     }

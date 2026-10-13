@@ -131,6 +131,50 @@ export function buildSpliceFilter({ seam = 'mid', blend = 0, retime = false, inP
   return { filter, expectedOutputFrames, k, maps };
 }
 
+// Split the splice into orig/gen segments (same frame math as buildSpliceFilter), so each can be
+// rendered to a file and joined with a motion morph at the seams. `retimeTo` is the mid segment's
+// target frame count when retiming (so the spliced length == source).
+export function segmentPlan({ seam = 'mid', retime = false, inPt, outPt, origLen, genLen }) {
+  const a = inPt.i, a2 = inPt.j, b = outPt.i, b2 = outPt.j;
+  const genStart = seam === 'head' ? 0 : a2;
+  const genEnd = seam === 'tail' ? genLen - 1 : b2;    // inclusive
+  const spanStart = seam === 'head' ? 0 : a;
+  const spanEnd = seam === 'tail' ? origLen - 1 : b;   // inclusive
+  const segs = [];
+  if (seam !== 'head') segs.push({ src: 'orig', from: 0, to: spanStart, retimeTo: null });
+  segs.push({ src: 'gen', from: genStart, to: genEnd + 1, retimeTo: retime ? (spanEnd - spanStart) : null });
+  if (seam !== 'tail') segs.push({ src: 'orig', from: spanEnd + 1, to: origLen, retimeTo: null });
+  return segs;
+}
+
+// ffmpeg args to render one segment (from orig/gen) to a file, optionally retimed to retimeTo frames.
+export function segmentRenderArgs(seg, { orig, gen, fps, out }) {
+  const input = seg.src === 'orig' ? orig : gen;
+  const vf = [`trim=start_frame=${seg.from}:end_frame=${seg.to}`, 'setpts=PTS-STARTPTS'];
+  if (seg.retimeTo && seg.retimeTo !== (seg.to - seg.from)) {
+    const k = seg.retimeTo / (seg.to - seg.from);
+    vf.push(`setpts=${k.toFixed(4)}*(PTS-STARTPTS)`, `fps=${fps}`);
+  }
+  return ['-y', '-i', input, '-vf', vf.join(','), '-an', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', out];
+}
+
+// filter_complex joining input 0 (left, `leftFrames` frames) and input 1 (right) with an N-frame
+// motion-compensated morph (minterpolate) built from left's last frame and right's first frame.
+export function morphJoinFilter({ leftFrames, morph, fps }) {
+  const N = morph;
+  const tgt = Math.max(fps + 1, Math.round(fps * (N + 2) / 2)); // ~N+2 frames across the 1-frame gap
+  const filter =
+    `[0:v]trim=start_frame=0:end_frame=${leftFrames - 1},setpts=PTS-STARTPTS[a];` +
+    `[0:v]trim=start_frame=${leftFrames - 1}:end_frame=${leftFrames},setpts=PTS-STARTPTS,fps=${fps}[la];` +
+    `[1:v]trim=start_frame=0:end_frame=1,setpts=PTS-STARTPTS,fps=${fps}[rb];` +
+    `[1:v]trim=start_frame=1,setpts=PTS-STARTPTS[b];` +
+    `[la][rb]concat=n=2[pair];` +
+    `[pair]minterpolate=fps=${tgt}:mi_mode=mci:me_mode=bidir:mc_mode=aobmc:scd=none,` +
+    `trim=start_frame=1:end_frame=${N + 1},setpts=PTS-STARTPTS[m];` +
+    `[a][m][b]concat=n=3[v]`;
+  return { filter, map: '[v]' };
+}
+
 export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }) {
   const size = { W, H };
   const active = MODES[mode] || [];
@@ -177,7 +221,7 @@ export async function probeHasAudio(file, { ffprobe = defaultFfprobe }) {
 
 export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
-    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0 } = opts;
+    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0, morph = 0 } = opts;
   const { W, H } = size;
   const ffmpeg = deps.ffmpeg || defaultFfmpeg;
   const ffmpegOut = deps.ffmpegOut || defaultFfmpegOut;
@@ -212,6 +256,36 @@ export async function spliceClip(opts, deps = {}) {
       '-map', '[v]', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', genFile]);
   }
 
+  const commonReport = {
+    output: out, seam, align, blendFrames: blend, morph, audio: useAudio, retime: useRetime,
+    transform: align === 'none' ? null : { tx: +P.tx.toFixed(3), ty: +P.ty.toFixed(3), rot: +P.rot.toFixed(3), s: +P.s.toFixed(4) },
+    inPoint: { origFrame: inPt.i, genFrame: inPt.j }, outPoint: { origFrame: outPt.i, genFrame: outPt.j },
+    originalFrames: O.length,
+  };
+
+  if (morph > 0) {
+    // Render each segment to a file, then join with an N-frame motion morph at each seam, then mux
+    // the original audio. Avoids the hard-cut jump without a dissolve's ghosting.
+    const segs = segmentPlan({ seam, retime: useRetime, inPt, outPt, origLen: O.length, genLen: G.length });
+    const base = out.replace(/\.mp4$/, '');
+    const rendered = [];
+    for (let i = 0; i < segs.length; i++) {
+      const f = `${base}-seg${i}.mp4`;
+      await ffmpeg(segmentRenderArgs(segs[i], { orig, gen: genFile, fps, out: f }));
+      rendered.push({ file: f, frames: segs[i].retimeTo || (segs[i].to - segs[i].from) });
+    }
+    let cur = rendered[0];
+    for (let i = 1; i < rendered.length; i++) {
+      const j = `${base}-join${i}.mp4`;
+      const { filter, map } = morphJoinFilter({ leftFrames: cur.frames, morph, fps });
+      await ffmpeg(['-y', '-i', cur.file, '-i', rendered[i].file, '-filter_complex', filter, '-map', map, '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', j]);
+      cur = { file: j, frames: (cur.frames - 1) + morph + (rendered[i].frames - 1) };
+    }
+    if (useAudio) await ffmpeg(['-y', '-i', cur.file, '-i', orig, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
+    else await ffmpeg(['-y', '-i', cur.file, '-c', 'copy', out]);
+    return { ...commonReport, segments: segs.length, expectedOutputFrames: cur.frames };
+  }
+
   const { filter, expectedOutputFrames } = buildSpliceFilter({ seam, blend, retime: useRetime, inPt, outPt, origLen: O.length, genLen: G.length, fps });
   const renderArgs = ['-y', '-i', orig, '-i', genFile, '-filter_complex', filter, '-map', '[v]'];
   if (useAudio) renderArgs.push('-map', '0:a?');            // original source audio, whole clip
@@ -219,10 +293,5 @@ export async function spliceClip(opts, deps = {}) {
   if (useAudio) renderArgs.push('-c:a', 'aac', '-shortest');
   await ffmpeg([...renderArgs, out]);
 
-  return {
-    output: out, seam, align, blendFrames: blend, audio: useAudio, retime: useRetime,
-    transform: align === 'none' ? null : { tx: +P.tx.toFixed(3), ty: +P.ty.toFixed(3), rot: +P.rot.toFixed(3), s: +P.s.toFixed(4) },
-    inPoint: { origFrame: inPt.i, genFrame: inPt.j }, outPoint: { origFrame: outPt.i, genFrame: outPt.j },
-    expectedOutputFrames, originalFrames: O.length,
-  };
+  return { ...commonReport, expectedOutputFrames };
 }
