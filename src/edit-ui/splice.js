@@ -85,6 +85,43 @@ function optimise(P0, ps, active, O, G, size) {
   return P;
 }
 
+// Build the ffmpeg filter_complex that composes orig_head + gen_middle + orig_tail (ported from
+// splice-match.js). Returns { filter, expectedOutputFrames, k }. seam mid=two seams, head=keep tail
+// only, tail=keep head only. blend>0 (mid only) crossfades; retime stretches the gen segment.
+export function buildSpliceFilter({ seam = 'mid', blend = 0, retime = false, inPt, outPt, origLen, genLen, fps }) {
+  const N = blend;
+  const t = (f) => (f / fps).toFixed(4);
+  const a = inPt.i, a2 = inPt.j, b = outPt.i, b2 = outPt.j;
+  const genStart = seam === 'head' ? 0 : a2;
+  const genEnd = seam === 'tail' ? genLen - 1 : b2;    // inclusive
+  const spanStart = seam === 'head' ? 0 : a;
+  const spanEnd = seam === 'tail' ? origLen - 1 : b;   // inclusive
+  const k = retime ? (spanEnd - spanStart) / (genEnd - genStart) : 1;
+  const segLen = retime ? (spanEnd - spanStart) : (genEnd - genStart);
+  const keepPre = seam !== 'head';
+  const keepPost = seam !== 'tail';
+  const stretch = (start, end, keep) => `[1:v]trim=start_frame=${start}:end_frame=${end},setpts=${k}*(PTS-STARTPTS),fps=${fps}` +
+    (retime ? `,trim=end_frame=${keep}` : '') + ',setpts=PTS-STARTPTS';
+  let filter;
+  if (N > 0 && keepPre && keepPost) {
+    filter = `[0:v]trim=end_frame=${spanStart + N},setpts=PTS-STARTPTS,fps=${fps}[s1];` +
+      `${stretch(genStart, genEnd + N, segLen + N)}[s2];` +
+      `[0:v]trim=start_frame=${spanEnd},setpts=PTS-STARTPTS,fps=${fps}[s3];` +
+      `[s1][s2]xfade=transition=fade:duration=${t(N)}:offset=${t(spanStart)}[x1];` +
+      `[x1][s3]xfade=transition=fade:duration=${t(N)}:offset=${t(spanStart + segLen)}[v]`;
+  } else {
+    const parts = [];
+    if (keepPre) parts.push(`[0:v]trim=end_frame=${spanStart},setpts=PTS-STARTPTS,fps=${fps}[s1]`);
+    parts.push(`${stretch(genStart, genEnd + 1, segLen + 1)}[s2]`);
+    if (keepPost) parts.push(`[0:v]trim=start_frame=${spanEnd + 1},setpts=PTS-STARTPTS,fps=${fps}[s3]`);
+    const labels = [keepPre ? '[s1]' : '', '[s2]', keepPost ? '[s3]' : ''].join('');
+    const n = (keepPre ? 1 : 0) + 1 + (keepPost ? 1 : 0);
+    filter = parts.join(';') + `;${labels}concat=n=${n}:v=1:a=0[v]`;
+  }
+  const expectedOutputFrames = (keepPre ? spanStart : 0) + segLen + (keepPost ? (origLen - spanEnd - 1) : 0);
+  return { filter, expectedOutputFrames, k };
+}
+
 export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }) {
   const size = { W, H };
   const active = MODES[mode] || [];

@@ -1,7 +1,7 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter } from '../src/edit-ui/splice.js';
 
 const W = 4, H = 4;
 const frame = (fill) => Uint8Array.from({ length: W * H }, () => fill);
@@ -28,4 +28,36 @@ test('findPairs picks the orig/gen frames that match, within the search ranges',
   assert.equal(inPt.i, inPt.j);
   assert.equal(outPt.i, outPt.j);
   assert.ok(outPt.i > inPt.i);
+});
+
+const pts = { inPt: { i: 24, j: 24 }, outPt: { i: 72, j: 72 } };
+
+test('mid hard-cut keeps both original sides and concats three segments', () => {
+  const { filter, expectedOutputFrames } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+  assert.match(filter, /concat=n=3:v=1:a=0/);
+  assert.match(filter, /trim=end_frame=24/);
+  assert.match(filter, /trim=start_frame=73/);
+  assert.equal(expectedOutputFrames, 24 + (72 - 24) + (96 - 72 - 1));
+});
+
+test('head seam drops the original head (one out-seam) and keeps the tail', () => {
+  const { filter } = buildSpliceFilter({ seam: 'head', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+  assert.match(filter, /concat=n=2:v=1:a=0/);
+  assert.doesNotMatch(filter, /\[s1\]/);
+});
+
+test('tail seam keeps the original head and drops the tail', () => {
+  const { filter } = buildSpliceFilter({ seam: 'tail', blend: 0, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+  assert.match(filter, /concat=n=2:v=1:a=0/);
+  assert.doesNotMatch(filter, /\[s3\]/);
+});
+
+test('a positive blend produces an xfade graph for a mid edit', () => {
+  const { filter } = buildSpliceFilter({ seam: 'mid', blend: 4, retime: false, ...pts, origLen: 96, genLen: 96, fps: 24 });
+  assert.match(filter, /xfade=transition=fade/);
+});
+
+test('retime stretches the gen segment to the original span length', () => {
+  const { k } = buildSpliceFilter({ seam: 'mid', blend: 0, retime: true, inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96, fps: 24 });
+  assert.ok(Math.abs(k - (72 - 24) / (60 - 20)) < 1e-9);
 });
