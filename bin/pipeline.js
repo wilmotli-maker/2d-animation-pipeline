@@ -554,9 +554,12 @@ async function main() {
     const port = f.port != null ? Number(f.port) : 4880;
     if (!Number.isInteger(port) || port < 0 || port > 65535) fail(`edit-ui: invalid --port "${f.port}"`);
     const { startEditUi, DEFAULT_WORKSPACE } = await import('../src/edit-ui/server.js');
+    const { resolveGenerator } = await import('../src/edit-ui/generators.js');
     const workspace = f.workspace ? (await import('node:path')).resolve(f.workspace) : DEFAULT_WORKSPACE;
-    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg });
-    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: stub)  — Ctrl+C to stop`);
+    let generator;
+    try { generator = resolveGenerator(f.generator || process.env.PIPELINE_EDIT_GENERATOR); } catch (e) { fail(`edit-ui: ${e.message}`); }
+    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator });
+    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name})  — Ctrl+C to stop`);
   } else if (cmd === 'init') {
     const target = sub;
     if (!target) fail('usage: pipeline init <dir>');
@@ -595,7 +598,7 @@ async function main() {
       '  pipeline sync-skills [--root <dir>]        # refresh a project\'s .claude/skills/ from the current templates',
       '  pipeline wavespeed-key [--status]          # print the resolved WaveSpeed key (for the seedance-stitch joiner); --status prints only the source',
       '  pipeline studio [--port <n=4870>] [--root <dir>]   # local web UI: browse the project tree, compare + select versions',
-      '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
+      '  pipeline edit-ui [<video>] [--port <n=4880>] [--workspace <dir=~/.pipeline/edit-ui>] [--generator <stub>]   # standalone web UI: open a video, mark frames/ranges, scribble, prompt, generate targeted edits',
       '  pipeline element create --type <characters|props|scenes|other> --name <name> [--root <dir>]',
       '  pipeline shot create --id <shotId> [--duration <s>] [--mode <m>] [--description <d>] [--root <dir>]',
       '  pipeline shot draft --id <shotId> [--root <dir>]',
