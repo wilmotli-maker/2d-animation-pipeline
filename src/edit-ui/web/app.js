@@ -22,7 +22,7 @@ const ICONS = {
 // settings:    { autoKeyframes }
 const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0, styleLock: '' } }; // persisted
 const ui = {
-  id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null,
+  id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
   sel: null, pendingIn: null, view: 'source', resultSrc: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
@@ -31,7 +31,9 @@ const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).s
 
 // ---- helpers -------------------------------------------------------------
 const fps = () => ui.meta.fps || 24;
-const dur = () => ui.meta.duration || video.duration || 0;
+// In result view the timeline is scoped to the result clip itself (its own duration), not the
+// source — a window result is a short edit, so showing it against the full source timeline is wrong.
+const dur = () => (ui.view === 'result' ? (video.duration || 0) : (ui.meta.duration || video.duration || 0));
 const lastFrame = () => Math.max(0, Math.round(dur() * fps()) - 1);
 const frameOf = (t) => Math.min(lastFrame(), Math.max(0, Math.floor(t * fps() + 1e-4)));
 const timeOf = (f) => (f + 0.5) / fps(); // mid-frame: robust against decoder rounding
@@ -186,6 +188,7 @@ window.addEventListener('drop', (e) => {
 
 // ---- transport -----------------------------------------------------------
 function loopBounds() {
+  if (ui.view === 'result') return [0, lastFrame()]; // loop the whole result clip
   const m = selMark();
   if (m && m.kind === 'range') return [m.start, m.end];
   return [0, lastFrame()];
@@ -271,9 +274,12 @@ function renderTimeline() {
     for (let t = 0; t <= d + 1e-6; t += step) ruler.append(el('div', { class: 'tick', style: { left: xOfFrame(frameOf(t)) } }, el('span', {}, fmt(t).replace(/^00:/, ''))));
     if (w / n >= 6) for (let f = 0; f < n; f++) ruler.append(el('div', { class: 'tick minor', style: { left: xOfFrame(f) } }));
   }
+  // Source overlays (marks/ink/keys) belong to the source edit, not a result clip — hide them
+  // while viewing a result so the timeline shows only the result's own transport + audio.
+  const resultView = ui.view === 'result';
   // Marks lane: ranges under frame marks.
   const track = $('track'); track.replaceChildren();
-  const sorted = [...data.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
+  const sorted = resultView ? [] : [...data.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
   for (const m of sorted) {
     const sel = ui.sel === m.id;
     const node = el('div', {
@@ -292,20 +298,20 @@ function renderTimeline() {
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
-  for (const a of data.annotations) {
+  for (const a of (resultView ? [] : data.annotations)) {
     la.append(el('div', { class: `dot${ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
       style: { left: xOfFrame(a.frame + 0.5), background: a.strokes[0]?.color || 'var(--ink)' },
       onpointerdown: (e) => { e.stopPropagation(); ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
   }
   // Keys lane: filled = has an image, hollow = not generated/uploaded yet.
   const lk = $('lane-kf'); lk.replaceChildren();
-  for (const k of data.keyframes) {
+  for (const k of (resultView ? [] : data.keyframes)) {
     lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}`, title: `Keyframe f${k.frame}`,
       style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
   }
   const pin = $('pending-in');
-  pin.style.display = ui.pendingIn == null ? 'none' : 'block';
-  if (ui.pendingIn != null) pin.style.left = xOfFrame(ui.pendingIn);
+  pin.style.display = (resultView || ui.pendingIn == null) ? 'none' : 'block';
+  if (!resultView && ui.pendingIn != null) pin.style.left = xOfFrame(ui.pendingIn);
   $('playhead').style.left = xOfFrame(curFrame() + 0.5);
   renderWave();
 }
@@ -313,8 +319,9 @@ function renderWave() {
   const c = $('wave'); const r = c.getBoundingClientRect(); const dpr = window.devicePixelRatio || 1;
   c.width = Math.max(1, Math.round(r.width * dpr)); c.height = Math.max(1, Math.round(r.height * dpr));
   const ctx = c.getContext('2d'); ctx.clearRect(0, 0, c.width, c.height);
-  $('no-audio').style.display = ui.src && !ui.meta.hasAudio ? 'block' : 'none';
-  const peaks = ui.peaks;
+  const resultView = ui.view === 'result';
+  $('no-audio').style.display = (!resultView && ui.src && !ui.meta.hasAudio) ? 'block' : 'none';
+  const peaks = resultView ? ui.resultPeaks : ui.peaks;
   if (!peaks || !peaks.length) return;
   const mid = c.height / 2;
   ctx.fillStyle = '#5f7fa3';
@@ -546,7 +553,13 @@ async function generateVideo() {
   } catch (err) { Object.assign(r, { status: 'error', error: err.message }); }
   renderAll(); scheduleSave();
 }
-function showResult(r) { ui.view = 'result'; ui.resultSrc = r.output; setSource(fileUrl(r.output, r.at)); renderAll(); }
+function showResult(r) {
+  ui.view = 'result'; ui.resultSrc = r.output; ui.resultPeaks = null;
+  const url = fileUrl(r.output, r.at);
+  setSource(url); renderAll();
+  // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
+  computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === r.output) { ui.resultPeaks = p; renderWave(); } });
+}
 function showSource() { ui.view = 'source'; setSource(ui.src); renderAll(); }
 
 // Splice a run's edited window(s) back into the full source, then show the result.
@@ -560,6 +573,25 @@ async function spliceRun(r) {
     else alert(`Splice failed: ${s.error || 'unknown error'}`);
   } catch (err) { r.status = 'done'; alert(`Splice failed: ${err.message}`); }
   renderAll();
+}
+
+// Decode a result clip's audio to a peak envelope for the waveform lane. Best-effort: returns
+// null if the browser can't decode the file's audio (the lane just stays empty).
+async function computeResultPeaks(url, buckets = 2000) {
+  try {
+    const buf = await (await fetch(url)).arrayBuffer();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    const ac = new Ctx();
+    const audio = await ac.decodeAudioData(buf);
+    ac.close && ac.close();
+    const ch = audio.getChannelData(0); const len = ch.length;
+    if (!len) return null;
+    const n = Math.min(buckets, len); const peaks = new Array(n).fill(0);
+    for (let i = 0; i < len; i++) { const b = Math.min(n - 1, Math.floor((i / len) * n)); const v = Math.abs(ch[i]); if (v > peaks[b]) peaks[b] = v; }
+    const max = Math.max(...peaks) || 1;
+    return peaks.map((v) => +(v / max).toFixed(3));
+  } catch { return null; }
 }
 
 // ---- sidebar -------------------------------------------------------------
