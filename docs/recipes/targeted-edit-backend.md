@@ -73,11 +73,20 @@ mouth keeps lip-syncing. See the skill for the exact builder; `scaffold-muapi-tc
 Batch many edits with `pipeline shot generate-batch --manifest <file.json>` (same flags; each item
 may also carry `draft`/`mode`/etc.). `--runner` and `--spicy`/`--draft` apply per command.
 
-**5. Splice back** (phase 2 — put the edited window back into the full source): keep the original
-head/tail, splice the regenerated middle. Use `scripts/eval/video-editing/splice-match.js --seam mid
---retime --align trs` (mid-seam for a centered edit). The untouched head/tail already carry the
-original lip-sync, and the regenerated middle speaks the same words on the same timeline, so seams
-stay lip-consistent.
+**5. Splice back** — put the edited window(s) back into the full source, keeping the original
+head/tail and splicing the regenerated middle at the least-visible frames. The untouched head/tail
+already carry the original lip-sync, and the regenerated middle speaks the same words on the same
+timeline, so seams stay lip-consistent.
+
+`pipeline edit-ui` implements this: `src/edit-ui/splice.js` is a reusable port of
+`splice-match.js` (frame-matching + global `trs` alignment + the `filter_complex` builder), and
+`src/edit-ui/splice-run.js` maps a run's phase-1 windows onto it — de-padding each window's `out.mp4`,
+choosing the **seam from the window's pad** (`pad.start>0 → head`, `pad.end>0 → tail`, else `mid`;
+a whole-clip window is just de-padded), and splicing **right-to-left** so earlier edits' frames stay
+valid. Trigger it with the **Splice** button in the edit-ui Results list or
+`pipeline edit-ui-splice --id <videoId> --run <vNNN>`; output is `runs/vNNN/spliced.mp4` and
+`manifest.spliced`. The eval script `scripts/eval/video-editing/splice-match.js --seam mid --retime
+--align trs` remains for ad-hoc/eval use.
 
 ## Variant cheat-sheet
 
