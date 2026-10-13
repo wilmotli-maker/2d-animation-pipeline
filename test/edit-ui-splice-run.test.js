@@ -8,7 +8,7 @@ import { createSpliceRunner } from '../src/edit-ui/splice-run.js';
 
 const ID = '0123456789abcdef';
 
-async function scaffold(fn, windows, { duration = 12, fps = 24 } = {}) {
+async function scaffold(fn, windows, { duration = 12, fps = 24, ...opts } = {}) {
   const ws = await mkdtemp(path.join(tmpdir(), 'splice-'));
   const runDir = path.join(ws, ID, 'runs', 'v001');
   await mkdir(runDir, { recursive: true });
@@ -19,14 +19,17 @@ async function scaffold(fn, windows, { duration = 12, fps = 24 } = {}) {
   }
   const manifest = { run: 'v001', kind: 'video', source: { id: ID, file: 'source.mp4', duration, fps }, windows, inputs: [], warnings: [] };
   await writeFile(path.join(runDir, 'manifest.json'), JSON.stringify(manifest));
-  const spliceCalls = []; const ff = [];
+  const spliceCalls = []; const ff = []; const vaceCalls = []; const downloads = [];
   const runner = createSpliceRunner({
     ffmpeg: async (a) => { ff.push(a); },
     ffprobe: async () => '560,752',
     splice: async (o) => { spliceCalls.push(o); await writeFile(o.out, 's'); return { output: o.out, seam: o.seam }; },
+    joiner: opts.joiner || 'morph',
+    vaceJoin: async (clips) => { vaceCalls.push(clips); return { outputUrl: 'https://ws/out.mp4', id: 'job-1' }; },
+    download: async (url, out) => { downloads.push({ url, out }); await writeFile(out, 'j'); },
   });
   const meta = { id: ID, file: 'source.mp4' };
-  try { return await fn({ ws, runDir, runner, meta, manifest, spliceCalls, ff }); } finally { await rm(ws, { recursive: true, force: true }); }
+  try { return await fn({ ws, runDir, runner, meta, manifest, spliceCalls, ff, vaceCalls, downloads }); } finally { await rm(ws, { recursive: true, force: true }); }
 }
 
 const win = (name, s, e, pad, editCenter) => ({
@@ -71,6 +74,24 @@ test('two windows splice right-to-left, the left into the right output', async (
     assert.equal(spliceCalls[1].edit, 3);                      // then left
     assert.equal(spliceCalls[1].orig, spliceCalls[0].out);     // left splices into right's output
   }, [win('w01', 1, 5, { start: 0, end: 0 }, 3), win('w02', 7, 11, { start: 0, end: 0 }, 9)]);
+});
+
+test('the wavespeed joiner builds head/mid/tail, joins them, and records the joiner', async () => {
+  await scaffold(async ({ ws, runner, meta, manifest, runDir, vaceCalls, downloads }) => {
+    const res = await runner(ws, meta, manifest);
+    assert.equal(vaceCalls.length, 1);
+    assert.equal(vaceCalls[0].length, 3); // head + de-padded mid + tail (interior window)
+    assert.equal(downloads.length, 1);
+    assert.match(res.output, /spliced\.mp4$/);
+    const m = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(m.spliced.windows[0].report.joiner, 'wavespeed');
+  }, [win('w01', 4, 8, { start: 0, end: 0 }, 6)], { joiner: 'wavespeed' });
+});
+
+test('the wavespeed joiner refuses multi-window runs for now', async () => {
+  await scaffold(async ({ ws, runner, meta, manifest }) => {
+    await assert.rejects(() => runner(ws, meta, manifest), /single edit window/i);
+  }, [win('w01', 1, 5, { start: 0, end: 0 }, 3), win('w02', 7, 11, { start: 0, end: 0 }, 9)], { joiner: 'wavespeed' });
 });
 
 test('a run with no usable windows throws', async () => {
