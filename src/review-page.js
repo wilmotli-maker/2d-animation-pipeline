@@ -117,7 +117,7 @@ function warnUnknownFilters(type, raw, filters) {
 }
 
 export async function buildReviewPage(root, opts) {
-  const { type, slug, filters = {}, selection: providedSelection, update = false, title, out, folder } = opts;
+  const { type, slug, filters = {}, selection: providedSelection, update = false, title, note, out, folder } = opts;
   if (!slug) throw new Error('review: --slug is required');
 
   // Pages are project-specific output, not pipeline tooling. Default to a `web/`
@@ -160,8 +160,8 @@ export async function buildReviewPage(root, opts) {
     : await vendorShotModel(root, pageDir, filtered, seen);
 
   const html = type === 'images'
-    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review', slug, type })
-    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review', slug, type });
+    ? renderImagePage({ model: pageModel, selection, title: title || 'Image review', note, slug, type })
+    : renderShotPage({ model: pageModel, selection, title: title || 'Shot review', note, slug, type });
 
   await writeFile(path.join(pageDir, 'index.html'), html);
   await writeFile(path.join(pageDir, 'review.json'),
@@ -190,5 +190,5 @@ export function parseReviewArgs(sub, rest) {
   if (f.characters) filters.characters = splitList(f.characters);
   if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
   if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
-  return { type: sub, slug: f.slug, title: f.title, root: f.root, out: f.out, folder: f.folder, layout: f.layout, filters, update };
+  return { type: sub, slug: f.slug, title: f.title, note: f.note, root: f.root, out: f.out, folder: f.folder, layout: f.layout, filters, update };
 }

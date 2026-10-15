@@ -49,6 +49,10 @@ compare variants of each example, name them with a shared shotId and one version
 Then tell the user which version number maps to which variant (the page labels them v01/v02/v03). A
 file with no `-vNNN` suffix is treated as a single v001 shot. Only video files are picked up.
 
+Pass `--note "<text>"` to print a legend/caption at the top of the page (newlines preserved) — use it
+to document the version→variant mapping so the comparison is self-explanatory. `--title "<text>"`
+overrides the page heading.
+
 ## Rules
 
 - Reach for `pipeline review` for ANY review/comparison page request. If the clips aren't under
