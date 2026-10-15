@@ -1,7 +1,7 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs, flowModeForSeam, resolveMorphEngine } from '../src/edit-ui/splice.js';
 
 const PP = { inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96 };
 
@@ -165,16 +165,54 @@ test('with no source audio, spliceClip stays video-only and does not force retim
   assert.equal(rep.retime, false);
 });
 
-test('spliceClip morph>0 renders segments, morph-joins them, and muxes audio', async () => {
+test('spliceClip morph>0 (minterpolate engine) renders segments, morph-joins them, and muxes audio', async () => {
   const d = fakeDeps();
   const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
-    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, morph: 4 }, d);
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, morph: 4, morphEngine: 'minterpolate' }, d);
   const cmds = d.calls.map((a) => a.join(' '));
   assert.ok(cmds.some((c) => /-seg0\.mp4/.test(c)) && cmds.some((c) => /-seg2\.mp4/.test(c)), '3 segments rendered');
   assert.ok(cmds.some((c) => /minterpolate=.*mi_mode=mci/.test(c)), 'morph join used');
   assert.ok(cmds.at(-1).includes('-map 1:a?') || d.calls.at(-1).join(' ').includes('1:a?'), 'final mux maps original audio');
   assert.equal(rep.morph, 4);
   assert.equal(rep.segments, 3);
+  assert.equal(rep.morphEngine, 'minterpolate');
+});
+
+test('spliceClip morph>0 defaults to the flow engine and warps the source side at each seam', async () => {
+  const d = fakeDeps();
+  const joins = [];
+  // Flow is frame-count-neutral: it returns leftFrames + rightFrames (no net insertion).
+  d.joinSeam = async ({ left, right, out, leftFrames, rightFrames, mode }) => {
+    joins.push({ left, right, out, leftFrames, rightFrames, mode });
+    return { out, frames: leftFrames + rightFrames };
+  };
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, morph: 4 }, d);
+  assert.equal(rep.morphEngine, 'flow');
+  // mid seam segments = [orig, gen, orig]: head join warps the left (source head), tail join the right (source tail).
+  assert.deepEqual(joins.map((j) => j.mode), ['one-sided-left', 'one-sided-right']);
+  assert.deepEqual(rep.joins.map((j) => j.mode), ['one-sided-left', 'one-sided-right']);
+  // Neutral bookkeeping: final count == sum of the three segment lengths (no morph frames added),
+  // so the audio-aligned timeline is preserved. morph=4 must NOT inflate the total.
+  const seg0 = joins[0].leftFrames, seg1 = joins[0].rightFrames, seg2 = joins[1].rightFrames;
+  assert.equal(joins[1].leftFrames, seg0 + seg1);            // first join's output feeds the second
+  assert.equal(rep.expectedOutputFrames, seg0 + seg1 + seg2);
+  const cmds = d.calls.map((a) => a.join(' '));
+  assert.ok(!cmds.some((c) => /minterpolate=/.test(c)), 'flow engine does not use minterpolate');
+});
+
+test('flowModeForSeam warps whichever side is the source; resolveMorphEngine defaults to flow', () => {
+  assert.equal(flowModeForSeam('orig', 'gen'), 'one-sided-left');
+  assert.equal(flowModeForSeam('gen', 'orig'), 'one-sided-right');
+  assert.equal(flowModeForSeam('gen', 'gen'), 'balanced');
+  const saved = process.env.EDIT_UI_MORPH; delete process.env.EDIT_UI_MORPH;
+  try {
+    assert.equal(resolveMorphEngine(), 'flow');
+    assert.equal(resolveMorphEngine('minterpolate'), 'minterpolate');
+    process.env.EDIT_UI_MORPH = 'minterpolate';
+    assert.equal(resolveMorphEngine(), 'minterpolate');          // env fallback
+  } finally { if (saved === undefined) delete process.env.EDIT_UI_MORPH; else process.env.EDIT_UI_MORPH = saved; }
+  assert.throws(() => resolveMorphEngine('bogus'), /unknown morphEngine/);
 });
 
 test('spliceClip throws when no valid in/out points (out not after in)', async () => {

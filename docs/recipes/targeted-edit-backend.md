@@ -88,6 +88,20 @@ valid. Trigger it with the **Splice** button in the edit-ui Results list or
 `manifest.spliced`. The eval script `scripts/eval/video-editing/splice-match.js --seam mid --retime
 --align trs` remains for ad-hoc/eval use.
 
+**Seam joiner.** After the global `trs` alignment, each segment boundary is smoothed by a joiner
+(default **morph**; **wavespeed** is an alternative single-window VACE joiner). The morph joiner's
+transition engine (`morphEngine`) defaults to **`flow`**: a dense optical-flow morph
+(`python/flow_morph.py`, cv2 via the `uv` sidecar pattern — the same dep surface as the plate matte)
+driven by `src/edit-ui/flow-morph.js`. It inserts the same number of transition frames as the old
+ffmpeg **`minterpolate`** engine but, instead of block-motion interpolation, warps *one side's*
+boundary frame into the other along the flow — a pure geometry ramp (no cross-dissolve). The warped
+side is always the **source** side (`one-sided-left` at a source→gen head seam, `one-sided-right` at a
+gen→source tail seam), so the generated footage is never distorted and seam artifacts land only in the
+throwaway source frames at the cut. Set `EDIT_UI_MORPH=minterpolate` to fall back to the ffmpeg
+engine; `FLOW_MORPH_PYTHON` overrides the interpreter (CI, or to skip uv's per-run wheel fetch).
+Chosen after a spike showed flow closes the residual seam that a single global transform cannot
+(time-varying drift across the window); see the splice design doc.
+
 ## Variant cheat-sheet
 
 | | Keyframe pose | Text pose |

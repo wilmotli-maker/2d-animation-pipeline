@@ -219,3 +219,25 @@ export function plateMatteRunner() {
     prefixArgs: ['run', '--quiet', ...PLATE_MATTE_DEPS.flatMap((d) => ['--with', d]), 'python'],
   };
 }
+
+// --- edit-ui flow-morph joiner --------------------------------------------
+// python/flow_morph.py renders the dense-optical-flow seam morph the edit-ui
+// splice uses in place of ffmpeg's minterpolate (see src/edit-ui/flow-morph.js).
+export function flowMorphScriptPath(root = REPO_ROOT) {
+  return path.join(root, 'python', 'flow_morph.py');
+}
+
+// Packages python/flow_morph.py imports. cv2 is already a project dep (plate
+// matte), so this adds nothing new to the install surface.
+export const FLOW_MORPH_DEPS = ['opencv-python-headless', 'numpy'];
+
+// Same shape as matteRunner. FLOW_MORPH_PYTHON overrides the interpreter with one
+// that already has FLOW_MORPH_DEPS importable (CI, or to skip uv's per-run fetch).
+export function flowMorphRunner() {
+  const explicit = process.env.FLOW_MORPH_PYTHON;
+  if (explicit) return { bin: explicit, prefixArgs: [] };
+  return {
+    bin: 'uv',
+    prefixArgs: ['run', '--quiet', ...FLOW_MORPH_DEPS.flatMap((d) => ['--with', d]), 'python'],
+  };
+}
