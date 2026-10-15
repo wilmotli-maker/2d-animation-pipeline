@@ -33,6 +33,13 @@ test('renderShotPage: embeds slug/type, marks controls, preserves hide/marker', 
   assert.match(html, /"promotedVersion": ?"v002"/);
 });
 
+test('renderShotPage: renders an optional note block at the top, escaped; omits it when absent', () => {
+  const withNote = renderShotPage({ model: shotModel, selection: shotSel, title: 'Shots', note: 'v01 = flow <engine>', slug: 'ep1', type: 'shots' });
+  assert.match(withNote, /<div class="note">v01 = flow &lt;engine&gt;<\/div>/);
+  const noNote = renderShotPage({ model: shotModel, selection: shotSel, title: 'Shots', slug: 'ep1', type: 'shots' });
+  assert.doesNotMatch(noNote, /class="note"/);
+});
+
 test('renderImagePage: embeds slug and marks controls', () => {
   const model = { type: 'images', generatedAt: 'T', characters: [
     { type: 'characters', name: 'mira', sheets: [

@@ -21,6 +21,7 @@ main { min-width:0; }
 .toolbar-head { min-width:0; }
 .toolbar-head h1 { font-size:1.25rem; margin:0; letter-spacing:-.01em; line-height:1.2; }
 .toolbar-head .sub { color:var(--dim); margin:.15rem 0 0; font-size:.85rem; line-height:1.3; }
+.toolbar-head .note { margin:.5rem 0 0; padding:.5rem .7rem; background:var(--panel,#f4f4f5); border:1px solid var(--line,#e4e4e7); border-radius:7px; font-size:.82rem; line-height:1.45; white-space:pre-wrap; }
 .toolbar-actions { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-top:.55rem; }
 .toolbar button, .toolbar label.btn { color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.8rem; padding:.3rem .6rem; }
 .toolbar button:hover, .toolbar label.btn:hover { border-color:var(--accent); }
@@ -71,7 +72,7 @@ function embed(data) {
     .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/\u2028|\u2029/g, '');
 }
 
-function page({ title, subtitle, data, script }) {
+function page({ title, subtitle, note, data, script }) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,6 +86,7 @@ function page({ title, subtitle, data, script }) {
       <div class="toolbar-head">
         <h1>${esc(title)}</h1>
         <p class="sub">${esc(subtitle)}</p>
+        ${note ? `<div class="note">${esc(note)}</div>` : ''}
         <div class="toolbar-actions" id="toolbar"></div>
       </div>
     </div>
@@ -317,14 +319,14 @@ function render(){
 render();
 `;
 
-export function renderShotPage({ model, selection, title = 'Shot review', slug = '', type = 'shots' }) {
-  return page({ title, subtitle: `${model.shots.length} shot(s) · generated ${model.generatedAt || ''}`,
+export function renderShotPage({ model, selection, title = 'Shot review', note = '', slug = '', type = 'shots' }) {
+  return page({ title, note, subtitle: `${model.shots.length} shot(s) · generated ${model.generatedAt || ''}`,
     data: { model, selection, slug, type, title }, script: COMMON_SCRIPT + SHOT_SCRIPT });
 }
 
-export function renderImagePage({ model, selection, title = 'Image review', slug = '', type = 'images' }) {
+export function renderImagePage({ model, selection, title = 'Image review', note = '', slug = '', type = 'images' }) {
   const n = model.characters.reduce((a, c) => a + c.sheets.length, 0);
-  return page({ title, subtitle: `${n} sheet(s) · generated ${model.generatedAt || ''}`,
+  return page({ title, note, subtitle: `${n} sheet(s) · generated ${model.generatedAt || ''}`,
     data: { model, selection, slug, type, title }, script: COMMON_SCRIPT + IMAGE_SCRIPT });
 }
 
