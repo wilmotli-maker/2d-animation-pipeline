@@ -181,13 +181,22 @@ test('spliceClip morph>0 (minterpolate engine) renders segments, morph-joins the
 test('spliceClip morph>0 defaults to the flow engine and warps the source side at each seam', async () => {
   const d = fakeDeps();
   const joins = [];
-  d.joinSeam = async ({ left, right, out, mode }) => { joins.push({ left, right, out, mode }); return { out }; };
+  // Flow is frame-count-neutral: it returns leftFrames + rightFrames (no net insertion).
+  d.joinSeam = async ({ left, right, out, leftFrames, rightFrames, mode }) => {
+    joins.push({ left, right, out, leftFrames, rightFrames, mode });
+    return { out, frames: leftFrames + rightFrames };
+  };
   const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
     align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, morph: 4 }, d);
   assert.equal(rep.morphEngine, 'flow');
   // mid seam segments = [orig, gen, orig]: head join warps the left (source head), tail join the right (source tail).
   assert.deepEqual(joins.map((j) => j.mode), ['one-sided-left', 'one-sided-right']);
   assert.deepEqual(rep.joins.map((j) => j.mode), ['one-sided-left', 'one-sided-right']);
+  // Neutral bookkeeping: final count == sum of the three segment lengths (no morph frames added),
+  // so the audio-aligned timeline is preserved. morph=4 must NOT inflate the total.
+  const seg0 = joins[0].leftFrames, seg1 = joins[0].rightFrames, seg2 = joins[1].rightFrames;
+  assert.equal(joins[1].leftFrames, seg0 + seg1);            // first join's output feeds the second
+  assert.equal(rep.expectedOutputFrames, seg0 + seg1 + seg2);
   const cmds = d.calls.map((a) => a.join(' '));
   assert.ok(!cmds.some((c) => /minterpolate=/.test(c)), 'flow engine does not use minterpolate');
 });

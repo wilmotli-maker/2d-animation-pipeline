@@ -6,13 +6,15 @@ warp one side's boundary frame into the other's along the computed optical flow.
 minterpolate (block motion -> halos) or a cross-dissolve (ghosting), the one-sided modes are a pure
 geometry ramp that keeps one side's pixels, so the GEN footage can stay pristine.
 
-Output length matches the minterpolate joiner exactly: (len(left)-1) + N + (len(right)-1). The left
-boundary frame and right boundary frame are consumed as morph endpoints, not emitted directly.
+Frame-count-NEUTRAL: output length == len(left) + len(right), the same as a plain concat. The morph
+warps frames IN PLACE over an N-frame window rather than inserting new frames, because the gen middle
+has already been retimed to fill its source span exactly — inserting any net frames at the seams would
+shove everything downstream late and desync the (fixed) source audio.
 
-Modes:
-  one-sided-left  warp left's last frame toward right's first (left is the source head)
-  one-sided-right warp right's first frame back toward left's last (right is the source tail)
-  balanced        split the warp across both sides with a cross-dissolve
+Modes (N = window length):
+  one-sided-left  warp left's last N frames toward right's first (left is the source head)
+  one-sided-right warp right's first N frames back from left's last (right is the source tail)
+  balanced        split the window across both sides with a cross-dissolve
 """
 import argparse
 import json
@@ -56,32 +58,44 @@ def warp(img, flow, frac, grid):
     return cv2.remap(img, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
-def morph_frames(left, right, n, mode, engine):
-    left_last, right_first = left[-1], right[0]
-    h, w = left_last.shape[:2]
+def build_sequence(left, right, n, mode, engine):
+    """Join left + right with an N-frame flow morph, warping frames IN PLACE (no net frames added)."""
+    if n >= len(left) or n >= len(right):
+        n = max(1, min(len(left), len(right)) - 1)
+    h, w = left[-1].shape[:2]
     grid = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-    out = []
+    right_first, left_last = right[0], left[-1]
+
+    if mode == "one-sided-left":
+        # Warp left's last N frames toward right's first; right stays pristine.
+        trans = []
+        for k in range(n):
+            i = len(left) - n + k
+            fl = compute_flow(left[i], right_first, engine)
+            trans.append(warp(left[i], fl, (k + 1) / (n + 1), grid))  # ramp 0 -> right geometry
+        return left[:len(left) - n] + trans + right
+
+    if mode == "one-sided-right":
+        # Warp right's first N frames back from left's last; left stays pristine.
+        trans = []
+        for k in range(n):
+            fl = compute_flow(right[k], left_last, engine)
+            trans.append(warp(right[k], fl, 1 - (k + 1) / (n + 1), grid))  # start ~left geometry, release
+        return left + trans + right[n:]
+
     if mode == "balanced":
+        nl = n // 2
         fl_lr = compute_flow(left_last, right_first, engine)
         fl_rl = compute_flow(right_first, left_last, engine)
+        trans = []
         for k in range(1, n + 1):
             t = k / (n + 1)
             a = warp(left_last, fl_lr, t, grid)
             b = warp(right_first, fl_rl, 1 - t, grid)
-            out.append(cv2.addWeighted(a, 1 - t, b, t, 0))
-    elif mode == "one-sided-left":
-        fl_lr = compute_flow(left_last, right_first, engine)
-        for k in range(1, n + 1):
-            out.append(warp(left_last, fl_lr, k / (n + 1), grid))
-    elif mode == "one-sided-right":
-        fl_rl = compute_flow(right_first, left_last, engine)
-        for k in range(1, n + 1):
-            # k=1 -> warp right almost fully onto left geometry (continuous with left_last);
-            # k=n -> nearly native right.
-            out.append(warp(right_first, fl_rl, 1 - k / (n + 1), grid))
-    else:
-        sys.exit(f"flow_morph: unknown mode {mode}")
-    return out
+            trans.append(cv2.addWeighted(a, 1 - t, b, t, 0))
+        return left[:len(left) - nl] + trans + right[n - nl:]
+
+    sys.exit(f"flow_morph: unknown mode {mode}")
 
 
 def encode(frames, out_path, fps):
@@ -107,9 +121,7 @@ def main():
     a = ap.parse_args()
 
     left, right = read_frames(a.left), read_frames(a.right)
-    morph = morph_frames(left, right, a.frames, a.mode, a.flow)
-    # left[:-1] + morph + right[1:] — endpoints consumed by the morph (parity with minterpolate join).
-    seq = left[:-1] + morph + right[1:]
+    seq = build_sequence(left, right, a.frames, a.mode, a.flow)  # len == len(left)+len(right) (neutral)
     encode(seq, a.out, a.fps)
     print(json.dumps({"frames": len(seq), "mode": a.mode, "flow": a.flow}))
 

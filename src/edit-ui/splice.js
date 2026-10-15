@@ -241,8 +241,10 @@ export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
     size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0, morph = 0 } = opts;
   const morphEngine = resolveMorphEngine(opts.morphEngine);
-  // Injectable so tests can assert the join calls without shelling ffmpeg or python. Returns the
-  // joined clip's frame count — identical for both engines: (leftFrames-1) + morph + (rightFrames-1).
+  // Injectable so tests can assert the join calls without shelling ffmpeg or python. The flow engine
+  // is frame-count-NEUTRAL (output == leftFrames + rightFrames) so the retimed, audio-aligned timeline
+  // is preserved; it returns the actual frame count. The minterpolate engine inserts its (near-zero)
+  // morph between the two clips and reports no count, so its caller falls back to the old formula.
   const joinSeam = deps.joinSeam || (async ({ left, right, out: jOut, leftFrames, mode }) => {
     if (morphEngine === 'flow') return flowMorphJoin(left, right, { out: jOut, frames: morph, fps, mode });
     const { filter, map } = morphJoinFilter({ leftFrames, morph, fps });
@@ -307,8 +309,10 @@ export async function spliceClip(opts, deps = {}) {
       const j = `${base}-join${i}.mp4`;
       // Left side's boundary frame comes from segment i-1; right from segment i. Warp the source side.
       const mode = flowModeForSeam(segs[i - 1].src, segs[i].src);
-      await joinSeam({ left: cur.file, right: rendered[i].file, out: j, leftFrames: cur.frames, rightFrames: rendered[i].frames, mode });
-      cur = { file: j, frames: (cur.frames - 1) + morph + (rendered[i].frames - 1) };
+      const r = await joinSeam({ left: cur.file, right: rendered[i].file, out: j, leftFrames: cur.frames, rightFrames: rendered[i].frames, mode });
+      // Flow returns the actual (neutral) count; minterpolate reports none, so keep its old formula.
+      const frames = r && r.frames != null ? r.frames : (cur.frames - 1) + morph + (rendered[i].frames - 1);
+      cur = { file: j, frames };
       joins.push({ mode });
     }
     if (useAudio) await ffmpeg(['-y', '-i', cur.file, '-i', orig, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
