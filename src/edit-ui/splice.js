@@ -191,6 +191,24 @@ export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }
 
 // --- I/O (ffmpeg/ffprobe shelled; injectable) + orchestrator ---------------------------------
 import { spawn } from 'node:child_process';
+import { flowMorphJoin } from './flow-morph.js';
+
+// Pick the flow-morph mode for a seam so the GEN side is left untouched: warp whichever side is the
+// source. One-sided-left warps the left clip (source head → gen); one-sided-right warps the right
+// clip (gen → source tail); balanced only when neither side is source (shouldn't happen here).
+export function flowModeForSeam(leftSrc, rightSrc) {
+  if (leftSrc === 'orig') return 'one-sided-left';
+  if (rightSrc === 'orig') return 'one-sided-right';
+  return 'balanced';
+}
+
+// How the morph path joins consecutive segments. 'flow' = dense optical-flow morph (python/cv2,
+// default); 'minterpolate' = ffmpeg's block-motion interpolation (fallback, set EDIT_UI_MORPH).
+export function resolveMorphEngine(opt) {
+  const e = opt || process.env.EDIT_UI_MORPH || 'flow';
+  if (e !== 'flow' && e !== 'minterpolate') throw new Error(`unknown morphEngine: ${e}`);
+  return e;
+}
 
 function runFf(bin, args, collect) {
   return new Promise((resolve, reject) => {
@@ -222,6 +240,15 @@ export async function probeHasAudio(file, { ffprobe = defaultFfprobe }) {
 export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
     size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0, morph = 0 } = opts;
+  const morphEngine = resolveMorphEngine(opts.morphEngine);
+  // Injectable so tests can assert the join calls without shelling ffmpeg or python. Returns the
+  // joined clip's frame count — identical for both engines: (leftFrames-1) + morph + (rightFrames-1).
+  const joinSeam = deps.joinSeam || (async ({ left, right, out: jOut, leftFrames, mode }) => {
+    if (morphEngine === 'flow') return flowMorphJoin(left, right, { out: jOut, frames: morph, fps, mode });
+    const { filter, map } = morphJoinFilter({ leftFrames, morph, fps });
+    await ffmpeg(['-y', '-i', left, '-i', right, '-filter_complex', filter, '-map', map, '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', jOut]);
+    return { out: jOut };
+  });
   const { W, H } = size;
   const ffmpeg = deps.ffmpeg || defaultFfmpeg;
   const ffmpegOut = deps.ffmpegOut || defaultFfmpegOut;
@@ -275,15 +302,18 @@ export async function spliceClip(opts, deps = {}) {
       rendered.push({ file: f, frames: segs[i].retimeTo || (segs[i].to - segs[i].from) });
     }
     let cur = rendered[0];
+    const joins = [];
     for (let i = 1; i < rendered.length; i++) {
       const j = `${base}-join${i}.mp4`;
-      const { filter, map } = morphJoinFilter({ leftFrames: cur.frames, morph, fps });
-      await ffmpeg(['-y', '-i', cur.file, '-i', rendered[i].file, '-filter_complex', filter, '-map', map, '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', j]);
+      // Left side's boundary frame comes from segment i-1; right from segment i. Warp the source side.
+      const mode = flowModeForSeam(segs[i - 1].src, segs[i].src);
+      await joinSeam({ left: cur.file, right: rendered[i].file, out: j, leftFrames: cur.frames, rightFrames: rendered[i].frames, mode });
       cur = { file: j, frames: (cur.frames - 1) + morph + (rendered[i].frames - 1) };
+      joins.push({ mode });
     }
     if (useAudio) await ffmpeg(['-y', '-i', cur.file, '-i', orig, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
     else await ffmpeg(['-y', '-i', cur.file, '-c', 'copy', out]);
-    return { ...commonReport, segments: segs.length, expectedOutputFrames: cur.frames };
+    return { ...commonReport, morphEngine, segments: segs.length, joins, expectedOutputFrames: cur.frames };
   }
 
   const { filter, expectedOutputFrames } = buildSpliceFilter({ seam, blend, retime: useRetime, inPt, outPt, origLen: O.length, genLen: G.length, fps });
