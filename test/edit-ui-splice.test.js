@@ -1,7 +1,7 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs, flowModeForSeam, resolveMorphEngine } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs, flowModeForSeam, resolveMorphEngine, seamWindows } from '../src/edit-ui/splice.js';
 
 const PP = { inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96 };
 
@@ -199,6 +199,19 @@ test('spliceClip morph>0 defaults to the flow engine and warps the source side a
   assert.equal(rep.expectedOutputFrames, seg0 + seg1 + seg2);
   const cmds = d.calls.map((a) => a.join(' '));
   assert.ok(!cmds.some((c) => /minterpolate=/.test(c)), 'flow engine does not use minterpolate');
+});
+
+test('seamWindows hugs the gen-window boundaries so the whole gen (and its gesture) is kept', () => {
+  const w = seamWindows({ genOffset: 2, genDur: 4, margin: 0.35 });
+  // in-seam within the first 0.35s of the gen clip (source time 2.0–2.35); out-seam within the last 0.35s (5.65–6.0)
+  assert.deepEqual(w.inRange, [2, 2.35]);
+  assert.deepEqual(w.outRange, [5.65, 6]);
+  assert.equal(w.genInHi, 0.35);      // gen in-seam capped near the start
+  assert.equal(w.genOutLo, 3.65);     // gen out-seam floored near the end
+  // margin never exceeds half the clip
+  const tiny = seamWindows({ genOffset: 0, genDur: 0.4, margin: 0.35 });
+  assert.equal(tiny.genInHi, 0.2);
+  assert.equal(tiny.genOutLo, 0.2);
 });
 
 test('flowModeForSeam warps whichever side is the source; resolveMorphEngine defaults to flow', () => {
