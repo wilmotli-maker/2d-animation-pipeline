@@ -175,6 +175,22 @@ export function morphJoinFilter({ leftFrames, morph, fps }) {
   return { filter, map: '[v]' };
 }
 
+// Seam-search windows that HUG the gen clip's boundaries, so the whole gen (and its edited gesture)
+// is kept and we only hunt the least-visible cut within a small margin of each boundary. The old
+// default searched a wide band around `edit`, and because the seam objective minimizes gen↔source
+// difference it collapsed onto the pre-/post-gesture (low-difference) frames — cutting the gesture out.
+// in-seam ∈ [windowStart, windowStart+margin] (gen 0..margin); out-seam ∈ [windowEnd-margin, windowEnd]
+// (gen genDur-margin..genDur). Endpoints (gen frame 0 and the last frame) are valid rejoin points.
+export function seamWindows({ genOffset = 0, genDur, margin = 0.35 }) {
+  const m = Math.min(margin, genDur / 2);
+  return {
+    inRange: [genOffset, genOffset + m],
+    outRange: [genOffset + genDur - m, genOffset + genDur],
+    genInHi: m,
+    genOutLo: genDur - m,
+  };
+}
+
 export function fitTransform(O, G, { mode = 'trs', seam = 'mid', W, H, ...find }) {
   const size = { W, H };
   const active = MODES[mode] || [];
@@ -256,16 +272,25 @@ export async function spliceClip(opts, deps = {}) {
   const ffmpegOut = deps.ffmpegOut || defaultFfmpegOut;
   const ffprobe = deps.ffprobe || defaultFfprobe;
   const decode = deps.decode || ((f) => decodeGrayFrames(f, { fps, W, H, ffmpeg: ffmpegOut }));
-  const inRange = opts.inRange || [edit - 1.7, edit - 0.5];
-  const outRange = opts.outRange || [edit + 0.5, edit + 1.8];
 
   const [O, G] = await Promise.all([decode(orig), decode(gen)]);
+  // Default the seam search to hug the gen-window boundaries so the whole gen (and its gesture) is
+  // kept (see seamWindows). Explicit opts override. `edit` is no longer used for the default band.
+  const genDur = G.length / fps;
+  const usingDefaultWindow = !opts.inRange && !opts.outRange;
+  const win = seamWindows({ genOffset, genDur, margin: opts.seamMargin ?? 0.35 });
+  const inRange = opts.inRange || win.inRange;
+  const outRange = opts.outRange || win.outRange;
+  // Apply the boundary gen caps only on the default-window path; explicit ranges keep the old
+  // "no cap unless the caller asked" behavior.
+  const useGenInHi = genInHi ?? (usingDefaultWindow ? win.genInHi : undefined);
+  const useGenOutLo = genOutLo ?? (usingDefaultWindow ? win.genOutLo : undefined);
   // Audio: play the ORIGINAL source audio across the whole clip (the regenerated middle lip-syncs
   // the same dialogue), so there is no timbre seam. To keep it aligned 1:1 we retime the middle so
   // the spliced video is exactly the source length. Only the source's audio matters.
   const useAudio = opts.audio ?? (await probeHasAudio(orig, { ffprobe }));
   const useRetime = useAudio ? true : retime;
-  const find = { inRange, outRange, fps, shift, genInHi, genOutLo, genOffset };
+  const find = { inRange, outRange, fps, shift, genInHi: useGenInHi, genOutLo: useGenOutLo, genOffset };
   const { P, pairs } = fitTransform(O, G, { mode: align, seam, W, H, ...find });
   let { inPt, outPt } = pairs;
   if (seam === 'head') inPt = { i: 0, j: 0, d: 0 };
