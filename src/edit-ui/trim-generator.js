@@ -13,6 +13,7 @@ import { trimPadVideo, trimPadSpeech, extractFrame } from './trim-media.js';
 import { buildTrimPrompt } from './trim-prompt.js';
 import { nearestAspect } from './inputs.js';
 import { updateRun } from './workspace.js';
+import { hfBackend } from './backends.js';
 
 function defaultFfmpeg(args) {
   return new Promise((resolve, reject) => {
@@ -34,8 +35,9 @@ async function defaultDownload(url, abs) { const { downloadTo } = await import('
 const pad2 = (n) => String(n).padStart(2, '0');
 
 export function createTrimGenerator(deps = {}) {
+  const backend = deps.backend || hfBackend();
   return {
-    name: 'seedance-draft',
+    name: backend.name,
     async run({ root, runDir, run, request }) {
       // Resolve injected deps at call time (like `runner`) so tests can swap them per run.
       const ffmpeg = deps.ffmpeg || defaultFfmpeg;
@@ -43,7 +45,8 @@ export function createTrimGenerator(deps = {}) {
       const runBatch = deps.runBatch || defaultRunBatch;
       const download = deps.download || defaultDownload;
       const now = deps.now || (() => new Date().toISOString());
-      const runnerRef = deps.runner || (await defaultRunner());
+      // HF backend needs the project runner; MuAPI doesn't (it shells muapi-seedance.js).
+      const runnerRef = deps.runner || (backend.name === 'hf' ? await defaultRunner() : null);
       const view = readRunView(root, run, { maxImages: 8 });
       const fps = (run.source && run.source.fps) || request.fps || 24;
       const duration = (run.source && run.source.duration)
@@ -102,7 +105,6 @@ export function createTrimGenerator(deps = {}) {
           await extractFrame(ffmpeg, { input: trim, time: Math.max(0, w.clipDuration - 0.05), output: last });
 
           let dialogue = '';
-          let speechId = null;
           if (view.speechref) {
             await trimPadSpeech(ffmpeg, { input: view.speechref, output: srTrim, sourceSpan: w.sourceSpan, pad: w.pad });
             const wav = path.join(wDir, 'speech-trim.wav');
@@ -110,8 +112,6 @@ export function createTrimGenerator(deps = {}) {
               await ffmpeg(['-v', 'error', '-y', '-i', srTrim, '-vn', '-ac', '1', '-ar', '16000', wav]);
               dialogue = await transcribe(wav);
             } catch (e) { entry.note = `transcription unavailable: ${e.message}`; }
-            const up = await runnerRef.upload(srTrim);
-            speechId = up.id;
           }
 
           // Pose refs: edited keyframes inside this window, by time; cap first+poses+last at 8.
@@ -123,28 +123,19 @@ export function createTrimGenerator(deps = {}) {
 
           const gestureOffset = w.editCenters.length ? w.editCenters[0] - w.window[0] : undefined;
           const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: windowPrompt(w), gestureOffset, styleLock });
-          await writeFile(path.join(wDir, 'prompt.md'), prompt + '\n');
+          const promptFile = path.join(wDir, 'prompt.md');
+          await writeFile(promptFile, prompt + '\n');
 
-          const opts = {
-            prompt, startImage: first, endImage: last,
-            imageReferences: poses.map((p) => p.path),
-            // Seedance requires an INTEGER duration (>= 4). clipDuration comes from frame math so it
-            // can be e.g. 3.9999999999999996 — round it (sub-frame, doesn't shift the frame-accurate
-            // trim/de-pad). Full quality: HF removed the draft endpoint in the api.higgsfield.ai
-            // migration (draft now 404s); full-quality omni + speech-ref lip-sync passes moderation.
-            resolution: '480p', aspectRatio: aspect, duration: Math.max(4, Math.round(w.clipDuration)),
-            generateAudio: true, mode: 'omni_reference',
-          };
-          if (speechId) opts.videoReferences = [speechId];
-
-          const [r] = await runBatch(runnerRef, [{ ref: wName, model: 'seedance_2_5', opts }]);
-          if (r && r.status === 'completed' && r.outputUrl) {
-            const out = path.join(wDir, 'out.mp4');
-            await download(r.outputUrl, out);
-            entry.output = relOut(out); entry.status = 'done'; entry.finishedAt = now();
-          } else {
-            entry.status = 'error'; entry.error = (r && r.error) || `generation ${r && r.status}`;
-          }
+          // Submit via the selected backend (hf or muapi). Seedance needs an INTEGER duration (>= 4);
+          // clipDuration is frame math so round it (sub-frame vs the frame-accurate trim/de-pad).
+          const r = await backend.submit({
+            wName, wDir, promptFile, prompt, first, last,
+            poses: poses.map((p) => p.path),
+            speechRefPath: view.speechref ? srTrim : null,
+            resolution: '480p', aspectRatio: aspect,
+            duration: Math.max(4, Math.round(w.clipDuration)), generateAudio: true,
+          }, { runner: runnerRef, runBatch, download });
+          entry.output = relOut(r.output); entry.status = 'done'; entry.finishedAt = now();
         } catch (err) {
           entry.status = 'error'; entry.error = err.message;
         }

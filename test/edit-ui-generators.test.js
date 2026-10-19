@@ -13,10 +13,13 @@ test('generatorNames lists stub among the registered backends', () => {
   assert.ok(generatorNames().includes('stub'));
 });
 
-test('seedance-draft is registered and is the default', () => {
-  assert.ok(generatorNames().includes('seedance-draft'));
-  assert.equal(resolveGenerator().name, 'seedance-draft');
-  assert.equal(resolveGenerator(undefined).name, 'seedance-draft');
+test('muapi is the default; hf and the seedance-draft alias resolve to the hf backend', () => {
+  for (const n of ['muapi', 'hf', 'seedance-draft', 'stub']) assert.ok(generatorNames().includes(n));
+  assert.equal(resolveGenerator().name, 'muapi');           // default
+  assert.equal(resolveGenerator(undefined).name, 'muapi');
+  assert.equal(resolveGenerator('muapi').name, 'muapi');
+  assert.equal(resolveGenerator('hf').name, 'hf');
+  assert.equal(resolveGenerator('seedance-draft').name, 'hf'); // back-compat alias
 });
 
 test('stub is still selectable by name', () => {

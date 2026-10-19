@@ -39,13 +39,26 @@ pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]
 
 ## Generation
 
-- Model **`seedance_2_5`**, `mode: omni_reference`, **480p**, `generateAudio: true`, start/end frames
-  + speech-ref (+ optional pose image refs). **Full quality — no draft** (HF removed the draft
-  endpoint in the `api.higgsfield.ai` migration; it now 404s).
-- Requires **`@higgsfield/cli` ≥ 1.2.0** and a signed-in Higgsfield account (`higgsfield auth login`).
-  Credits are drawn from that account (≈12 credits per 4 s 480p window).
-- The default generator is registered as `seedance-draft` (name kept for the registry; it is now
-  full-quality). Override with `--generator <name>` or `PIPELINE_EDIT_GENERATOR`.
+Seedance 2.5, `mode: omni_reference`, **480p**, integer duration (≥4 s), start/end frames + speech-ref
+(+ optional pose image refs). Two interchangeable backends (pick with `--generator` or
+`PIPELINE_EDIT_GENERATOR`):
+
+- **`muapi` (default)** — MuAPI (muapi.ai) Seedance 2.5. **No moderation** on this recipe, so it
+  reliably completes. Local refs are uploaded to fal storage. Needs **`MUAPI_KEY` + `FAL_KEY`** (read
+  from `.env`); bills in dollars (≈ $0.275/s → ~$1.10 per 4 s window).
+- **`hf`** (alias `seedance-draft`) — Higgsfield Seedance via the project CLI. Full quality (HF removed
+  the draft endpoint in the `api.higgsfield.ai` migration). **Caveat:** HF moderation false-positives
+  `nsfw` on full-quality lip-sync and there is no draft bypass anymore, so it often fails on talking
+  shots — prefer `muapi`. Needs **`@higgsfield/cli` ≥ 1.2.0** + `higgsfield auth login`; ≈12 credits
+  per 4 s 480p window.
+
+```bash
+pipeline edit-ui clip.mp4 --generator muapi   # default
+pipeline edit-ui clip.mp4 --generator hf      # Higgsfield (may nsfw-block)
+```
+
+Both backends share the same window/trim/prompt pipeline; only the submission differs
+([`backends.js`](backends.js)).
 
 ## Splicing
 
