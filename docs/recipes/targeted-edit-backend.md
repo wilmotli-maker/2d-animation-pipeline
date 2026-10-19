@@ -115,6 +115,12 @@ Chosen after a spike showed flow closes the residual seam that a single global t
 ## Gotchas / caps
 
 - Use `omni_reference` (NOT `video_edit` — that allows exactly one video reference).
+- **Feed the speech-ref as a VIDEO, never audio-only.** Lip-sync quality comes from the speech-ref
+  *video* (`@Video1` / `video_urls` / `videos_list`), which is why a speech-ref video has been
+  required since day one. Audio-only conditioning is a dead end: the mouth drifts/mushes. Re-confirmed
+  on fal Seedance 2.5 (2026-10-19) — fal exposes a dedicated `audio_urls` / `@Audio1` channel, but
+  routing speech through it (alone, or alongside the video) did **not** match video-ref lip-sync. No
+  change across the latest Seedance models. Always pass `--video <speech-trim.mp4>`.
 - Dedicated lip-sync models (LatentSync/sync.so/MuseTalk) fail on flat 2D characters (face
   detection) — Seedance is the only thing that lip-syncs this art style.
 - MuAPI: ≤30 image refs (no ceiling); HF full: nsfw-blocked; HF draft: bypasses.
