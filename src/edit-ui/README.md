@@ -40,7 +40,9 @@ pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]
 ## Generation
 
 Seedance 2.5, `mode: omni_reference`, **480p**, integer duration (≥4 s), start/end frames + speech-ref
-(+ optional pose image refs). Two interchangeable backends (pick with `--generator` or
+(+ optional pose image refs). The speech-ref is always passed as a **video** (`@Video1`) — audio-only
+lip-sync is a confirmed dead end across every Seedance version (re-tested on fal 2.5, 2026-10-19;
+see the backend recipe's gotchas). Two interchangeable backends (pick with `--generator` or
 `PIPELINE_EDIT_GENERATOR`):
 
 - **`muapi` (default)** — MuAPI (muapi.ai) Seedance 2.5. **No moderation** on this recipe, so it
