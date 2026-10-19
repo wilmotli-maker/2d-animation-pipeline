@@ -48,13 +48,13 @@ async function scaffold(fn, { inputs, marks = [], duration = 10, fps = 24 }) {
   try { return await fn({ ws, runDir, gen, job, deps }); } finally { await rm(ws, { recursive: true, force: true }); }
 }
 
-test('a single edited keyframe produces one window and one draft submission (3kf)', async () => {
+test('a single edited keyframe produces one window and one full-quality submission (3kf)', async () => {
   await scaffold(async ({ gen, job, deps, runDir }) => {
     const res = await gen.run(job);
     assert.equal(deps.submissions.length, 1);
     const { opts, model } = deps.submissions[0];
     assert.equal(model, 'seedance_2_5');
-    assert.equal(opts.draft, true);                          // draft default
+    assert.equal(opts.draft, undefined);                     // full quality (HF removed the draft endpoint)
     assert.equal(opts.mode, 'omni_reference');
     assert.equal(opts.resolution, '480p');
     assert.equal(opts.aspectRatio, '9:16');                  // nearestAspect(1080,1920)
