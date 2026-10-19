@@ -294,6 +294,17 @@ each node opens a side-by-side version review.
   `.pipeline/studio/` is written.
 - Static, shareable pages are still produced by `pipeline review` (above).
 
+### Edit UI (targeted gesture/pose edits)
+
+`pipeline edit-ui [clip.mp4] [--port 4880]` starts a localhost web UI for **editing one beat of a
+talking shot** — swapping a gesture or pose at a chosen moment while keeping the original dialogue
+and lip-sync. It regenerates a short window around the edit with Seedance and splices it back into
+the source (global align + boundary-hugging seam + flow-morph join). Re-run a splice with
+`pipeline edit-ui-splice --id <videoId> --run <vNNN>`.
+
+See [src/edit-ui/README.md](src/edit-ui/README.md) for the full workflow, generation and splice
+details, requirements, and data layout.
+
 ## Example
 
 A full pass on the **ArtAI** project: build the `art` character, then author the
