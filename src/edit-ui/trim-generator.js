@@ -128,9 +128,11 @@ export function createTrimGenerator(deps = {}) {
           const opts = {
             prompt, startImage: first, endImage: last,
             imageReferences: poses.map((p) => p.path),
-            resolution: '480p', aspectRatio: aspect, duration: w.clipDuration,
-            // Full quality: HF removed the draft endpoint in the api.higgsfield.ai migration
-            // (draft now 404s); full-quality omni + speech-ref lip-sync passes moderation.
+            // Seedance requires an INTEGER duration (>= 4). clipDuration comes from frame math so it
+            // can be e.g. 3.9999999999999996 — round it (sub-frame, doesn't shift the frame-accurate
+            // trim/de-pad). Full quality: HF removed the draft endpoint in the api.higgsfield.ai
+            // migration (draft now 404s); full-quality omni + speech-ref lip-sync passes moderation.
+            resolution: '480p', aspectRatio: aspect, duration: Math.max(4, Math.round(w.clipDuration)),
             generateAudio: true, mode: 'omni_reference',
           };
           if (speechId) opts.videoReferences = [speechId];
