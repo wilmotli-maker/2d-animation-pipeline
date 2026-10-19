@@ -59,6 +59,7 @@ test('a single edited keyframe produces one window and one full-quality submissi
     assert.equal(opts.resolution, '480p');
     assert.equal(opts.aspectRatio, '9:16');                  // nearestAspect(1080,1920)
     assert.equal(opts.duration, 4);
+    assert.ok(Number.isInteger(opts.duration));              // Seedance requires an integer duration
     assert.ok(opts.startImage && opts.endImage);
     assert.equal(opts.imageReferences.length, 1);            // one pose => 3kf
     assert.deepEqual(opts.videoReferences, ['vid-1']);
