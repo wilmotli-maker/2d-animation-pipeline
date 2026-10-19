@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { hfBackend, muapiBackend, muapiScriptPath } from '../src/edit-ui/backends.js';
+import { hfBackend, muapiBackend, falBackend, muapiScriptPath, falScriptPath } from '../src/edit-ui/backends.js';
 
 const win = (wDir) => ({
   wName: 'w01', wDir, promptFile: path.join(wDir, 'prompt.md'), prompt: 'do a thing',
@@ -74,6 +74,16 @@ test('muapiBackend.submit runs the script and returns out.mp4 on success; throws
   } finally { await rm(ws, { recursive: true, force: true }); }
 });
 
-test('muapiScriptPath points at the muapi-seedance.js client', () => {
+test('muapiScriptPath / falScriptPath point at their clients', () => {
   assert.match(muapiScriptPath('/repo'), /\/repo\/scripts\/eval\/video-editing\/keyframe-edit-eval\/muapi-seedance\.js$/);
+  assert.match(falScriptPath('/repo'), /\/repo\/scripts\/eval\/video-editing\/keyframe-edit-eval\/fal-seedance\.js$/);
+});
+
+test('falBackend mirrors the CLI shape, under its own output subdir', () => {
+  const b = falBackend();
+  assert.equal(b.name, 'fal');
+  const a = b.buildArgs(win('/tmp/w')).join(' ');
+  assert.match(a, /--image \/tmp\/w\/first\.png --image \/tmp\/w\/last\.png/);
+  assert.match(a, /--video \/tmp\/w\/speech\.mp4/);
+  assert.match(a, /--out \/tmp\/w\/fal$/);                   // fal subdir, not muapi
 });

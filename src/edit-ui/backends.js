@@ -47,17 +47,19 @@ export function hfBackend() {
   };
 }
 
-export function muapiScriptPath(root = REPO_ROOT) {
-  return path.join(root, 'scripts', 'eval', 'video-editing', 'keyframe-edit-eval', 'muapi-seedance.js');
-}
+const scriptDir = (root = REPO_ROOT) => path.join(root, 'scripts', 'eval', 'video-editing', 'keyframe-edit-eval');
+export function muapiScriptPath(root = REPO_ROOT) { return path.join(scriptDir(root), 'muapi-seedance.js'); }
+export function falScriptPath(root = REPO_ROOT) { return path.join(scriptDir(root), 'fal-seedance.js'); }
 
-// MuAPI backend. Shells muapi-seedance.js (which uploads local refs to fal and submits to MuAPI).
-// Image order: start (first), end (last), then pose refs. `spawn`/`script` injectable for tests.
-export function muapiBackend({ spawn = nodeSpawn, script = muapiScriptPath() } = {}) {
+// Shared backend for the external Seedance CLIs (muapi-seedance.js / fal-seedance.js). Both take the
+// same flags (--prompt-file / repeated --image / --video / --resolution / --aspect-ratio / --duration
+// / --generate-audio / --out) and write <out>/output.mp4. Image order: start, end, then pose refs.
+// `name` is the subdir + label; `spawn`/`script` are injectable for tests.
+function cliBackend({ name, script, spawn = nodeSpawn }) {
   return {
-    name: 'muapi',
+    name,
     buildArgs(w) {
-      const outDir = path.join(w.wDir, 'muapi');
+      const outDir = path.join(w.wDir, name);
       const args = ['--prompt-file', w.promptFile, '--image', w.first, '--image', w.last];
       for (const p of w.poses || []) args.push('--image', p);
       if (w.speechRefPath) args.push('--video', w.speechRefPath);
@@ -66,15 +68,24 @@ export function muapiBackend({ spawn = nodeSpawn, script = muapiScriptPath() } =
       return args;
     },
     async submit(w) {
-      const args = this.buildArgs(w);
-      const r = await runProc(spawn, 'node', [script, ...args], { cwd: REPO_ROOT });
-      const produced = path.join(w.wDir, 'muapi', 'output.mp4');
+      const r = await runProc(spawn, 'node', [script, ...this.buildArgs(w)], { cwd: REPO_ROOT });
+      const produced = path.join(w.wDir, name, 'output.mp4');
       if (r.code === 0 && (await exists(produced))) {
         const out = path.join(w.wDir, 'out.mp4');
         await copyFile(produced, out);
         return { output: out };
       }
-      throw new Error(`muapi generation failed (exit ${r.code}): ${(r.err || r.out).slice(-240)}`);
+      throw new Error(`${name} generation failed (exit ${r.code}): ${(r.err || r.out).slice(-240)}`);
     },
   };
+}
+
+// MuAPI Seedance (no moderation). Image/audio refs billed on total reference+output duration.
+export function muapiBackend({ spawn = nodeSpawn, script = muapiScriptPath() } = {}) {
+  return cliBackend({ name: 'muapi', script, spawn });
+}
+// Direct fal.ai Seedance 2.5 (no moderation; image/audio refs free, video refs billed). Usually
+// cheaper than MuAPI at 480p. Needs FAL_KEY (.env).
+export function falBackend({ spawn = nodeSpawn, script = falScriptPath() } = {}) {
+  return cliBackend({ name: 'fal', script, spawn });
 }
