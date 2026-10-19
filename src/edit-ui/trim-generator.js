@@ -1,7 +1,8 @@
 // src/edit-ui/trim-generator.js
-// The edit-ui "seedance-draft" generator: per marked region, trim a centered >=4s window
-// (padding at source edges), run an HF-draft Seedance edit that preserves lip-sync, and
-// fold splice-back metadata into the run manifest. Phase 2 (splice-back) is separate.
+// The edit-ui "seedance-draft" generator (name kept for the registry; now full-quality — HF
+// removed the draft endpoint): per marked region, trim a centered >=4s window (padding at source
+// edges), run a full-quality Seedance omni edit (start/end frames + speech-ref) that preserves
+// lip-sync, and fold splice-back metadata into the run manifest. Phase 2 (splice-back) is separate.
 // All side effects are injected so run() is testable without ffmpeg/network/GPU.
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -88,7 +89,7 @@ export function createTrimGenerator(deps = {}) {
         const wDir = path.join(runDir, 'windows', wName);
         const entry = {
           name: wName, window: w.window, sourceSpan: w.sourceSpan, pad: w.pad,
-          clipDuration: w.clipDuration, editCenters: w.editCenters, draft: true, status: 'pending', output: null,
+          clipDuration: w.clipDuration, editCenters: w.editCenters, draft: false, status: 'pending', output: null,
         };
         try {
           await mkdir(wDir, { recursive: true });
@@ -128,7 +129,9 @@ export function createTrimGenerator(deps = {}) {
             prompt, startImage: first, endImage: last,
             imageReferences: poses.map((p) => p.path),
             resolution: '480p', aspectRatio: aspect, duration: w.clipDuration,
-            generateAudio: true, mode: 'omni_reference', draft: true,
+            // Full quality: HF removed the draft endpoint in the api.higgsfield.ai migration
+            // (draft now 404s); full-quality omni + speech-ref lip-sync passes moderation.
+            generateAudio: true, mode: 'omni_reference',
           };
           if (speechId) opts.videoReferences = [speechId];
 
