@@ -16,10 +16,10 @@ test('keyframe prompt pins first, each pose at its offset, and last, scoping mou
 
 test('text-pose prompt describes a mid-clip gesture peaking at its offset, not a middle keyframe', () => {
   const p = buildTrimPrompt({ dialogue: 'Hi', clipDuration: 4, poses: [], gesture: 'looks surprised, both hands raised', gestureOffset: 2 });
-  assert.match(p, /STARTS on the first reference frame at 0\.0s/);
-  assert.match(p, /ENDS on the last reference frame at 4\.0s/);
+  assert.match(p, /STARTS exactly on @Image1 at 0\.0s/);   // start/end pinned by tag (framing adherence)
+  assert.match(p, /ENDS exactly on @Image2 at 4\.0s/);
   assert.match(p, /peaking at about 2\.0s/);
-  assert.match(p, /distinct new gesture not present in the start or end frames/);
+  assert.match(p, /distinct new gesture not present in @Image1 or @Image2/);
   assert.match(p, /eases back/);
   assert.match(p, /looks surprised, both hands raised/);
   assert.doesNotMatch(p, /@Image3/);            // only two stills in text-pose
