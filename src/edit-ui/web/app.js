@@ -165,6 +165,8 @@ async function loadVideo(id) {
 function setSource(src) {
   const f = video.src ? curFrame() : 0;
   video.src = src;
+  // Switching src stops playback without firing a 'pause' event, so sync the button explicitly.
+  $('play').textContent = '▶︎';
   video.addEventListener('loadedmetadata', () => { if (!ui.meta.duration) ui.meta.duration = video.duration; seekFrame(f); renderTimeline(); }, { once: true });
 }
 async function showWelcome() {
@@ -636,8 +638,8 @@ async function spliceRun(r) {
     // Keep the raw generated output on r.output; store the spliced clip alongside it so the
     // unspliced result stays viewable.
     if (s.status === 'done' && s.output) { r.spliced = s.output; r.at = new Date().toISOString(); showResult(r); }
-    else alert(`Splice failed: ${s.error || 'unknown error'}`);
-  } catch (err) { r.status = 'done'; alert(`Splice failed: ${err.message}`); }
+    else toast(`Splice failed: ${s.error || 'unknown error'}`, 5000);
+  } catch (err) { r.status = 'done'; toast(`Splice failed: ${err.message}`, 5000); }
   renderAll();
 }
 
