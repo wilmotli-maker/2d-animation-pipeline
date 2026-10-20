@@ -773,6 +773,14 @@ function reveal(run) {
 }
 function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
+  // Always-present row for the live working edit (the draft), so you can return to your current
+  // marks even before generating a result — it reads as "selected" like the results do.
+  const draftOn = !ui.compare && ui.view === 'source';
+  const nm = data.marks.length;
+  ul.append(el('li', { class: `result draft${draftOn ? ' sel' : ''}`, title: 'Your current marks (not yet generated)', onclick: () => { if (!draftOn) showSource(); } },
+    el('div', { class: 'result-main' },
+      el('span', { class: 'grow' }, 'Working edit'),
+      el('span', { class: 'status' }, nm ? `draft · ${nm} mark${nm > 1 ? 's' : ''}` : 'draft · no marks'))));
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
     const on = !ui.compare && ui.view === 'result' && ui.activeRenderId === r.id;
