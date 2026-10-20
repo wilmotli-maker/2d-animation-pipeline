@@ -113,6 +113,7 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .mark.range.sel { background: var(--range-sel); border-color: var(--sel); }
 .mark.frame { width: 3px; margin-left: -1px; background: var(--frame); }
 .mark.frame.sel { background: var(--sel); }
+.mark.ro { cursor: pointer; } /* a result's snapshot mark: seek-only, not editable */
 .mark .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
 .mark .h.l { left: -4px; } .mark .h.r { right: -4px; }
 /* Anchor tick: the marked moment / target-pose time inside a region (may be off-center). */
