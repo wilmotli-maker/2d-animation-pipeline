@@ -47,6 +47,15 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .badge { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 4px; background: rgba(0,0,0,.6);
   font-size: 11px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none; }
 .badge:empty { display: none; }
+/* Side-by-side compare: a second stage shown next to the source, same timeline. */
+#stage2 { display: none; }
+.stage-wrap.compare { gap: 8px; align-items: stretch; }
+.stage-wrap.compare #stage2 { display: block; }
+.stage-wrap.compare .stage { flex: 1 1 0; min-width: 0; height: 100%; aspect-ratio: auto; }
+.stage-wrap.compare .stage video { object-fit: contain; } /* equal panes, undistorted */
+.pane-label { position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 4px; background: rgba(0,0,0,.6);
+  font-size: 11px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none; display: none; }
+.stage-wrap.compare .pane-label { display: block; }
 
 .transport { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .transport .play { min-width: 44px; }

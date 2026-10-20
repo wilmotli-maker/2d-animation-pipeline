@@ -47,6 +47,11 @@
         <img id="kf-overlay" alt="">
         <canvas id="ink"></canvas>
         <div class="badge" id="view-badge"></div>
+        <div class="pane-label" id="label-a">Source</div>
+      </div>
+      <div class="stage alt" id="stage2">
+        <video id="video2" playsinline preload="auto" muted></video>
+        <div class="pane-label" id="label-b">Result</div>
       </div>
       <div class="welcome" id="welcome">
         <h2>Open a video to edit</h2>
@@ -76,6 +81,7 @@
       <span class="seg">
         <button id="view-source" class="toggle">Source</button>
         <button id="view-result" class="toggle">Result</button>
+        <button id="view-side" class="toggle" title="Side by side: source + a spliced result (same timeline)">Side by side</button>
       </span>
     </div>
 

@@ -4,7 +4,7 @@
 // scribbled annotations, prompts and keyframes all belong to a mark (shown on
 // the Marks / Ink / Keys lanes). Unlinked prompts apply to the whole video. Session state autosaves to the server.
 const $ = (id) => document.getElementById(id);
-const video = $('video'); const ink = $('ink'); const stage = $('stage'); const lanes = $('lanes');
+const video = $('video'); const video2 = $('video2'); const ink = $('ink'); const stage = $('stage'); const lanes = $('lanes');
 const COLORS = ['#ff4d6d', '#ffc43d', '#4cc38a', '#5aa9ff', '#c78bff', '#ffffff'];
 const ICONS = {
   ink: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c2-1 3-5 5-5s1 4 3 4 3-3 4-5"/></svg>',
@@ -24,7 +24,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, pendingIn: null, view: 'source', resultSrc: null,
+  sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -71,7 +71,9 @@ const hasContent = (m) => annsOf(m).length || promptsOf(m).length || kfsOf(m).le
 function seekFrame(f) {
   if (!ui.src) return;
   video.pause();
-  video.currentTime = timeOf(Math.min(lastFrame(), Math.max(0, f)));
+  const t = timeOf(Math.min(lastFrame(), Math.max(0, f)));
+  video.currentTime = t;
+  if (ui.compare) { video2.pause(); video2.currentTime = t; } // keep the compare pane in lock-step
   renderFrameState();
 }
 
@@ -136,7 +138,7 @@ async function loadVideo(id) {
     fetch(`/api/video?id=${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown video')))),
     fetch(`/api/session?id=${id}`).then((r) => r.json()),
   ]);
-  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null });
+  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null });
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
@@ -198,21 +200,24 @@ function togglePlay() {
   if (video.paused) {
     const [a, b] = loopBounds();
     const f = curFrame();
-    if (ui.loop && (f < a || f >= b)) video.currentTime = timeOf(a);
+    if (ui.loop && (f < a || f >= b)) { video.currentTime = timeOf(a); if (ui.compare) video2.currentTime = timeOf(a); }
     video.play();
-  } else video.pause();
+    if (ui.compare) { video2.currentTime = video.currentTime; video2.play(); }
+  } else { video.pause(); if (ui.compare) video2.pause(); }
 }
 function onTick() {
   if (!video.paused) {
     if (ui.loop) {
       const [a, b] = loopBounds();
-      if (curFrame() > b) video.currentTime = timeOf(a);
+      if (curFrame() > b) { video.currentTime = timeOf(a); if (ui.compare) video2.currentTime = timeOf(a); }
     }
+    // Correct any drift so the compare pane stays locked to the source timeline.
+    if (ui.compare && Math.abs((video2.currentTime || 0) - video.currentTime) > 1 / fps()) video2.currentTime = video.currentTime;
     renderFrameState();
   }
   requestAnimationFrame(onTick);
 }
-video.addEventListener('ended', () => { if (ui.loop) { video.currentTime = timeOf(loopBounds()[0]); video.play(); } });
+video.addEventListener('ended', () => { if (ui.loop) { const t = timeOf(loopBounds()[0]); video.currentTime = t; video.play(); if (ui.compare) { video2.currentTime = t; video2.play(); } } });
 video.addEventListener('play', () => { $('play').textContent = '❚❚'; });
 video.addEventListener('pause', () => { $('play').textContent = '▶︎'; renderFrameState(); });
 video.addEventListener('seeked', renderFrameState);
@@ -430,7 +435,7 @@ function drawStroke(ctx, s, alpha = 1) {
 function renderInk() {
   sizeCanvas();
   const ctx = ink.getContext('2d'); ctx.clearRect(0, 0, ink.width, ink.height);
-  if (!$('show-ann').checked || ui.view !== 'source') return;
+  if (!$('show-ann').checked || ui.view !== 'source' || ui.compare) return;
   const f = curFrame();
   for (const a of visibleAnnotations(f)) {
     const dim = ui.sel && ui.sel !== a.markId ? 0.45 : 1;
@@ -587,6 +592,7 @@ async function generateVideo() {
 // Show a result in single-clip mode. Defaults to the spliced output (full-length, same timeline
 // as the source); pass raw=true to view the unspliced generated clip instead.
 function showResult(r, raw = false) {
+  clearCompare();
   const out = (!raw && r.spliced) ? r.spliced : r.output;
   ui.view = 'result'; ui.resultSrc = out; ui.resultRaw = !!(raw && r.spliced); ui.resultPeaks = null;
   const url = fileUrl(out, r.at);
@@ -594,7 +600,31 @@ function showResult(r, raw = false) {
   // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
   computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === out) { ui.resultPeaks = p; renderWave(); } });
 }
-function showSource() { ui.view = 'source'; setSource(ui.src); renderAll(); }
+function showSource() { clearCompare(); ui.view = 'source'; setSource(ui.src); renderAll(); }
+
+// --- side-by-side compare: source + one spliced result, locked to the same timeline ---
+// Only spliced results qualify (a raw generation has a different timeline than the source).
+const splicedRenders = () => data.renders.filter((r) => r.status === 'done' && r.spliced);
+function clearCompare() { if (ui.compare) { video2.pause(); video2.removeAttribute('src'); video2.load(); ui.compare = null; } }
+function enterCompare(r) {
+  if (!r || !r.spliced) return toast('Side-by-side needs a spliced result');
+  const f = curFrame();
+  ui.compare = r; ui.view = 'source';
+  setSource(ui.src);                         // left pane = source
+  video2.src = fileUrl(r.spliced, r.at);     // right pane = the spliced result
+  video2.muted = true;
+  video2.addEventListener('loadedmetadata', () => { video2.currentTime = timeOf(f); }, { once: true });
+  $('label-b').textContent = r.run ? `${r.run} · spliced` : 'spliced';
+  renderAll();
+}
+// Toggle from the Side-by-side button: compare the shown/last spliced result, or drop back to single.
+function toggleCompare() {
+  if (ui.compare) return showSource();
+  const shown = data.renders.find((r) => r.spliced && (ui.resultSrc === r.spliced || ui.resultSrc === r.output));
+  const r = shown || splicedRenders()[0];
+  if (!r) return toast('Generate and splice a result first');
+  enterCompare(r);
+}
 
 // Splice a run's edited window(s) back into the full source, then show the result.
 async function spliceRun(r) {
@@ -723,7 +753,7 @@ function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
-    const on = ui.view === 'result' && (ui.resultSrc === r.output || (r.spliced && ui.resultSrc === r.spliced));
+    const on = !ui.compare && ui.view === 'result' && (ui.resultSrc === r.output || (r.spliced && ui.resultSrc === r.spliced));
     const viewing = on ? (ui.resultRaw ? 'raw' : 'spliced') : null;
     ul.append(el('li', { class: on ? 'sel' : '', onclick: () => r.status === 'done' && showResult(r) },
       el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
@@ -733,6 +763,8 @@ function renderRenders() {
       // When a spliced output exists, let the user flip between the spliced and the raw clip.
       (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, false); } }, 'Spliced') : null,
       (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, true); } }, 'Raw') : null,
+      // Only spliced results share the source timeline, so only they can go side by side.
+      (r.spliced && r.status === 'done') ? el('button', { class: `x${ui.compare === r ? ' on' : ''}`, title: 'Compare side by side with the source', onclick: (e) => { e.stopPropagation(); ui.compare === r ? showSource() : enterCompare(r); } }, 'Compare') : null,
       (r.run && r.status === 'done') ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×')));
@@ -749,7 +781,7 @@ function renderFrameState() {
   $('playhead').style.left = xOfFrame(f + 0.5);
   const k = data.keyframes.find((x) => x.frame === f && x.current >= 0);
   const img = $('kf-overlay');
-  if (k && $('show-kf').checked && ui.view === 'source') {
+  if (k && $('show-kf').checked && ui.view === 'source' && !ui.compare) {
     const src = fileUrl(k.versions[k.current].output);
     if (img.getAttribute('src') !== src) img.src = src;
     img.style.display = 'block'; img.style.opacity = $('kf-opacity').value / 100;
@@ -763,10 +795,13 @@ function renderAll() {
   for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === ui.tool);
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.color === ui.color);
   $('loop').classList.toggle('on', ui.loop);
-  $('view-source').classList.toggle('on', ui.view === 'source');
-  $('view-result').classList.toggle('on', ui.view === 'result');
+  $('view-source').classList.toggle('on', ui.view === 'source' && !ui.compare);
+  $('view-result').classList.toggle('on', ui.view === 'result' && !ui.compare);
   $('view-result').disabled = !data.renders.some((r) => r.status === 'done');
-  $('view-badge').textContent = ui.view === 'result' ? 'Result' : '';
+  $('view-side').classList.toggle('on', !!ui.compare);
+  $('view-side').disabled = !splicedRenders().length;
+  $('stage-wrap').classList.toggle('compare', !!ui.compare);
+  $('view-badge').textContent = ui.compare ? '' : ui.view === 'result' ? 'Result' : '';
   $('undo').disabled = !ui.undo.length; $('redo').disabled = !ui.redo.length;
   renderTimeline(); renderInspector(); renderMarksList(); renderDialogue(); renderGlobalPrompts(); renderRenders(); renderFrameState();
 }
@@ -797,8 +832,9 @@ $('auto-kf').addEventListener('change', (e) => {
   const n = Math.max(0, Math.min(12, Math.floor(Number(e.target.value) || 0)));
   e.target.value = n; data.settings.autoKeyframes = n; scheduleSave();
 });
-$('view-source').addEventListener('click', () => ui.view !== 'source' && showSource());
-$('view-result').addEventListener('click', () => { const r = data.renders.find((x) => x.status === 'done'); if (r && ui.view !== 'result') showResult(r); });
+$('view-source').addEventListener('click', () => (ui.compare || ui.view !== 'source') && showSource());
+$('view-result').addEventListener('click', () => { const r = data.renders.find((x) => x.status === 'done'); if (r && (ui.compare || ui.view !== 'result')) showResult(r); });
+$('view-side').addEventListener('click', toggleCompare);
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 window.addEventListener('resize', () => { renderTimeline(); renderInk(); });
