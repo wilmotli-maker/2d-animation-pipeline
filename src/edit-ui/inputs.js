@@ -109,6 +109,14 @@ export async function prepareRunInputs(workspace, run, { videoPath, probe = {}, 
     } catch (err) { warnings.push(`auto keyframe f${f} failed: ${err.message}`); }
   }
 
+  // Edited keyframes: user-provided reference images (generated or uploaded in the UI), pinned at
+  // their frame. The generator places each as an extra reference at its time within the window (see
+  // trim-generator + trim-prompt), so the subject reaches that pose at the right moment in the clip.
+  for (const k of (request.keyframes || [])) {
+    if (!k || typeof k.image !== 'string' || !k.image || k.image.includes('..') || !Number.isInteger(k.frame)) continue;
+    inputs.push({ role: 'keyframe', kind: 'edited', frame: k.frame, time: (typeof k.time === 'number' ? k.time : (k.frame + 0.5) / fps), path: k.image });
+  }
+
   // Annotated frames: one image pair per frame, all scribbles on that frame together.
   const byFrame = new Map();
   for (const a of request.annotations || []) {
