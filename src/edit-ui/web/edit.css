@@ -106,6 +106,11 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .mark.frame.sel { background: var(--sel); }
 .mark .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
 .mark .h.l { left: -4px; } .mark .h.r { right: -4px; }
+/* Anchor tick: the marked moment / target-pose time inside a region (may be off-center). */
+.mark-anchor { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); cursor: pointer; z-index: 2; }
+.mark-anchor::before { content: ''; position: absolute; top: -1px; left: -3px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--accent); }
+.mark-anchor.sel { background: var(--sel); }
+.mark-anchor.sel::before { border-top-color: var(--sel); }
 .dot { position: absolute; top: 7px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--ink); cursor: pointer; }
 .dot.sel { outline: 2px solid var(--sel); }
 .diamond { position: absolute; top: 5px; width: 11px; height: 11px; margin-left: -5px; transform: rotate(45deg); background: var(--kf); cursor: pointer; }

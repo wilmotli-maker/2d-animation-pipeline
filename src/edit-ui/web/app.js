@@ -219,18 +219,40 @@ video.addEventListener('seeked', renderFrameState);
 function toggleMute() { video.muted = !video.muted; $('mute').textContent = video.muted ? '🔇' : '🔊'; $('mute').classList.toggle('on', video.muted); }
 
 // ---- marks ---------------------------------------------------------------
-function newMark(s, e) {
-  const [a, b] = s <= e ? [s, e] : [e, s];
-  const m = { id: uid('m'), kind: a === b ? 'frame' : 'range', start: a, end: b, label: '' };
+// A range mark is the edit region / generation window. It auto-sizes to a 4s minimum and
+// remembers the marked moment as its `anchor`, so extending a boundary leaves the target pose
+// where it was marked (off-center) rather than snapping it to the new midpoint. A zero-width
+// mark stays a 'frame' (the attach point for an annotation or keyframe).
+const REGION_SECONDS = 4;
+const regionFrames = () => Math.max(1, Math.round(REGION_SECONDS * fps()));
+// Expand [a,b] to at least the 4s minimum (centered on its midpoint) and shift it fully inside
+// [0, lastFrame]. A clip shorter than the minimum collapses to the whole clip.
+function clampRegion(a, b) {
+  const span = regionFrames(); const hi = lastFrame();
+  let s = a, e = b;
+  if (e - s < span) { const mid = (a + b) / 2; s = Math.round(mid - span / 2); e = s + span; }
+  if (s < 0) { s = 0; e = Math.min(hi, s + span); }
+  if (e > hi) { e = hi; s = Math.max(0, e - span); }
+  return [Math.max(0, s), Math.min(hi, e)];
+}
+function newMark(s, e, anchor) {
+  let a = Math.min(s, e), b = Math.max(s, e);
+  if (a === b) { const m = { id: uid('m'), kind: 'frame', start: a, end: a, label: '' }; data.marks.push(m); return m; }
+  [a, b] = clampRegion(a, b);
+  const anc = Math.min(b, Math.max(a, anchor != null ? anchor : Math.round((a + b) / 2)));
+  const m = { id: uid('m'), kind: 'range', start: a, end: b, anchor: anc, label: '' };
   data.marks.push(m);
   return m;
 }
-function addFrameMark() {
+// Mark the current frame: reuse a region that already covers it, else create a 4s region
+// centered on it (shifted inward near the clip edges) with the frame as its anchor.
+function addRegionMark() {
   if (!ui.src) return;
   const f = curFrame();
-  const existing = data.marks.find((m) => m.kind === 'frame' && m.start === f);
+  const existing = data.marks.find((m) => m.kind === 'range' && inMark(m, f));
   if (existing) { ui.sel = existing.id; return renderAll(); }
-  mutate(() => { ui.sel = newMark(f, f).id; });
+  const half = Math.round(regionFrames() / 2);
+  mutate(() => { ui.sel = newMark(f - half, f + half, f).id; });
 }
 function setIn() { if (!ui.src) return; ui.pendingIn = curFrame(); renderTimeline(); toast(`In at frame ${ui.pendingIn} — press O to close the range`); }
 function setOut() {
@@ -295,6 +317,11 @@ function renderTimeline() {
       }
     }
     track.append(node);
+    // Anchor tick: the marked moment / target-pose time inside the region.
+    if (m.kind === 'range' && m.anchor != null) {
+      track.append(el('div', { class: `mark-anchor${sel ? ' sel' : ''}`, title: `Target pose @ f${m.anchor}`,
+        style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); select(m.id); seekFrame(m.anchor); } }));
+    }
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
@@ -334,16 +361,20 @@ function renderWave() {
 }
 function dragHandle(m, side) {
   commit();
+  const minSpan = regionFrames(); // a region can't shrink below the 4s minimum
   const move = (ev) => {
     const f = frameAtX(ev.clientX);
-    if (side === 'l') m.start = Math.min(f, m.end); else m.end = Math.max(f, m.start);
+    if (side === 'l') m.start = Math.max(0, Math.min(f, m.end - minSpan));
+    else m.end = Math.min(lastFrame(), Math.max(f, m.start + minSpan));
     seekFrame(side === 'l' ? m.start : m.end); renderTimeline();
   };
   const up = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
-    // Content outside the trimmed range would be orphaned: clamp it in.
+    // Content outside the trimmed range would be orphaned: clamp it in. Keep the anchor (the
+    // marked moment) inside the region too — it stays put, so it may now be off-center.
     for (const a of annsOf(m)) a.frame = Math.min(m.end, Math.max(m.start, a.frame));
     for (const k of kfsOf(m)) k.frame = Math.min(m.end, Math.max(m.start, k.frame));
+    if (m.anchor != null) m.anchor = Math.min(m.end, Math.max(m.start, m.anchor));
     if (m.start === m.end) m.kind = 'frame';
     renderAll(); scheduleSave();
   };
@@ -601,7 +632,7 @@ function renderInspector() {
   if (!m) {
     box.append(el('header', {}, el('h2', {}, 'Selection')),
       el('div', { class: 'hint' }, ui.src
-        ? 'Select a mark on the Marks lane, or create one: M marks a frame, I/O or drag on the Marks lane marks a range. Drawing or adding a keyframe without a selection marks the current frame.'
+        ? 'Select a mark on the Marks lane, or create one: M marks a 4s region around the current frame (drag the edges to extend, 4s minimum), I/O or drag on the Marks lane marks a custom range. Drawing or adding a keyframe without a selection marks the current frame.'
         : 'Open a video to begin.'));
     return;
   }
@@ -745,7 +776,7 @@ $('to-start').addEventListener('click', () => seekFrame(loopBounds()[0]));
 $('to-end').addEventListener('click', () => seekFrame(loopBounds()[1]));
 $('loop').addEventListener('click', () => { ui.loop = !ui.loop; renderAll(); });
 $('mute').addEventListener('click', toggleMute);
-$('mark-frame').addEventListener('click', addFrameMark);
+$('mark-frame').addEventListener('click', addRegionMark);
 $('mark-in').addEventListener('click', setIn);
 $('mark-out').addEventListener('click', setOut);
 $('add-kf').addEventListener('click', addKeyframe);
@@ -773,7 +804,7 @@ window.addEventListener('keydown', (e) => {
   const keys = {
     ' ': togglePlay, ArrowLeft: () => seekFrame(curFrame() - step), ArrowRight: () => seekFrame(curFrame() + step),
     Home: () => seekFrame(loopBounds()[0]), End: () => seekFrame(loopBounds()[1]),
-    l: () => { ui.loop = !ui.loop; renderAll(); }, u: toggleMute, m: addFrameMark, i: setIn, o: setOut, k: addKeyframe,
+    l: () => { ui.loop = !ui.loop; renderAll(); }, u: toggleMute, m: addRegionMark, i: setIn, o: setOut, k: addKeyframe,
     b: () => setTool('pen'), e: () => setTool('erase'), v: () => setTool('none'),
     Escape: () => { ui.pendingIn = null; ui.sel = null; renderAll(); },
     Backspace: () => { if (ui.sel) deleteMark(ui.sel); },

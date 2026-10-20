@@ -60,7 +60,7 @@ export function createTrimGenerator(deps = {}) {
       const regions = [
         ...edited.map((k) => ({ kind: 'point', start: k.time, end: k.time })),
         ...(run.marks || []).map((m) => (m.kind === 'range'
-          ? { kind: 'range', start: m.start / fps, end: m.end / fps }
+          ? { kind: 'range', start: m.start / fps, end: m.end / fps, anchor: m.anchor != null ? m.anchor / fps : undefined }
           : { kind: 'point', start: m.start / fps, end: m.start / fps })),
       ];
 

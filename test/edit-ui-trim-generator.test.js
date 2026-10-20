@@ -118,6 +118,17 @@ test('request.styleLock and the text-pose gesture clause reach the submitted pro
   }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
 });
 
+test('a range mark with an anchor times the gesture at the anchor, not the window midpoint', async () => {
+  // Region frames [48,192] = [2s,8s] (6s clip); anchor frame 156 = 6.5s → off-center at 4.5s.
+  await scaffold(async ({ gen, job, deps }) => {
+    await gen.run(job);
+    const sub = deps.submissions[0];
+    assert.match(sub.opts.prompt, /peaking at about 4\.5s/);     // anchor offset 6.5 - 2 = 4.5s
+    assert.doesNotMatch(sub.opts.prompt, /peaking at about 5\.0s/); // NOT the midpoint
+    assert.equal(sub.opts.duration, 6);                          // clip spans the whole range
+  }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'range', start: 48, end: 192, anchor: 156 }], duration: 12 });
+});
+
 test('the gesture uses the raw per-mark prompt, not the composed prompt.text (no frame headers or duplicated dialogue)', async () => {
   await scaffold(async ({ gen, job, deps }) => {
     // Simulate what createRun/composePrompt produces: a composed blob with a frame header and a

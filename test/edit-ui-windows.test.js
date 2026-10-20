@@ -20,6 +20,27 @@ test('a range wider than the minimum keeps its own width', () => {
   assert.equal(w.clipDuration, 6);
 });
 
+test('a range without an anchor centers its edit point on the midpoint', () => {
+  const [w] = only([{ kind: 'range', start: 2, end: 8 }]);
+  assert.deepEqual(w.editCenters, [5]); // (2+8)/2
+});
+
+test('a range anchor sets an off-center edit point inside the window', () => {
+  // The marked moment is 6.5s; the user dragged the boundaries to [2,8] so it is off-center.
+  const [w] = only([{ kind: 'range', start: 2, end: 8, anchor: 6.5 }]);
+  assert.deepEqual(w.window, [2, 8]);            // window still spans the region
+  assert.deepEqual(w.editCenters, [6.5]);        // edit point is the anchor, not the midpoint 5
+  // gestureOffset the generator derives (center - window[0]) is off-center within the clip:
+  assert.equal(w.editCenters[0] - w.window[0], 4.5); // peaks at 4.5s of a 6s clip
+});
+
+test('a sub-minimum range with an anchor keeps a centered 4s window but an off-center edit point', () => {
+  const [w] = only([{ kind: 'range', start: 4, end: 7, anchor: 4.5 }]); // span 3 < 4
+  assert.deepEqual(w.window, [3.5, 7.5]);        // expanded to 4s, centered on the region midpoint 5.5
+  assert.equal(w.clipDuration, 4);
+  assert.deepEqual(w.editCenters, [4.5]);        // anchor, inside the window
+});
+
 test('a region near the start extends past 0 and pads the head, staying centered', () => {
   const [w] = only([{ kind: 'point', start: 1, end: 1 }]); // ideal [-1, 3]
   assert.deepEqual(w.window, [-1, 3]);
