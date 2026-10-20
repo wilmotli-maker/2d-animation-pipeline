@@ -142,6 +142,67 @@ test('a failing auto-splice does not fail the generation (raw result still done)
   } finally { s4.close(); await rm(out4, { recursive: true, force: true }); }
 });
 
+const pollAt = async (b, jobId) => {
+  let job; for (let i = 0; i < 50; i++) { job = await (await fetch(`${b}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
+  return job;
+};
+
+test('a video generate auto-harmonizes the splice: spliced preview first, harmonized via its own job', async () => {
+  const out5 = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-'));
+  await writeFile(path.join(out5, 'clip.mp4'), 'harmonize-bytes');
+  const stubSplice = async (ws, meta, m) => ({ output: `${meta.id}/runs/${m.run}/spliced.mp4` });
+  const harmCalls = [];
+  const stubHarmonize = async (args) => {
+    harmCalls.push(args);
+    const output = path.relative(args.workspace, path.join(args.runDir, 'harmonized.mp4')).split(path.sep).join('/');
+    return { output, previz: null };
+  };
+  const { server: s5, url: b5, initialId: id5 } = await startEditUi({
+    workspace: path.join(out5, 'ws'), port: 0, generator: fakeGen, video: path.join(out5, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
+  });
+  try {
+    const req = { kind: 'video', id: id5, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const { jobId } = await (await fetch(`${b5}api/generate`, json(req))).json();
+    const gen = await pollAt(b5, jobId);
+    assert.equal(gen.status, 'done');
+    assert.match(gen.spliced, /spliced\.mp4$/);          // the preview is available immediately
+    assert.equal(gen.harmonizing, true);                  // and harmonization was kicked off
+    assert.ok(gen.harmonizeJobId, 'harmonize job id exposed');
+
+    const harm = await pollAt(b5, gen.harmonizeJobId);    // the harmonize job completes separately
+    assert.equal(harm.status, 'done');
+    assert.match(harm.output, /harmonized\.mp4$/);
+    assert.equal(harmCalls.length, 1);
+    assert.match(harmCalls[0].splicedAbs, /spliced\.mp4$/);
+
+    const { runs } = await (await fetch(`${b5}api/runs?id=${id5}`)).json();
+    assert.equal(runs[0].harmonize.status, 'done');       // and the manifest records it
+    assert.match(runs[0].harmonize.output, /harmonized\.mp4$/);
+  } finally { s5.close(); await rm(out5, { recursive: true, force: true }); }
+});
+
+test('a failing harmonization keeps the spliced preview and reports the error on its own job', async () => {
+  const out6 = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-fail-'));
+  await writeFile(path.join(out6, 'clip.mp4'), 'harmonize-fail-bytes');
+  const stubSplice = async (ws, meta, m) => ({ output: `${meta.id}/runs/${m.run}/spliced.mp4` });
+  const stubHarmonize = async () => { throw new Error('seedance boom'); };
+  const { server: s6, url: b6, initialId: id6 } = await startEditUi({
+    workspace: path.join(out6, 'ws'), port: 0, generator: fakeGen, video: path.join(out6, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
+  });
+  try {
+    const req = { kind: 'video', id: id6, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const { jobId } = await (await fetch(`${b6}api/generate`, json(req))).json();
+    const gen = await pollAt(b6, jobId);
+    assert.equal(gen.status, 'done');
+    assert.match(gen.spliced, /spliced\.mp4$/);          // splice preview unaffected by harmonize failure
+    const harm = await pollAt(b6, gen.harmonizeJobId);
+    assert.equal(harm.status, 'error');
+    assert.match(harm.error, /seedance boom/);
+    const { runs } = await (await fetch(`${b6}api/runs?id=${id6}`)).json();
+    assert.equal(runs[0].harmonize.status, 'error');
+  } finally { s6.close(); await rm(out6, { recursive: true, force: true }); }
+});
+
 test('reveal opens only this video\'s folders', async () => {
   assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: 'v001' }))).status, 200);
   assert.equal(revealed.at(-1), path.join(workspace, initialId, 'runs', 'v001'));
