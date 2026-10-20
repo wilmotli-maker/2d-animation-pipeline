@@ -79,6 +79,33 @@ test('prepareRunInputs records speechref, auto keyframes (skipping edited frames
   }, request, { audio: '/a.wav' });
 });
 
+test('an uploaded/generated keyframe becomes an edited reference input (pinned at its frame/time)', async () => {
+  const tools = { speechRef: async () => {}, frame: async () => {}, annotate: async () => {} };
+  const request = { fps: 24, autoKeyframes: 0,
+    keyframes: [{ frame: 48, time: 2.0, markId: 'm', image: 'vid123/keyframes/upload-abc.png' }] };
+  await withRun(async (ws, run) => {
+    const m = await prepareRunInputs(ws, run, {
+      videoPath: '/v.mp4', probe: { fps: 24, frames: 100, duration: 100 / 24, width: 1280, height: 720 }, request, derived: {}, tools,
+    });
+    const kf = m.inputs.find((i) => i.role === 'keyframe' && i.kind === 'edited');
+    assert.ok(kf, 'an edited keyframe reference input was created');
+    assert.equal(kf.path, 'vid123/keyframes/upload-abc.png');  // workspace-relative, as uploaded
+    assert.equal(kf.frame, 48);
+    assert.equal(kf.time, 2.0);
+  }, request);
+});
+
+test('a keyframe entry without an image is ignored (only excludes that frame from auto)', async () => {
+  const tools = { speechRef: async () => {}, frame: async () => {}, annotate: async () => {} };
+  const request = { fps: 24, autoKeyframes: 0, keyframes: [{ frame: 48 }] };
+  await withRun(async (ws, run) => {
+    const m = await prepareRunInputs(ws, run, {
+      videoPath: '/v.mp4', probe: { fps: 24, frames: 100, duration: 100 / 24, width: 1280, height: 720 }, request, derived: {}, tools,
+    });
+    assert.ok(!m.inputs.some((i) => i.role === 'keyframe' && i.kind === 'edited'), 'no edited keyframe input without an image');
+  }, request);
+});
+
 test('with autoKeyframes 0 (the seedance-draft default) no auto keyframes are generated', async () => {
   const made = [];
   const tools = {
