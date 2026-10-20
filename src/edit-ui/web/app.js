@@ -319,7 +319,13 @@ function renderTimeline() {
   if (ui.src && d > 0) {
     const w = lanes.clientWidth || 800;
     const step = [0.5, 1, 2, 5, 10, 15, 30, 60, 120].find((s) => (w / d) * s >= 70) || 300;
-    for (let t = 0; t <= d + 1e-6; t += step) ruler.append(el('div', { class: 'tick', style: { left: xOfFrame(frameOf(t)) } }, el('span', {}, fmt(t).replace(/^00:/, ''))));
+    for (let t = 0; t <= d + 1e-6; t += step) {
+      const f = frameOf(t);
+      // Labels near the right edge right-align (grow leftward) so the last one doesn't bleed past
+      // the timeline into the results panel.
+      const near = f / (lastFrame() + 1) > 0.92;
+      ruler.append(el('div', { class: 'tick', style: { left: xOfFrame(f) } }, el('span', { class: near ? 'end' : '' }, fmt(t).replace(/^00:/, ''))));
+    }
     if (w / n >= 6) for (let f = 0; f < n; f++) ruler.append(el('div', { class: 'tick minor', style: { left: xOfFrame(f) } }));
   }
   // Which edits the timeline shows: the working draft (data.*) while editing the source, or a
