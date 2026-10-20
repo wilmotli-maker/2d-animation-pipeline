@@ -52,6 +52,15 @@ test('a single interior window de-pads and splices with seam mid', async () => {
   }, [win('w01', 4, 8, { start: 0, end: 0 }, 6)]);
 });
 
+test('an off-center anchor splices with the anchor as edit and genOffset at the span start', async () => {
+  // Range [4,8] but the marked moment (anchor / editCenter) is 7 — off-center in the clip.
+  await scaffold(async ({ ws, runner, meta, manifest, spliceCalls }) => {
+    await runner(ws, meta, manifest);
+    assert.equal(spliceCalls[0].edit, 7);        // the anchor, not the midpoint 6
+    assert.equal(spliceCalls[0].genOffset, 4);   // temporal layout: gen f0 == source sourceSpan[0]
+  }, [win('w01', 4, 8, { start: 0, end: 0 }, 7)]);
+});
+
 test('seam comes from pad: head when pad.start>0, tail when pad.end>0 (right-to-left)', async () => {
   await scaffold(async ({ ws, runner, meta, manifest, spliceCalls }) => {
     await runner(ws, meta, manifest);

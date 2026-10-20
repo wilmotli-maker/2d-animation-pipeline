@@ -11,7 +11,10 @@ function idealWindow(region, minWindow) {
   if (region.kind === 'range') {
     const mid = (region.start + region.end) / 2;
     const w = Math.max(minWindow, region.end - region.start);
-    return [mid - w / 2, mid + w / 2, mid];
+    // The edit point is the marked moment (anchor) when the user set one — so dragging a
+    // boundary leaves the target where it was marked rather than snapping it to the midpoint.
+    const center = region.anchor != null ? region.anchor : mid;
+    return [mid - w / 2, mid + w / 2, center];
   }
   const t = region.start;
   return [t - minWindow / 2, t + minWindow / 2, t];
