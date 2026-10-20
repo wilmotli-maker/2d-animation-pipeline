@@ -577,19 +577,22 @@ async function generateVideo() {
       transcript: data.dialogue ? { text: data.dialogue.text, include: data.dialogue.include !== false } : null, marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
       keyframes: data.keyframes.filter((k) => k.current >= 0).map((k) => ({ frame: k.frame, time: timeOf(k.frame), markId: k.markId, image: k.versions[k.current].output })),
     });
-    Object.assign(r, { status: 'done', run: res.run || null, output: res.output, stub: !!res.stub, note: res.note || '' });
-    showResult(r);
+    Object.assign(r, { status: 'done', run: res.run || null, output: res.output, spliced: res.spliced || null, stub: !!res.stub, note: res.note || '' });
+    showResult(r); // defaults to the spliced output when the auto-splice produced one
     if (res.warnings && res.warnings.length) toast(`Run ${res.run}: ${res.warnings.join('; ')}`, 7000);
     else if (res.note) toast(res.note);
   } catch (err) { Object.assign(r, { status: 'error', error: err.message }); }
   renderAll(); scheduleSave();
 }
-function showResult(r) {
-  ui.view = 'result'; ui.resultSrc = r.output; ui.resultPeaks = null;
-  const url = fileUrl(r.output, r.at);
+// Show a result in single-clip mode. Defaults to the spliced output (full-length, same timeline
+// as the source); pass raw=true to view the unspliced generated clip instead.
+function showResult(r, raw = false) {
+  const out = (!raw && r.spliced) ? r.spliced : r.output;
+  ui.view = 'result'; ui.resultSrc = out; ui.resultRaw = !!(raw && r.spliced); ui.resultPeaks = null;
+  const url = fileUrl(out, r.at);
   setSource(url); renderAll();
   // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
-  computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === r.output) { ui.resultPeaks = p; renderWave(); } });
+  computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === out) { ui.resultPeaks = p; renderWave(); } });
 }
 function showSource() { ui.view = 'source'; setSource(ui.src); renderAll(); }
 
@@ -600,7 +603,9 @@ async function spliceRun(r) {
     const { jobId } = await (await fetch('/api/splice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: ui.id, run: r.run }) })).json();
     let s; do { await new Promise((z) => setTimeout(z, 700)); s = await (await fetch(`/api/jobs/${jobId}`)).json(); } while (s.status === 'running');
     r.status = 'done';
-    if (s.status === 'done' && s.output) { r.output = s.output; r.at = new Date().toISOString(); r.spliced = true; showResult(r); }
+    // Keep the raw generated output on r.output; store the spliced clip alongside it so the
+    // unspliced result stays viewable.
+    if (s.status === 'done' && s.output) { r.spliced = s.output; r.at = new Date().toISOString(); showResult(r); }
     else alert(`Splice failed: ${s.error || 'unknown error'}`);
   } catch (err) { r.status = 'done'; alert(`Splice failed: ${err.message}`); }
   renderAll();
@@ -718,13 +723,17 @@ function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
-    const on = ui.view === 'result' && r.output && ui.resultSrc === r.output;
+    const on = ui.view === 'result' && (ui.resultSrc === r.output || (r.spliced && ui.resultSrc === r.spliced));
+    const viewing = on ? (ui.resultRaw ? 'raw' : 'spliced') : null;
     ul.append(el('li', { class: on ? 'sel' : '', onclick: () => r.status === 'done' && showResult(r) },
       el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
         r.status === 'running' ? 'generating…' : r.status === 'splicing' ? 'splicing…' : r.status === 'error' ? r.error
           : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString()),
-      (r.run && r.status === 'done') ? el('button', { class: 'x', title: 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, 'Splice') : null,
+      // When a spliced output exists, let the user flip between the spliced and the raw clip.
+      (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, false); } }, 'Spliced') : null,
+      (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, true); } }, 'Raw') : null,
+      (r.run && r.status === 'done') ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×')));
   });

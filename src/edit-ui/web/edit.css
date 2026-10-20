@@ -12,7 +12,7 @@ button { font: inherit; color: var(--text); background: var(--panel-2); border: 
   border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 button:hover { border-color: #444a55; }
 button.primary { background: var(--accent-2); border-color: var(--accent); }
-button.active, button.toggle.on { background: var(--accent-2); border-color: var(--accent); }
+button.active, button.toggle.on, button.x.on { background: var(--accent-2); border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: default; }
 select, textarea, input[type=text] { font: inherit; color: var(--text); background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
