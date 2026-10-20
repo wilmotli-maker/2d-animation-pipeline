@@ -11,8 +11,8 @@ import { hfBackend, muapiBackend, falBackend } from './backends.js';
 // name -> factory(). Factories are lazy so a backend that needs credentials or a
 // heavy import isn't constructed until it's the one actually selected. The real
 // backends share the trim generator; only the submission differs (see backends.js).
-//   fal   — direct fal.ai Seedance 2.5, no moderation, cheapest at 480p (needs FAL_KEY)
-//   muapi (default) — MuAPI Seedance 2.5, no moderation (needs MUAPI_KEY + FAL_KEY)
+//   fal (default) — direct fal.ai Seedance 2.5, no moderation, cheapest at 480p (needs FAL_KEY)
+//   muapi — MuAPI Seedance 2.5, no moderation (needs MUAPI_KEY + FAL_KEY)
 //   hf    — Higgsfield Seedance (unreliable: full-quality lip-sync nsfw-blocks)
 const REGISTRY = {
   muapi: () => createTrimGenerator({ backend: muapiBackend() }),
@@ -22,7 +22,7 @@ const REGISTRY = {
   stub: createStubGenerator,
 };
 
-export const DEFAULT_GENERATOR = 'muapi';
+export const DEFAULT_GENERATOR = 'fal';
 
 export function generatorNames() {
   return Object.keys(REGISTRY);
