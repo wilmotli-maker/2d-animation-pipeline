@@ -45,22 +45,21 @@ lip-sync is a confirmed dead end across every Seedance version (re-tested on fal
 see the backend recipe's gotchas). Two interchangeable backends (pick with `--generator` or
 `PIPELINE_EDIT_GENERATOR`):
 
-- **`muapi` (default)** — MuAPI (muapi.ai) Seedance 2.5. **No moderation** on this recipe, so it
-  reliably completes. Local refs are uploaded to fal storage. Needs **`MUAPI_KEY` + `FAL_KEY`** (read
-  from `.env`); bills in dollars (≈ $0.275/s → ~$1.10 per 4 s window; MuAPI also bills the reference
-  duration).
-- **`fal`** — direct fal.ai Seedance 2.5 (`bytedance/seedance-2.5/reference-to-video`). Also **no
-  moderation**; usually **cheaper at 480p** (~$0.22/s, and image/audio references are free — only video
-  refs are billed). Needs **`FAL_KEY`**.
+- **`fal` (default)** — direct fal.ai Seedance 2.5 (`bytedance/seedance-2.5/reference-to-video`).
+  **No moderation**; usually **cheapest at 480p** (~$0.22/s, and image/audio references are free — only
+  video refs are billed). Needs **`FAL_KEY`** (read from `.env`).
+- **`muapi`** — MuAPI (muapi.ai) Seedance 2.5. Also **no moderation**. Local refs are uploaded to fal
+  storage. Needs **`MUAPI_KEY` + `FAL_KEY`**; bills in dollars (≈ $0.275/s → ~$1.10 per 4 s window;
+  MuAPI also bills the reference duration).
 - **`hf`** (alias `seedance-draft`) — Higgsfield Seedance via the project CLI. Full quality (HF removed
   the draft endpoint in the `api.higgsfield.ai` migration). **Caveat:** HF moderation false-positives
   `nsfw` on full-quality lip-sync and there is no draft bypass anymore, so it often fails on talking
-  shots — prefer `muapi`. Needs **`@higgsfield/cli` ≥ 1.2.0** + `higgsfield auth login`; ≈12 credits
+  shots — prefer `fal`. Needs **`@higgsfield/cli` ≥ 1.2.0** + `higgsfield auth login`; ≈12 credits
   per 4 s 480p window.
 
 ```bash
-pipeline edit-ui clip.mp4 --generator muapi   # default (MuAPI)
-pipeline edit-ui clip.mp4 --generator fal     # direct fal.ai (usually cheapest at 480p)
+pipeline edit-ui clip.mp4 --generator fal     # default (direct fal.ai, usually cheapest at 480p)
+pipeline edit-ui clip.mp4 --generator muapi   # MuAPI Seedance 2.5
 pipeline edit-ui clip.mp4 --generator hf      # Higgsfield (may nsfw-block)
 ```
 

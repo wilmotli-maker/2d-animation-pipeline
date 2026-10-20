@@ -1,13 +1,15 @@
 // src/edit-ui/backends.js
 // Submission backends for the edit-ui trim generator. The generator does all the window/trim/
 // prompt work; a backend only takes a prepped window (frames + speech-ref + prompt) and returns the
-// generated clip. Two backends:
+// generated clip. Three backends:
 //   hf    — Higgsfield Seedance via the project runner (runBatch). Full quality, start/end frames +
 //           speech-ref. Fast/native but HF moderation false-positives `nsfw` on lip-sync (no draft
 //           bypass since the api.higgsfield.ai migration), so it is unreliable for talking shots.
 //   muapi — MuAPI (muapi.ai) Seedance 2.5 omni-reference, which has NO moderation on this recipe.
-//           Shells the proven scripts/eval/.../muapi-seedance.js (uploads local refs to fal). The
-//           default, because it actually completes. Needs MUAPI_KEY + FAL_KEY (read from .env).
+//           Shells the proven scripts/eval/.../muapi-seedance.js (uploads local refs to fal).
+//           Needs MUAPI_KEY + FAL_KEY (read from .env).
+//   fal   — direct fal.ai Seedance 2.5 reference-to-video, no moderation, cheapest at 480p. The
+//           default generator (see generators.js). Needs FAL_KEY (read from .env).
 import path from 'node:path';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { copyFile, access } from 'node:fs/promises';
