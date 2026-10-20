@@ -47,7 +47,9 @@ test('muapiBackend.buildArgs passes prompt, first/last + pose images, speech vid
   assert.equal(b.name, 'muapi');
   const a = b.buildArgs(win('/tmp/w')).join(' ');
   assert.match(a, /--prompt-file \/tmp\/w\/prompt\.md/);
-  assert.match(a, /--image \/tmp\/w\/first\.png --image \/tmp\/w\/last\.png --image \/tmp\/w\/pose1\.png/);
+  // Image order must match the prompt's @Image tags: first, poses…, last (@Image1=start, middle
+  // poses, @ImageN=end). Passing last before the poses makes the clip end on the keyframe pose.
+  assert.match(a, /--image \/tmp\/w\/first\.png --image \/tmp\/w\/pose1\.png --image \/tmp\/w\/last\.png/);
   assert.match(a, /--video \/tmp\/w\/speech\.mp4/);
   assert.match(a, /--resolution 480p --aspect-ratio 3:4 --duration 4 --generate-audio true/);
   assert.match(a, /--out \/tmp\/w\/muapi/);
@@ -83,7 +85,7 @@ test('falBackend mirrors the CLI shape, under its own output subdir', () => {
   const b = falBackend();
   assert.equal(b.name, 'fal');
   const a = b.buildArgs(win('/tmp/w')).join(' ');
-  assert.match(a, /--image \/tmp\/w\/first\.png --image \/tmp\/w\/last\.png/);
+  assert.match(a, /--image \/tmp\/w\/first\.png --image \/tmp\/w\/pose1\.png --image \/tmp\/w\/last\.png/); // first, poses, last
   assert.match(a, /--video \/tmp\/w\/speech\.mp4/);
   assert.match(a, /--out \/tmp\/w\/fal$/);                   // fal subdir, not muapi
 });

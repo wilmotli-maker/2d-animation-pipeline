@@ -62,8 +62,12 @@ function cliBackend({ name, script, spawn = nodeSpawn }) {
     name,
     buildArgs(w) {
       const outDir = path.join(w.wDir, name);
-      const args = ['--prompt-file', w.promptFile, '--image', w.first, '--image', w.last];
+      // Image order must match buildTrimPrompt's @Image tags: first (@Image1), then the pose
+      // keyframes in order (@Image2…), then last (@ImageN). Passing last before the poses swaps the
+      // end frame and the final keyframe, so the clip ends on the keyframe pose, not the end frame.
+      const args = ['--prompt-file', w.promptFile, '--image', w.first];
       for (const p of w.poses || []) args.push('--image', p);
+      args.push('--image', w.last);
       if (w.speechRefPath) args.push('--video', w.speechRefPath);
       args.push('--resolution', w.resolution, '--aspect-ratio', w.aspectRatio,
         '--duration', String(w.duration), '--generate-audio', String(w.generateAudio !== false), '--out', outDir);
