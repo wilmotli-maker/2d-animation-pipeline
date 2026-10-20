@@ -191,12 +191,9 @@ window.addEventListener('drop', (e) => {
 });
 
 // ---- transport -----------------------------------------------------------
-function loopBounds() {
-  if (ui.view === 'result') return [0, lastFrame()]; // loop the whole result clip
-  const m = selMark();
-  if (m && m.kind === 'range') return [m.start, m.end];
-  return [0, lastFrame()];
-}
+// Transport (loop, play, to-start/to-end) always spans the whole clip — a selected marked
+// region no longer scopes playback/seeking.
+function loopBounds() { return [0, lastFrame()]; }
 function togglePlay() {
   if (!ui.src) return;
   if (video.paused) {
@@ -303,12 +300,13 @@ function renderTimeline() {
     for (let t = 0; t <= d + 1e-6; t += step) ruler.append(el('div', { class: 'tick', style: { left: xOfFrame(frameOf(t)) } }, el('span', {}, fmt(t).replace(/^00:/, ''))));
     if (w / n >= 6) for (let f = 0; f < n; f++) ruler.append(el('div', { class: 'tick minor', style: { left: xOfFrame(f) } }));
   }
-  // Source overlays (marks/ink/keys) belong to the source edit, not a result clip — hide them
-  // while viewing a result so the timeline shows only the result's own transport + audio.
+  // Keep the marks/ink/keys lanes visible while reviewing a result (spliced results and the
+  // side-by-side pane share the source timeline, so the overlays line up). `resultView` still
+  // hides the editing-only pending-in marker below.
   const resultView = ui.view === 'result';
   // Marks lane: ranges under frame marks.
   const track = $('track'); track.replaceChildren();
-  const sorted = resultView ? [] : [...data.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
+  const sorted = [...data.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
   for (const m of sorted) {
     const sel = ui.sel === m.id;
     const node = el('div', {
@@ -332,14 +330,14 @@ function renderTimeline() {
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
-  for (const a of (resultView ? [] : data.annotations)) {
+  for (const a of data.annotations) {
     la.append(el('div', { class: `dot${ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
       style: { left: xOfFrame(a.frame + 0.5), background: a.strokes[0]?.color || 'var(--ink)' },
       onpointerdown: (e) => { e.stopPropagation(); ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
   }
   // Keys lane: filled = has an image, hollow = not generated/uploaded yet.
   const lk = $('lane-kf'); lk.replaceChildren();
-  for (const k of (resultView ? [] : data.keyframes)) {
+  for (const k of data.keyframes) {
     lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}`, title: `Keyframe f${k.frame}`,
       style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
   }
