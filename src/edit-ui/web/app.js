@@ -24,7 +24,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null,
+  sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -138,7 +138,7 @@ async function loadVideo(id) {
     fetch(`/api/video?id=${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown video')))),
     fetch(`/api/session?id=${id}`).then((r) => r.json()),
   ]);
-  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null });
+  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null, activeRenderId: null });
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
@@ -285,6 +285,18 @@ function deleteMark(id) {
 }
 
 // ---- timeline ------------------------------------------------------------
+// The result currently shown (single view) or compared (side-by-side), by stable id.
+function activeResult() {
+  if (ui.compare) return ui.compare;
+  if (ui.view !== 'result') return null;
+  return data.renders.find((r) => r.id === ui.activeRenderId) || null;
+}
+// The edit set the timeline shows: a result's frozen snapshot while reviewing/comparing it, else
+// the live working draft (data). Results from before snapshots existed fall back to the draft.
+function timelineEdits() {
+  const r = activeResult();
+  return (r && r.edits) ? r.edits : data;
+}
 const xOfFrame = (f) => `${(f / (lastFrame() + 1)) * 100}%`;
 function frameAtX(clientX) {
   const r = lanes.getBoundingClientRect();
@@ -300,21 +312,27 @@ function renderTimeline() {
     for (let t = 0; t <= d + 1e-6; t += step) ruler.append(el('div', { class: 'tick', style: { left: xOfFrame(frameOf(t)) } }, el('span', {}, fmt(t).replace(/^00:/, ''))));
     if (w / n >= 6) for (let f = 0; f < n; f++) ruler.append(el('div', { class: 'tick minor', style: { left: xOfFrame(f) } }));
   }
-  // Keep the marks/ink/keys lanes visible while reviewing a result (spliced results and the
-  // side-by-side pane share the source timeline, so the overlays line up). `resultView` still
-  // hides the editing-only pending-in marker below.
+  // Which edits the timeline shows: the working draft (data.*) while editing the source, or a
+  // result's frozen snapshot while reviewing/comparing it (read-only). `resultView` still hides
+  // the editing-only pending-in marker below.
   const resultView = ui.view === 'result';
+  const ed = timelineEdits();
+  const editable = ed === data;                 // only the working draft is interactive
+  // The mark/ink/keyframe positions are in SOURCE frames, so they only line up on a source-length
+  // timeline (source, a spliced result, or the compare pane). A raw result is the short generated
+  // window with its own timeline, so the overlays would overflow — hide them there.
+  const srcTimeline = !(resultView && ui.resultRaw);
   // Marks lane: ranges under frame marks.
   const track = $('track'); track.replaceChildren();
-  const sorted = [...data.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
+  const sorted = srcTimeline ? [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1)) : [];
   for (const m of sorted) {
-    const sel = ui.sel === m.id;
+    const sel = editable && ui.sel === m.id;
     const node = el('div', {
-      class: `mark ${m.kind}${sel ? ' sel' : ''}`, title: markLabel(m),
+      class: `mark ${m.kind}${sel ? ' sel' : ''}${editable ? '' : ' ro'}`, title: markLabel(m),
       style: { left: xOfFrame(m.start), ...(m.kind === 'range' ? { width: `calc(${xOfFrame(m.end + 1)} - ${xOfFrame(m.start)})` } : {}) },
     });
-    node.addEventListener('pointerdown', (e) => { e.stopPropagation(); select(m.id); if (!sel) seekFrame(m.start); });
-    if (m.kind === 'range' && sel) {
+    node.addEventListener('pointerdown', (e) => { e.stopPropagation(); if (editable) { select(m.id); if (!sel) seekFrame(m.start); } else seekFrame(m.start); });
+    if (editable && m.kind === 'range' && sel) {
       for (const side of ['l', 'r']) {
         const h = el('div', { class: `h ${side}` });
         h.addEventListener('pointerdown', (e) => { e.stopPropagation(); dragHandle(m, side); });
@@ -325,21 +343,21 @@ function renderTimeline() {
     // Anchor tick: the marked moment / target-pose time inside the region.
     if (m.kind === 'range' && m.anchor != null) {
       track.append(el('div', { class: `mark-anchor${sel ? ' sel' : ''}`, title: `Target pose @ f${m.anchor}`,
-        style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); select(m.id); seekFrame(m.anchor); } }));
+        style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); if (editable) select(m.id); seekFrame(m.anchor); } }));
     }
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
-  for (const a of data.annotations) {
-    la.append(el('div', { class: `dot${ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
+  for (const a of (srcTimeline ? ed.annotations : [])) {
+    la.append(el('div', { class: `dot${editable && ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
       style: { left: xOfFrame(a.frame + 0.5), background: a.strokes[0]?.color || 'var(--ink)' },
-      onpointerdown: (e) => { e.stopPropagation(); ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
+      onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
   }
   // Keys lane: filled = has an image, hollow = not generated/uploaded yet.
   const lk = $('lane-kf'); lk.replaceChildren();
-  for (const k of data.keyframes) {
+  for (const k of (srcTimeline ? ed.keyframes : [])) {
     lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}`, title: `Keyframe f${k.frame}`,
-      style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
+      style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
   }
   const pin = $('pending-in');
   pin.style.display = (resultView || ui.pendingIn == null) ? 'none' : 'block';
@@ -572,9 +590,13 @@ function keyframeCard(k) {
 }
 
 // ---- whole video ---------------------------------------------------------
+const clone = (x) => JSON.parse(JSON.stringify(x));
+// Freeze the edits a result was generated from, so each result shows its own marks/annotations/
+// keyframes on the timeline and the live "working" set (data.*) stays an independent draft.
+const snapshotEdits = () => ({ marks: clone(data.marks), annotations: clone(data.annotations), keyframes: clone(data.keyframes) });
 async function generateVideo() {
   if (!ui.id) return;
-  const r = { id: uid('r'), status: 'running', at: new Date().toISOString() };
+  const r = { id: uid('r'), status: 'running', at: new Date().toISOString(), edits: snapshotEdits() };
   data.renders.unshift(r); renderAll();
   try {
     const res = await startJob({
@@ -594,13 +616,13 @@ async function generateVideo() {
 function showResult(r, raw = false) {
   clearCompare();
   const out = (!raw && r.spliced) ? r.spliced : r.output;
-  ui.view = 'result'; ui.resultSrc = out; ui.resultRaw = !!(raw && r.spliced); ui.resultPeaks = null;
+  ui.view = 'result'; ui.resultSrc = out; ui.resultRaw = !!(raw && r.spliced); ui.resultPeaks = null; ui.activeRenderId = r.id;
   const url = fileUrl(out, r.at);
   setSource(url); renderAll();
   // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
   computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === out) { ui.resultPeaks = p; renderWave(); } });
 }
-function showSource() { clearCompare(); ui.view = 'source'; setSource(ui.src); renderAll(); }
+function showSource() { clearCompare(); ui.view = 'source'; ui.activeRenderId = null; setSource(ui.src); renderAll(); }
 
 // --- side-by-side compare: source + one spliced result, locked to the same timeline ---
 // Only spliced results qualify (a raw generation has a different timeline than the source).
@@ -753,7 +775,7 @@ function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
-    const on = !ui.compare && ui.view === 'result' && (ui.resultSrc === r.output || (r.spliced && ui.resultSrc === r.spliced));
+    const on = !ui.compare && ui.view === 'result' && ui.activeRenderId === r.id;
     const viewing = on ? (ui.resultRaw ? 'raw' : 'spliced') : null;
     const done = r.status === 'done';
     // Row = a name/status line on top + a wrapping actions line below, so a result with many
