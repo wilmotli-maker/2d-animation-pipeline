@@ -755,19 +755,28 @@ function renderRenders() {
   data.renders.forEach((r, i) => {
     const on = !ui.compare && ui.view === 'result' && (ui.resultSrc === r.output || (r.spliced && ui.resultSrc === r.spliced));
     const viewing = on ? (ui.resultRaw ? 'raw' : 'spliced') : null;
-    ul.append(el('li', { class: on ? 'sel' : '', onclick: () => r.status === 'done' && showResult(r) },
+    const done = r.status === 'done';
+    // Row = a name/status line on top + a wrapping actions line below, so a result with many
+    // controls never squeezes the name off the row.
+    const main = el('div', { class: 'result-main' },
       el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
         r.status === 'running' ? 'generating…' : r.status === 'splicing' ? 'splicing…' : r.status === 'error' ? r.error
-          : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString()),
-      // When a spliced output exists, let the user flip between the spliced and the raw clip.
-      (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, false); } }, 'Spliced') : null,
-      (r.spliced && r.status === 'done') ? el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, true); } }, 'Raw') : null,
-      // Only spliced results share the source timeline, so only they can go side by side.
-      (r.spliced && r.status === 'done') ? el('button', { class: `x${ui.compare === r ? ' on' : ''}`, title: 'Compare side by side with the source', onclick: (e) => { e.stopPropagation(); ui.compare === r ? showSource() : enterCompare(r); } }, 'Compare') : null,
-      (r.run && r.status === 'done') ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
+          : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString()));
+    // Left group: the Raw / Spliced view toggles (only when a spliced output exists). To compare
+    // side by side, select the result and use the transport's "Side by side" button.
+    const viewBtns = (r.spliced && done) ? [
+      el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, true); } }, 'Raw'),
+      el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, false); } }, 'Spliced'),
+    ] : [];
+    // Right group: management actions.
+    const manage = el('div', { class: 'ra-manage' },
+      (r.run && done) ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
-      el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×')));
+      el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×'));
+    const actions = el('div', { class: `result-actions${viewBtns.length ? ' has-view' : ''}` },
+      el('div', { class: 'ra-view' }, ...viewBtns), manage);
+    ul.append(el('li', { class: `result${on ? ' sel' : ''}`, onclick: () => done && showResult(r) }, main, actions));
   });
   $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running' || r.status === 'splicing');
 }
