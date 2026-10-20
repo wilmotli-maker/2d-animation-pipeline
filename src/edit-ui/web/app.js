@@ -250,13 +250,23 @@ function newMark(s, e, anchor) {
 }
 // Mark the current frame: reuse a region that already covers it, else create a 4s region
 // centered on it (shifted inward near the clip edges) with the frame as its anchor.
+// Resolve the marked region for frame f: reuse a range already covering it, else create a 4s region
+// anchored at f. Selects it and returns the mark. Shared by the Mark action and Add-keyframe so a
+// keyframe gets the same auto-region as marking does. (Creates a mark when none covers f, so call
+// inside mutate() when the creation should be undoable.)
+function regionForFrame(f) {
+  const existing = data.marks.find((m) => m.kind === 'range' && inMark(m, f));
+  if (existing) { ui.sel = existing.id; return existing; }
+  const half = Math.round(regionFrames() / 2);
+  const m = newMark(f - half, f + half, f);
+  ui.sel = m.id;
+  return m;
+}
 function addRegionMark() {
   if (!ui.src) return;
   const f = curFrame();
-  const existing = data.marks.find((m) => m.kind === 'range' && inMark(m, f));
-  if (existing) { ui.sel = existing.id; return renderAll(); }
-  const half = Math.round(regionFrames() / 2);
-  mutate(() => { ui.sel = newMark(f - half, f + half, f).id; });
+  if (data.marks.some((m) => m.kind === 'range' && inMark(m, f))) { regionForFrame(f); return renderAll(); }
+  mutate(() => { regionForFrame(f); });
 }
 function setIn() { if (!ui.src) return; ui.pendingIn = curFrame(); renderTimeline(); toast(`In at frame ${ui.pendingIn} — press O to close the range`); }
 function setOut() {
@@ -524,7 +534,9 @@ function ensureKeyframe(m, f) {
 function addKeyframe() {
   if (!ui.src) return;
   const f = curFrame();
-  mutate(() => ensureKeyframe(markForFrame(f), f));
+  // Attach the keyframe to a marked region (same auto-4s-region logic as the Mark action), not a
+  // bare frame mark, so it defines an edit window just like marking does.
+  mutate(() => ensureKeyframe(regionForFrame(f), f));
 }
 function pushVersion(k, v) {
   commit();
