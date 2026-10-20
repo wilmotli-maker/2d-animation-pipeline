@@ -318,9 +318,13 @@ function renderTimeline() {
   const resultView = ui.view === 'result';
   const ed = timelineEdits();
   const editable = ed === data;                 // only the working draft is interactive
+  // The mark/ink/keyframe positions are in SOURCE frames, so they only line up on a source-length
+  // timeline (source, a spliced result, or the compare pane). A raw result is the short generated
+  // window with its own timeline, so the overlays would overflow — hide them there.
+  const srcTimeline = !(resultView && ui.resultRaw);
   // Marks lane: ranges under frame marks.
   const track = $('track'); track.replaceChildren();
-  const sorted = [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1));
+  const sorted = srcTimeline ? [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1)) : [];
   for (const m of sorted) {
     const sel = editable && ui.sel === m.id;
     const node = el('div', {
@@ -344,14 +348,14 @@ function renderTimeline() {
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
-  for (const a of ed.annotations) {
+  for (const a of (srcTimeline ? ed.annotations : [])) {
     la.append(el('div', { class: `dot${editable && ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
       style: { left: xOfFrame(a.frame + 0.5), background: a.strokes[0]?.color || 'var(--ink)' },
       onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
   }
   // Keys lane: filled = has an image, hollow = not generated/uploaded yet.
   const lk = $('lane-kf'); lk.replaceChildren();
-  for (const k of ed.keyframes) {
+  for (const k of (srcTimeline ? ed.keyframes : [])) {
     lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}`, title: `Keyframe f${k.frame}`,
       style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
   }
