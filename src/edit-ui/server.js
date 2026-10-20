@@ -126,7 +126,17 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
       root: workspace, videoPath, outDir: path.join(workspace, meta.id), runDir: run.dir, run: prepared, jobId, request,
     });
     await updateRun(run.dir, { status: 'done', finishedAt: new Date().toISOString(), output: result.output || null, stub: !!result.stub, note: result.note || null });
-    return { ...result, run: run.name, warnings: prepared.warnings };
+    // Auto-splice the edited window(s) back into the source so the result is ready to review
+    // spliced. A splice failure never fails the generation — the raw result is still valid and
+    // viewable unspliced; it is surfaced as a warning.
+    const warnings = [...prepared.warnings];
+    let spliced = null;
+    try {
+      const manifest = JSON.parse(await readFile(path.join(run.dir, 'manifest.json'), 'utf8'));
+      const sres = await ctx.splice(workspace, meta, manifest);
+      spliced = (sres && sres.output) || null;
+    } catch (err) { warnings.push(`auto-splice skipped: ${err.message}`); }
+    return { ...result, run: run.name, warnings, spliced };
   } catch (err) {
     await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });
     throw err;

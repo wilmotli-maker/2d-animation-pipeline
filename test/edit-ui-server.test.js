@@ -106,6 +106,42 @@ test('a video generate creates a numbered run with a manifest and prompt', async
   assert.equal(calls.at(-1).kind, 'video');
 });
 
+test('a video generate auto-splices and the job exposes the spliced output while keeping the raw output', async () => {
+  const out3 = await mkdtemp(path.join(tmpdir(), 'edit-ui-autosplice-'));
+  await writeFile(path.join(out3, 'clip.mp4'), 'auto-splice-bytes');
+  const spliceCalls = [];
+  const stubSplice = async (ws, meta, m) => { spliceCalls.push(m); return { output: `${meta.id}/runs/${m.run}/spliced.mp4` }; };
+  const { server: s3, url: b3, initialId: id3 } = await startEditUi({
+    workspace: path.join(out3, 'ws'), port: 0, generator: fakeGen, video: path.join(out3, 'clip.mp4'), reveal: () => {}, splice: stubSplice,
+  });
+  try {
+    const req = { kind: 'video', id: id3, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const { jobId } = await (await fetch(`${b3}api/generate`, json(req))).json();
+    let job; for (let i = 0; i < 50; i++) { job = await (await fetch(`${b3}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
+    assert.equal(job.status, 'done');
+    assert.equal(spliceCalls.length, 1);                 // splice ran automatically after generation
+    assert.match(job.spliced, /spliced\.mp4$/);          // spliced output exposed to the client
+    assert.match(job.output, /\.png$/);                  // raw generated output preserved (viewable unspliced)
+  } finally { s3.close(); await rm(out3, { recursive: true, force: true }); }
+});
+
+test('a failing auto-splice does not fail the generation (raw result still done)', async () => {
+  const out4 = await mkdtemp(path.join(tmpdir(), 'edit-ui-autosplice-fail-'));
+  await writeFile(path.join(out4, 'clip.mp4'), 'auto-splice-fail-bytes');
+  const failSplice = async () => { throw new Error('no usable edit window to splice'); };
+  const { server: s4, url: b4, initialId: id4 } = await startEditUi({
+    workspace: path.join(out4, 'ws'), port: 0, generator: fakeGen, video: path.join(out4, 'clip.mp4'), reveal: () => {}, splice: failSplice,
+  });
+  try {
+    const req = { kind: 'video', id: id4, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const { jobId } = await (await fetch(`${b4}api/generate`, json(req))).json();
+    let job; for (let i = 0; i < 50; i++) { job = await (await fetch(`${b4}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
+    assert.equal(job.status, 'done');                    // generation still succeeded
+    assert.equal(job.spliced ?? null, null);             // no spliced output
+    assert.ok((job.warnings || []).some((w) => /splice/i.test(w))); // surfaced as a warning
+  } finally { s4.close(); await rm(out4, { recursive: true, force: true }); }
+});
+
 test('reveal opens only this video\'s folders', async () => {
   assert.equal((await fetch(`${base}api/reveal`, json({ id: initialId, run: 'v001' }))).status, 200);
   assert.equal(revealed.at(-1), path.join(workspace, initialId, 'runs', 'v001'));
