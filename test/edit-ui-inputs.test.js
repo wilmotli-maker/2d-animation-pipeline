@@ -79,30 +79,18 @@ test('prepareRunInputs records speechref, auto keyframes (skipping edited frames
   }, request, { audio: '/a.wav' });
 });
 
-test('an uploaded/generated keyframe becomes an edited reference input (pinned at its frame/time)', async () => {
+test('prepareRunInputs does NOT add edited keyframe inputs (createRun owns them — avoid double refs)', async () => {
+  // Regression: edited keyframes are frozen by createRun. If prepareRunInputs also added them, each
+  // keyframe would be referenced twice (two poses at one time → an extra @ImageN, clip ends on the
+  // keyframe pose, not the end frame). The image here doesn't exist, so createRun makes none either;
+  // the point is that prepareRunInputs contributes zero.
   const tools = { speechRef: async () => {}, frame: async () => {}, annotate: async () => {} };
-  const request = { fps: 24, autoKeyframes: 0,
-    keyframes: [{ frame: 48, time: 2.0, markId: 'm', image: 'vid123/keyframes/upload-abc.png' }] };
+  const request = { fps: 24, autoKeyframes: 0, keyframes: [{ frame: 48, time: 2.0, image: 'vid123/keyframes/upload-abc.png' }] };
   await withRun(async (ws, run) => {
     const m = await prepareRunInputs(ws, run, {
       videoPath: '/v.mp4', probe: { fps: 24, frames: 100, duration: 100 / 24, width: 1280, height: 720 }, request, derived: {}, tools,
     });
-    const kf = m.inputs.find((i) => i.role === 'keyframe' && i.kind === 'edited');
-    assert.ok(kf, 'an edited keyframe reference input was created');
-    assert.equal(kf.path, 'vid123/keyframes/upload-abc.png');  // workspace-relative, as uploaded
-    assert.equal(kf.frame, 48);
-    assert.equal(kf.time, 2.0);
-  }, request);
-});
-
-test('a keyframe entry without an image is ignored (only excludes that frame from auto)', async () => {
-  const tools = { speechRef: async () => {}, frame: async () => {}, annotate: async () => {} };
-  const request = { fps: 24, autoKeyframes: 0, keyframes: [{ frame: 48 }] };
-  await withRun(async (ws, run) => {
-    const m = await prepareRunInputs(ws, run, {
-      videoPath: '/v.mp4', probe: { fps: 24, frames: 100, duration: 100 / 24, width: 1280, height: 720 }, request, derived: {}, tools,
-    });
-    assert.ok(!m.inputs.some((i) => i.role === 'keyframe' && i.kind === 'edited'), 'no edited keyframe input without an image');
+    assert.equal(m.inputs.filter((i) => i.role === 'keyframe' && i.kind === 'edited').length, 0);
   }, request);
 });
 

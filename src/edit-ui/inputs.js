@@ -109,13 +109,11 @@ export async function prepareRunInputs(workspace, run, { videoPath, probe = {}, 
     } catch (err) { warnings.push(`auto keyframe f${f} failed: ${err.message}`); }
   }
 
-  // Edited keyframes: user-provided reference images (generated or uploaded in the UI), pinned at
-  // their frame. The generator places each as an extra reference at its time within the window (see
-  // trim-generator + trim-prompt), so the subject reaches that pose at the right moment in the clip.
-  for (const k of (request.keyframes || [])) {
-    if (!k || typeof k.image !== 'string' || !k.image || k.image.includes('..') || !Number.isInteger(k.frame)) continue;
-    inputs.push({ role: 'keyframe', kind: 'edited', frame: k.frame, time: (typeof k.time === 'number' ? k.time : (k.frame + 0.5) / fps), path: k.image });
-  }
+  // Edited keyframes are frozen into the run by createRun (it copies each into
+  // runs/vNNN/keyframes/edited/ and adds the role:keyframe kind:edited input). Do NOT re-add them
+  // here — prepareRunInputs merges onto createRun's inputs, so a second copy double-references the
+  // keyframe (two poses at the same time → an extra @ImageN, and the clip ends on the keyframe pose
+  // instead of the end frame). request.keyframes is used below only to skip auto keyframes.
 
   // Annotated frames: one image pair per frame, all scribbles on that frame together.
   const byFrame = new Map();
