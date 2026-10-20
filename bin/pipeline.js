@@ -568,13 +568,15 @@ async function main() {
     const f = parseFlags(args);
     const port = f.port != null ? Number(f.port) : 4880;
     if (!Number.isInteger(port) || port < 0 || port > 65535) fail(`edit-ui: invalid --port "${f.port}"`);
-    const { startEditUi, DEFAULT_WORKSPACE } = await import('../src/edit-ui/server.js');
+    const { startEditUi, DEFAULT_WORKSPACE, createDefaultHarmonizer } = await import('../src/edit-ui/server.js');
     const { resolveGenerator } = await import('../src/edit-ui/generators.js');
     const workspace = f.workspace ? (await import('node:path')).resolve(f.workspace) : DEFAULT_WORKSPACE;
     let generator;
     try { generator = resolveGenerator(f.generator || process.env.PIPELINE_EDIT_GENERATOR); } catch (e) { fail(`edit-ui: ${e.message}`); }
-    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator });
-    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name})  — Ctrl+C to stop`);
+    // Harmonize spliced results by default (previz→restyle, removes seams); --no-harmonize turns it off.
+    const harmonize = f['no-harmonize'] ? null : createDefaultHarmonizer();
+    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator, harmonize });
+    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name}, harmonize: ${harmonize ? 'on' : 'off'})  — Ctrl+C to stop`);
   } else if (cmd === 'edit-ui-splice') {
     const f = parseFlags([sub, ...rest].filter((x) => x != null));
     if (!f.id || !f.run) fail('usage: pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]');

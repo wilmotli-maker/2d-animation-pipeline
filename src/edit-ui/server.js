@@ -136,11 +136,52 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
       const sres = await ctx.splice(workspace, meta, manifest);
       spliced = (sres && sres.output) || null;
     } catch (err) { warnings.push(`auto-splice skipped: ${err.message}`); }
-    return { ...result, run: run.name, warnings, spliced };
+    // Optionally harmonize the spliced result (previz→restyle) to erase the splice seams. This runs
+    // in the background: the generate job returns the spliced output NOW as a clearly-marked preview,
+    // and the client polls `harmonizeJobId` to swap in the harmonized clip when it is ready. A
+    // harmonize failure never touches the spliced result.
+    let harmonizeJobId = null;
+    if (spliced && ctx.harmonize) harmonizeJobId = startHarmonize(ctx, run.dir, spliced);
+    return { ...result, run: run.name, warnings, spliced, harmonizeJobId, harmonizing: !!harmonizeJobId };
   } catch (err) {
     await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });
     throw err;
   }
+}
+
+// Kick off a background harmonization of a spliced run. Registers a `harmonize` job in ctx.jobs
+// (polled by the client), writes progress into the run manifest, and never throws into the caller.
+function startHarmonize(ctx, runDir, splicedRel) {
+  const { workspace, jobs } = ctx;
+  const jobId = `harmonize-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
+  const job = { id: jobId, kind: 'harmonize', status: 'running', createdAt: new Date().toISOString() };
+  jobs.set(jobId, job);
+  const splicedAbs = path.join(workspace, splicedRel);
+  updateRun(runDir, { harmonize: { status: 'running', at: new Date().toISOString() } }).catch(() => {});
+  Promise.resolve(ctx.harmonize({ workspace, runDir, splicedAbs, splicedRel }))
+    .then(async (hr) => {
+      const output = (hr && hr.output) || null;
+      await updateRun(runDir, { harmonize: { status: 'done', output, previz: (hr && hr.previz) || null, at: new Date().toISOString() } }).catch(() => {});
+      Object.assign(job, { status: 'done', output, previz: (hr && hr.previz) || null });
+    })
+    .catch(async (err) => {
+      await updateRun(runDir, { harmonize: { status: 'error', error: err.message, at: new Date().toISOString() } }).catch(() => {});
+      Object.assign(job, { status: 'error', error: err.message });
+    });
+  return jobId;
+}
+
+// The real harmonizer: previz→restyle the spliced clip via `pipeline video harmonize`'s core,
+// writing the outputs into the run dir. Returns workspace-relative paths. Wired in by the CLI;
+// createEditServer leaves harmonize off by default so tests opt in with a stub.
+export function createDefaultHarmonizer() {
+  return async function harmonize({ workspace, runDir, splicedAbs }) {
+    const { harmonizeVideo } = await import('../harmonize.js');
+    const { createRunner } = await import('../cli.js');
+    const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir }, { runner: createRunner() });
+    const rel = (p) => (p ? path.relative(workspace, p).split(path.sep).join('/') : null);
+    return { output: rel(res.outputPath), previz: rel(res.previzPath) };
+  };
 }
 
 function defaultReveal(target) {
@@ -327,8 +368,8 @@ async function handle(ctx, req, res) {
 // `tools`: optional { speechRef, frame, annotate } media-tool overrides (tests).
 // `reveal(path)`: opens a folder in the OS file browser.
 export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null,
-  derivers = {}, tools = {}, reveal = defaultReveal, splice = createSpliceRunner() }) {
-  const ctx = { workspace, generator, initialId, derivers, tools, reveal, splice, jobs: new Map() };
+  derivers = {}, tools = {}, reveal = defaultReveal, splice = createSpliceRunner(), harmonize = null }) {
+  const ctx = { workspace, generator, initialId, derivers, tools, reveal, splice, harmonize, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -338,9 +379,9 @@ export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = cr
 }
 
 // `video`: optional path to open at startup (imported into the workspace).
-export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal, splice }) {
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal, splice, harmonize }) {
   const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
-  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal, splice });
+  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal, splice, harmonize });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {

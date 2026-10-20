@@ -17,7 +17,7 @@ const ICONS = {
 // annotations: { id, markId, frame, strokes: [{ color, width, pts }] }
 // prompts:     { id, markId | null, text }
 // keyframes:   { id, markId, frame, versions: [{ output, source, stub, note, at }], current, status, error }
-// renders:     { id, status, run, output, stub, note, at }
+// renders:     { id, status, run, output, spliced, harmonized, harmonizing, harmonizeErr, stub, note, at }
 // dialogue:    null | { original, text, include }   (transcript; text is the user's edit)
 // settings:    { autoKeyframes }
 const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0, styleLock: '' } }; // persisted
@@ -147,6 +147,7 @@ async function loadVideo(id) {
   // Jobs don't survive a server restart; anything left "running" is stale.
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
   data.renders = data.renders.filter((r) => r.status !== 'running');
+  for (const r of data.renders) if (r.harmonizing) r.harmonizing = false; // the harmonize job is gone after a reload
   if (meta.width && meta.height) stage.style.aspectRatio = `${meta.width} / ${meta.height}`;
   $('file-name').textContent = meta.name;
   document.title = `${meta.name} — Edit`;
@@ -626,15 +627,44 @@ async function generateVideo() {
     showResult(r); // defaults to the spliced output when the auto-splice produced one
     if (res.warnings && res.warnings.length) toast(`Run ${res.run}: ${res.warnings.join('; ')}`, 7000);
     else if (res.note) toast(res.note);
+    // The spliced output above is a preview; if the server kicked off harmonization, poll it in the
+    // background and swap the harmonized (seamless) clip in when it is ready.
+    if (res.harmonizeJobId) { r.harmonizing = true; renderAll(); pollHarmonize(r, res.harmonizeJobId); }
   } catch (err) { Object.assign(r, { status: 'error', error: err.message }); }
   renderAll(); scheduleSave();
 }
-// Show a result in single-clip mode. Defaults to the spliced output (full-length, same timeline
-// as the source); pass raw=true to view the unspliced generated clip instead.
-function showResult(r, raw = false) {
+// Background poll of a harmonize job; on success records r.harmonized and, if this result is the one
+// on screen (and not being viewed raw), swaps the preview for the harmonized clip.
+async function pollHarmonize(r, jobId) {
+  try {
+    let s;
+    do { await new Promise((z) => setTimeout(z, 1500)); s = await (await fetch(`/api/jobs/${jobId}`)).json(); } while (s.status === 'running');
+    if (s.status === 'done' && s.output) {
+      r.harmonizing = false; r.harmonized = s.output;
+      if (ui.view === 'result' && ui.activeRenderId === r.id && ui.resultKind !== 'raw') showResult(r, 'harmonized');
+      toast(`Run ${r.run || ''}: harmonized`.trim(), 4000);
+    } else { r.harmonizing = false; r.harmonizeErr = s.error || s.status || 'failed'; toast(`Run ${r.run || ''}: harmonization failed — keeping the splice`.trim(), 6000); }
+  } catch (err) { r.harmonizing = false; r.harmonizeErr = err.message; }
+  renderAll(); scheduleSave();
+}
+// Pick which output of a result to show. `want` forces one ('raw'|'spliced'|'harmonized'); null
+// picks the best available (harmonized > spliced > raw). Only raw has its own short timeline.
+function pickResult(r, want) {
+  if (want === 'raw') return { out: r.output, kind: 'raw' };
+  if (want === 'harmonized' && r.harmonized) return { out: r.harmonized, kind: 'harmonized' };
+  if (want === 'spliced' && r.spliced) return { out: r.spliced, kind: 'spliced' };
+  if (!want) {
+    if (r.harmonized) return { out: r.harmonized, kind: 'harmonized' };
+    if (r.spliced) return { out: r.spliced, kind: 'spliced' };
+  }
+  return { out: r.output, kind: 'raw' };
+}
+// Show a result in single-clip mode. Defaults to the best full-length output (harmonized, else
+// spliced); pass want='raw' for the unspliced generated clip.
+function showResult(r, want = null) {
   clearCompare();
-  const out = (!raw && r.spliced) ? r.spliced : r.output;
-  ui.view = 'result'; ui.resultSrc = out; ui.resultRaw = !!(raw && r.spliced); ui.resultPeaks = null; ui.activeRenderId = r.id;
+  const { out, kind } = pickResult(r, want);
+  ui.view = 'result'; ui.resultSrc = out; ui.resultKind = kind; ui.resultRaw = kind === 'raw'; ui.resultPeaks = null; ui.activeRenderId = r.id;
   const url = fileUrl(out, r.at);
   setSource(url); renderAll();
   // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
@@ -802,21 +832,23 @@ function renderRenders() {
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
     const on = !ui.compare && ui.view === 'result' && ui.activeRenderId === r.id;
-    const viewing = on ? (ui.resultRaw ? 'raw' : 'spliced') : null;
+    const viewing = on ? ui.resultKind : null;
     const done = r.status === 'done';
+    const hstat = r.harmonizing ? ' · harmonizing…' : r.harmonized ? ' · harmonized' : r.harmonizeErr ? ' · harmonize failed' : '';
     // Row = a name/status line on top + a wrapping actions line below, so a result with many
     // controls never squeezes the name off the row.
     const main = el('div', { class: 'result-main' },
       el('span', { class: 'grow' }, r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`),
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
         r.status === 'running' ? 'generating…' : r.status === 'splicing' ? 'splicing…' : r.status === 'error' ? r.error
-          : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString()));
+          : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString() + hstat));
     // Left group: the Raw / Spliced view toggles (only when a spliced output exists). To compare
     // side by side, select the result and use the transport's "Side by side" button.
-    const viewBtns = (r.spliced && done) ? [
-      el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, true); } }, 'Raw'),
-      el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, false); } }, 'Spliced'),
-    ] : [];
+    const viewBtns = (done && (r.spliced || r.harmonized)) ? [
+      r.spliced ? el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, 'raw'); } }, 'Raw') : null,
+      r.spliced ? el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: r.harmonized ? 'View the spliced result (pre-harmonization)' : 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, 'spliced'); } }, r.harmonized ? 'Spliced' : (r.harmonizing ? 'Preview' : 'Spliced')) : null,
+      r.harmonized ? el('button', { class: `x${viewing === 'harmonized' ? ' on' : ''}`, title: 'View the harmonized result (seams removed)', onclick: (e) => { e.stopPropagation(); showResult(r, 'harmonized'); } }, 'Harmonized') : null,
+    ].filter(Boolean) : [];
     // Right group: management actions.
     const manage = el('div', { class: 'ra-manage' },
       (r.run && done) ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
@@ -858,7 +890,9 @@ function renderAll() {
   $('view-side').classList.toggle('on', !!ui.compare);
   $('view-side').disabled = !splicedRenders().length;
   $('stage-wrap').classList.toggle('compare', !!ui.compare);
-  $('view-badge').textContent = ui.compare ? '' : ui.view === 'result' ? 'Result' : '';
+  const vr = !ui.compare && ui.view === 'result' ? data.renders.find((r) => r.id === ui.activeRenderId) : null;
+  const previewing = vr && vr.harmonizing && ui.resultKind !== 'harmonized' && ui.resultKind !== 'raw';
+  $('view-badge').textContent = ui.compare ? '' : ui.view === 'result' ? (previewing ? 'Preview — harmonizing…' : 'Result') : '';
   $('undo').disabled = !ui.undo.length; $('redo').disabled = !ui.redo.length;
   renderTimeline(); renderInspector(); renderMarksList(); renderDialogue(); renderGlobalPrompts(); renderRenders(); renderFrameState();
 }
