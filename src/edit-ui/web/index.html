@@ -68,9 +68,12 @@
       <span class="dim viewbar-label">View</span>
       <div class="seg">
         <button id="view-source" class="toggle">Source</button>
-        <select id="result-variant" title="Which result output to show (Raw, Spliced, or Harmonized)"></select>
-        <button id="view-side" class="toggle" title="Side by side: source + the selected result output (same timeline when spliced)">Side by side</button>
+        <div class="seg-result" id="seg-result">
+          <button id="view-result" class="toggle" type="button">Result</button>
+          <select id="result-pick" title="Which generated result and output variant to show"></select>
+        </div>
       </div>
+      <button id="view-side-by-side" class="toggle" title="Show source and the selected result at the same time">Side by side</button>
     </div>
 
     <div class="transport">

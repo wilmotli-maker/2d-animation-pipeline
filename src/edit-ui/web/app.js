@@ -24,7 +24,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, compare: null, activeRenderId: null,
+  sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -73,7 +73,7 @@ function seekFrame(f) {
   video.pause();
   const t = timeOf(Math.min(lastFrame(), Math.max(0, f)));
   video.currentTime = t;
-  if (ui.compare) { video2.pause(); video2.currentTime = t; } // keep the compare pane in lock-step
+  if (ui.sideBySide) { video2.pause(); video2.currentTime = t; } // keep the compare pane in lock-step
   renderFrameState();
 }
 
@@ -138,7 +138,7 @@ async function loadVideo(id) {
     fetch(`/api/video?id=${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown video')))),
     fetch(`/api/session?id=${id}`).then((r) => r.json()),
   ]);
-  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null, activeRenderId: null });
+  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null });
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
@@ -201,24 +201,24 @@ function togglePlay() {
   if (video.paused) {
     const [a, b] = loopBounds();
     const f = curFrame();
-    if (ui.loop && (f < a || f >= b)) { video.currentTime = timeOf(a); if (ui.compare) video2.currentTime = timeOf(a); }
+    if (ui.loop && (f < a || f >= b)) { video.currentTime = timeOf(a); if (ui.sideBySide) video2.currentTime = timeOf(a); }
     video.play();
-    if (ui.compare) { video2.currentTime = video.currentTime; video2.play(); }
-  } else { video.pause(); if (ui.compare) video2.pause(); }
+    if (ui.sideBySide) { video2.currentTime = video.currentTime; video2.play(); }
+  } else { video.pause(); if (ui.sideBySide) video2.pause(); }
 }
 function onTick() {
   if (!video.paused) {
     if (ui.loop) {
       const [a, b] = loopBounds();
-      if (curFrame() > b) { video.currentTime = timeOf(a); if (ui.compare) video2.currentTime = timeOf(a); }
+      if (curFrame() > b) { video.currentTime = timeOf(a); if (ui.sideBySide) video2.currentTime = timeOf(a); }
     }
     // Correct any drift so the compare pane stays locked to the source timeline.
-    if (ui.compare && Math.abs((video2.currentTime || 0) - video.currentTime) > 1 / fps()) video2.currentTime = video.currentTime;
+    if (ui.sideBySide && Math.abs((video2.currentTime || 0) - video.currentTime) > 1 / fps()) video2.currentTime = video.currentTime;
     renderFrameState();
   }
   requestAnimationFrame(onTick);
 }
-video.addEventListener('ended', () => { if (ui.loop) { const t = timeOf(loopBounds()[0]); video.currentTime = t; video.play(); if (ui.compare) { video2.currentTime = t; video2.play(); } } });
+video.addEventListener('ended', () => { if (ui.loop) { const t = timeOf(loopBounds()[0]); video.currentTime = t; video.play(); if (ui.sideBySide) { video2.currentTime = t; video2.play(); } } });
 video.addEventListener('play', () => { $('play').textContent = '❚❚'; });
 video.addEventListener('pause', () => { $('play').textContent = '▶︎'; renderFrameState(); });
 video.addEventListener('seeked', renderFrameState);
@@ -297,12 +297,19 @@ function deleteMark(id) {
 }
 
 // ---- timeline ------------------------------------------------------------
-// The result currently shown (single view) or compared (side-by-side), by stable id.
+// The result selected in the view bar / results list (for timeline snapshot and the result pane).
 function activeResult() {
-  if (ui.compare) return ui.compare;
-  if (ui.view !== 'result') return null;
-  return data.renders.find((r) => r.id === ui.activeRenderId) || null;
+  if (ui.view !== 'result' && !ui.sideBySide) return null;
+  return selectedRender();
 }
+const doneRenders = () => data.renders.filter((r) => r.status === 'done' && r.output);
+function selectedRender() {
+  if (ui.activeRenderId) return data.renders.find((r) => r.id === ui.activeRenderId) || null;
+  return doneRenders()[0] || null;
+}
+const renderRowLabel = (r, i) => (r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`);
+const resultPickValue = (r, kind) => `${r.id}|${kind}`;
+const parseResultPick = (v) => { const i = v.indexOf('|'); return i < 0 ? null : { id: v.slice(0, i), kind: v.slice(i + 1) }; };
 // The edit set the timeline shows: a result's frozen snapshot while reviewing/comparing it, else
 // the live working draft (data). Results from before snapshots existed fall back to the draft.
 function timelineEdits() {
@@ -339,7 +346,7 @@ function renderTimeline() {
   // The mark/ink/keyframe positions are in SOURCE frames, so they only line up on a source-length
   // timeline (source, a spliced result, or the compare pane). A raw result is the short generated
   // window with its own timeline, so the overlays would overflow — hide them there.
-  const srcTimeline = !(resultView && ui.resultRaw);
+  const srcTimeline = ui.sideBySide || !(resultView && ui.resultRaw);
   // Marks lane: ranges under frame marks.
   const track = $('track'); track.replaceChildren();
   const sorted = srcTimeline ? [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1)) : [];
@@ -471,7 +478,7 @@ function drawStroke(ctx, s, alpha = 1) {
 function renderInk() {
   sizeCanvas();
   const ctx = ink.getContext('2d'); ctx.clearRect(0, 0, ink.width, ink.height);
-  if (!$('show-ann').checked || ui.view !== 'source' || ui.compare) return;
+  if (!$('show-ann').checked || ui.view !== 'source' || ui.sideBySide) return;
   const f = curFrame();
   for (const a of visibleAnnotations(f)) {
     const dim = ui.sel && ui.sel !== a.markId ? 0.45 : 1;
@@ -642,7 +649,7 @@ async function pollHarmonize(r, jobId) {
     do { await new Promise((z) => setTimeout(z, 1500)); s = await (await fetch(`/api/jobs/${jobId}`)).json(); } while (s.status === 'running');
     if (s.status === 'done' && s.output) {
       r.harmonizing = false; r.harmonized = s.output; r.at = new Date().toISOString(); // fresh cache-bust on re-harmonize
-      if (ui.compare?.id === r.id && ui.resultKind !== 'raw') setCompareOutput(r, 'harmonized');
+      if (ui.sideBySide && ui.activeRenderId === r.id && ui.resultKind !== 'raw') setCompareOutput(r, 'harmonized');
       else if (ui.view === 'result' && ui.activeRenderId === r.id && ui.resultKind !== 'raw') showResult(r, 'harmonized');
       toast(`Run ${r.run || ''}: harmonized`.trim(), 4000);
     } else { r.harmonizing = false; r.harmonizeErr = s.error || s.status || 'failed'; toast(`Run ${r.run || ''}: harmonization failed — keeping the splice`.trim(), 6000); }
@@ -674,13 +681,6 @@ const resultKindLabel = (kind, r) => {
   if (kind === 'spliced') return r?.harmonized ? 'Spliced' : (r?.harmonizing ? 'Preview' : 'Spliced');
   return kind;
 };
-// Render used to populate the result-variant dropdown (active/compare target, else last or first done).
-function previewRender() {
-  const r = activeResult();
-  if (r) return r;
-  if (ui.activeRenderId) return data.renders.find((x) => x.id === ui.activeRenderId) || null;
-  return data.renders.find((x) => x.status === 'done') || null;
-}
 // Pick which output of a result to show. `want` forces one ('raw'|'spliced'|'harmonized'); null
 // picks the best available (harmonized > spliced > raw). Only raw has its own short timeline.
 function pickResult(r, want) {
@@ -693,22 +693,9 @@ function pickResult(r, want) {
   }
   return { out: r.output, kind: 'raw' };
 }
-// Show a result in single-clip mode. Defaults to the best full-length output (harmonized, else
-// spliced); pass want='raw' for the unspliced generated clip.
-function showResult(r, want = null) {
-  clearCompare();
-  const { out, kind } = pickResult(r, want);
-  ui.view = 'result'; ui.resultSrc = out; ui.resultKind = kind; ui.resultRaw = kind === 'raw'; ui.resultPeaks = null; ui.activeRenderId = r.id;
-  const url = fileUrl(out, r.at);
-  setSource(url); renderAll();
-  // The result clip's own audio waveform (client-side; the source /api/waveform is by video id).
-  computeResultPeaks(url).then((p) => { if (ui.view === 'result' && ui.resultSrc === out) { ui.resultPeaks = p; renderWave(); } });
+function stopSidePane() {
+  video2.pause(); video2.removeAttribute('src'); video2.load();
 }
-function showSource() { clearCompare(); ui.view = 'source'; ui.activeRenderId = null; setSource(ui.src); renderAll(); }
-
-// --- side-by-side compare: source + one result output, locked to the source timeline when spliced ---
-const doneRenders = () => data.renders.filter((r) => r.status === 'done' && r.output);
-function clearCompare() { if (ui.compare) { video2.pause(); video2.removeAttribute('src'); video2.load(); ui.compare = null; } }
 function setCompareOutput(r, want) {
   const kinds = availableResultKinds(r);
   const kind = kinds.includes(want) ? want : pickResult(r, null).kind;
@@ -720,33 +707,76 @@ function setCompareOutput(r, want) {
   video2.addEventListener('loadedmetadata', () => { video2.currentTime = timeOf(f); }, { once: true });
   $('label-b').textContent = `${r.run || 'Result'} · ${resultKindLabel(kind, r).toLowerCase()}`;
 }
-function enterCompare(r) {
-  if (!r || r.status !== 'done') return toast('Side-by-side needs a finished result');
-  ui.compare = r; ui.view = 'source'; ui.activeRenderId = r.id;
-  setSource(ui.src);
-  setCompareOutput(r, ui.resultKind);
+// Sync the main viewer (and optional side pane) from ui.view, ui.sideBySide, and the selected result.
+function applyViewState() {
+  const r = selectedRender();
+  if (ui.sideBySide) {
+    if (!r || r.status !== 'done') { ui.sideBySide = false; }
+    else {
+      setSource(ui.src);
+      setCompareOutput(r, ui.resultKind);
+      return;
+    }
+  }
+  stopSidePane();
+  if (ui.view === 'result' && r && r.status === 'done') {
+    const { out, kind } = pickResult(r, ui.resultKind);
+    ui.resultKind = kind; ui.resultRaw = kind === 'raw'; ui.resultSrc = out; ui.resultPeaks = null; ui.activeRenderId = r.id;
+    const url = fileUrl(out, r.at);
+    setSource(url);
+    computeResultPeaks(url).then((p) => { if (ui.view === 'result' && !ui.sideBySide && ui.resultSrc === out) { ui.resultPeaks = p; renderWave(); } });
+  } else {
+    if (ui.view === 'result' && !r) ui.view = 'source';
+    setSource(ui.src);
+  }
+}
+function showResult(r, want = null) {
+  ui.activeRenderId = r.id;
+  ui.resultKind = pickResult(r, want).kind;
+  ui.view = 'result';
+  applyViewState();
   renderAll();
 }
-function toggleCompare() {
-  if (ui.compare) return showSource();
-  const r = previewRender();
-  if (!r) return toast('Generate a result first');
-  enterCompare(r);
+function showSource() {
+  ui.view = 'source';
+  applyViewState();
+  renderAll();
+}
+function selectResultPick(value) {
+  const parsed = parseResultPick(value);
+  if (!parsed) return;
+  const r = data.renders.find((x) => x.id === parsed.id);
+  if (!r || r.status !== 'done') return;
+  ui.activeRenderId = r.id;
+  ui.resultKind = availableResultKinds(r).includes(parsed.kind) ? parsed.kind : pickResult(r, null).kind;
+  ui.view = 'result';
+  applyViewState();
+  renderAll();
 }
 function renderViewBar() {
-  const r = previewRender();
-  const kinds = availableResultKinds(r);
-  const sel = $('result-variant');
-  sel.disabled = !ui.src || !kinds.length;
-  sel.replaceChildren(...(kinds.length ? kinds.map((k) => el('option', { value: k }, resultKindLabel(k, r))) : [el('option', { value: '' }, 'Result')]));
-  if (kinds.length) {
-    if (!kinds.includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
-    sel.value = ui.resultKind;
+  const pick = $('result-pick');
+  const options = [];
+  data.renders.forEach((r, i) => {
+    if (r.status !== 'done') return;
+    for (const kind of availableResultKinds(r)) {
+      options.push(el('option', { value: resultPickValue(r, kind) }, `${renderRowLabel(r, i)} · ${resultKindLabel(kind, r)}`));
+    }
+  });
+  pick.disabled = !ui.src || !options.length;
+  pick.replaceChildren(...(options.length ? options : [el('option', { value: '' }, 'No results')]));
+  const r = selectedRender();
+  if (r && r.status === 'done') {
+    if (!availableResultKinds(r).includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
+    const want = resultPickValue(r, ui.resultKind);
+    if ([...pick.options].some((o) => o.value === want)) pick.value = want;
   }
-  sel.classList.toggle('on', ui.view === 'result' && !ui.compare);
-  $('view-source').classList.toggle('on', ui.view === 'source' && !ui.compare);
-  $('view-side').classList.toggle('on', !!ui.compare);
-  $('view-side').disabled = !doneRenders().length;
+  const resultOn = ui.view === 'result';
+  $('view-source').classList.toggle('on', ui.view === 'source');
+  $('view-result').classList.toggle('on', resultOn);
+  $('seg-result').classList.toggle('on', resultOn);
+  $('view-result').disabled = !doneRenders().length;
+  $('view-side-by-side').classList.toggle('on', ui.sideBySide);
+  $('view-side-by-side').disabled = !doneRenders().length;
   $('viewbar').style.display = ui.src ? '' : 'none';
 }
 
@@ -877,7 +907,7 @@ function renderRenders() {
   const ul = $('render-list'); ul.replaceChildren();
   // Always-present row for the live working edit (the draft), so you can return to your current
   // marks even before generating a result — it reads as "selected" like the results do.
-  const draftOn = !ui.compare && ui.view === 'source';
+  const draftOn = ui.view === 'source' && !ui.sideBySide;
   const nm = data.marks.length;
   ul.append(el('li', { class: `result draft${draftOn ? ' sel' : ''}`, title: 'Your current marks (not yet generated)', onclick: () => { if (!draftOn) showSource(); } },
     el('div', { class: 'result-main' },
@@ -885,7 +915,7 @@ function renderRenders() {
       el('span', { class: 'status' }, nm ? `draft · ${nm} mark${nm > 1 ? 's' : ''}` : 'draft · no marks'))));
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
-    const on = ui.compare ? ui.compare.id === r.id : (ui.view === 'result' && ui.activeRenderId === r.id);
+    const on = ui.activeRenderId === r.id;
     const done = r.status === 'done';
     const hstat = r.harmonizing ? ' · harmonizing…' : r.harmonized ? ' · harmonized' : r.harmonizeErr ? ' · harmonize failed' : '';
     // Row = a name/status line on top + a wrapping actions line below, so a result with many
@@ -900,11 +930,7 @@ function renderRenders() {
       (r.run && done && r.spliced) ? el('button', { class: 'x', disabled: !!r.harmonizing, title: r.harmonized ? 'Re-run the default harmonize workflow on the spliced result' : 'Run the default harmonize workflow on the spliced result (removes splice seams)', onclick: (e) => { e.stopPropagation(); harmonizeRun(r); } }, r.harmonizing ? 'Harmonizing…' : r.harmonized ? 'Re-harmonize' : 'Harmonize') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×'));
-    ul.append(el('li', { class: `result${on ? ' sel' : ''}`, onclick: () => {
-      if (!done) return;
-      if (ui.compare) enterCompare(r);
-      else showResult(r);
-    } }, main, actions));
+    ul.append(el('li', { class: `result${on ? ' sel' : ''}`, onclick: () => { if (done) showResult(r); } }, main, actions));
   });
   $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running' || r.status === 'splicing');
 }
@@ -918,7 +944,7 @@ function renderFrameState() {
   $('playhead').style.left = xOfFrame(f + 0.5);
   const k = data.keyframes.find((x) => x.frame === f && x.current >= 0);
   const img = $('kf-overlay');
-  if (k && $('show-kf').checked && ui.view === 'source' && !ui.compare) {
+  if (k && $('show-kf').checked && (ui.view === 'source' || ui.sideBySide)) {
     const src = fileUrl(k.versions[k.current].output);
     if (img.getAttribute('src') !== src) img.src = src;
     img.style.display = 'block'; img.style.opacity = $('kf-opacity').value / 100;
@@ -933,10 +959,10 @@ function renderAll() {
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.color === ui.color);
   $('loop').classList.toggle('on', ui.loop);
   renderViewBar();
-  $('stage-wrap').classList.toggle('compare', !!ui.compare);
-  const vr = !ui.compare && ui.view === 'result' ? data.renders.find((r) => r.id === ui.activeRenderId) : null;
+  $('stage-wrap').classList.toggle('compare', ui.sideBySide);
+  const vr = ui.view === 'result' && !ui.sideBySide ? data.renders.find((r) => r.id === ui.activeRenderId) : null;
   const previewing = vr && vr.harmonizing && ui.resultKind !== 'harmonized' && ui.resultKind !== 'raw';
-  $('view-badge').textContent = ui.compare ? '' : ui.view === 'result' ? (previewing ? 'Preview — harmonizing…' : 'Result') : '';
+  $('view-badge').textContent = ui.sideBySide ? '' : ui.view === 'result' ? (previewing ? 'Preview — harmonizing…' : 'Result') : '';
   $('undo').disabled = !ui.undo.length; $('redo').disabled = !ui.redo.length;
   renderTimeline(); renderInspector(); renderMarksList(); renderDialogue(); renderGlobalPrompts(); renderRenders(); renderFrameState();
 }
@@ -968,16 +994,23 @@ $('auto-kf').addEventListener('change', (e) => {
   const n = Math.max(0, Math.min(12, Math.floor(Number(e.target.value) || 0)));
   e.target.value = n; data.settings.autoKeyframes = n; scheduleSave();
 });
-$('view-source').addEventListener('click', () => (ui.compare || ui.view !== 'source') && showSource());
-$('view-side').addEventListener('click', toggleCompare);
-$('result-variant').addEventListener('change', (e) => {
-  const kind = e.target.value;
-  if (!kind) return;
-  const r = previewRender();
-  if (!r) return;
-  if (ui.compare) { setCompareOutput(r, kind); renderAll(); }
-  else showResult(r, kind);
+$('view-source').addEventListener('click', () => ui.view !== 'source' && showSource());
+$('view-result').addEventListener('click', () => {
+  if (!doneRenders().length) return toast('Generate a result first');
+  if (ui.view !== 'result') {
+    const r = selectedRender();
+    if (r) showResult(r, ui.resultKind);
+    else { ui.view = 'result'; applyViewState(); renderAll(); }
+  }
 });
+$('view-side-by-side').addEventListener('click', () => {
+  if (!doneRenders().length) return toast('Generate a result first');
+  ui.sideBySide = !ui.sideBySide;
+  if (ui.sideBySide && !ui.activeRenderId) ui.activeRenderId = doneRenders()[0].id;
+  applyViewState();
+  renderAll();
+});
+$('result-pick').addEventListener('change', (e) => { if (e.target.value) selectResultPick(e.target.value); });
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 window.addEventListener('resize', () => { renderTimeline(); renderInk(); });
