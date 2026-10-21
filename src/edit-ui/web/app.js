@@ -24,7 +24,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, pendingIn: null, view: 'source', resultSrc: null, compare: null, activeRenderId: null,
+  sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, compare: null, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -641,12 +641,45 @@ async function pollHarmonize(r, jobId) {
     let s;
     do { await new Promise((z) => setTimeout(z, 1500)); s = await (await fetch(`/api/jobs/${jobId}`)).json(); } while (s.status === 'running');
     if (s.status === 'done' && s.output) {
-      r.harmonizing = false; r.harmonized = s.output;
-      if (ui.view === 'result' && ui.activeRenderId === r.id && ui.resultKind !== 'raw') showResult(r, 'harmonized');
+      r.harmonizing = false; r.harmonized = s.output; r.at = new Date().toISOString(); // fresh cache-bust on re-harmonize
+      if (ui.compare?.id === r.id && ui.resultKind !== 'raw') setCompareOutput(r, 'harmonized');
+      else if (ui.view === 'result' && ui.activeRenderId === r.id && ui.resultKind !== 'raw') showResult(r, 'harmonized');
       toast(`Run ${r.run || ''}: harmonized`.trim(), 4000);
     } else { r.harmonizing = false; r.harmonizeErr = s.error || s.status || 'failed'; toast(`Run ${r.run || ''}: harmonization failed — keeping the splice`.trim(), 6000); }
   } catch (err) { r.harmonizing = false; r.harmonizeErr = err.message; }
   renderAll(); scheduleSave();
+}
+// On-demand harmonize of an already-generated result (the Harmonize button next to Re-splice).
+async function harmonizeRun(r) {
+  if (r.harmonizing) return;
+  r.harmonizing = true; r.harmonizeErr = null; renderAll();
+  try {
+    const resp = await fetch('/api/harmonize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: ui.id, run: r.run }) });
+    const j = await resp.json();
+    if (!resp.ok) throw new Error(j.error || 'harmonize failed');
+    await pollHarmonize(r, j.jobId);
+  } catch (err) { r.harmonizing = false; r.harmonizeErr = err.message; toast(`Harmonize failed: ${err.message}`, 5000); renderAll(); scheduleSave(); }
+}
+const availableResultKinds = (r) => {
+  if (!r || r.status !== 'done') return [];
+  const kinds = [];
+  if (r.output) kinds.push('raw');
+  if (r.spliced) kinds.push('spliced');
+  if (r.harmonized) kinds.push('harmonized');
+  return kinds;
+};
+const resultKindLabel = (kind, r) => {
+  if (kind === 'raw') return 'Raw';
+  if (kind === 'harmonized') return 'Harmonized';
+  if (kind === 'spliced') return r?.harmonized ? 'Spliced' : (r?.harmonizing ? 'Preview' : 'Spliced');
+  return kind;
+};
+// Render used to populate the result-variant dropdown (active/compare target, else last or first done).
+function previewRender() {
+  const r = activeResult();
+  if (r) return r;
+  if (ui.activeRenderId) return data.renders.find((x) => x.id === ui.activeRenderId) || null;
+  return data.renders.find((x) => x.status === 'done') || null;
 }
 // Pick which output of a result to show. `want` forces one ('raw'|'spliced'|'harmonized'); null
 // picks the best available (harmonized > spliced > raw). Only raw has its own short timeline.
@@ -673,28 +706,48 @@ function showResult(r, want = null) {
 }
 function showSource() { clearCompare(); ui.view = 'source'; ui.activeRenderId = null; setSource(ui.src); renderAll(); }
 
-// --- side-by-side compare: source + one spliced result, locked to the same timeline ---
-// Only spliced results qualify (a raw generation has a different timeline than the source).
-const splicedRenders = () => data.renders.filter((r) => r.status === 'done' && r.spliced);
+// --- side-by-side compare: source + one result output, locked to the source timeline when spliced ---
+const doneRenders = () => data.renders.filter((r) => r.status === 'done' && r.output);
 function clearCompare() { if (ui.compare) { video2.pause(); video2.removeAttribute('src'); video2.load(); ui.compare = null; } }
-function enterCompare(r) {
-  if (!r || !r.spliced) return toast('Side-by-side needs a spliced result');
-  const f = curFrame();
-  ui.compare = r; ui.view = 'source';
-  setSource(ui.src);                         // left pane = source
-  video2.src = fileUrl(r.spliced, r.at);     // right pane = the spliced result
+function setCompareOutput(r, want) {
+  const kinds = availableResultKinds(r);
+  const kind = kinds.includes(want) ? want : pickResult(r, null).kind;
+  const { out } = pickResult(r, kind);
+  ui.resultKind = kind; ui.resultRaw = kind === 'raw'; ui.resultSrc = out;
+  video2.src = fileUrl(out, r.at);
   video2.muted = true;
+  const f = curFrame();
   video2.addEventListener('loadedmetadata', () => { video2.currentTime = timeOf(f); }, { once: true });
-  $('label-b').textContent = r.run ? `${r.run} · spliced` : 'spliced';
+  $('label-b').textContent = `${r.run || 'Result'} · ${resultKindLabel(kind, r).toLowerCase()}`;
+}
+function enterCompare(r) {
+  if (!r || r.status !== 'done') return toast('Side-by-side needs a finished result');
+  ui.compare = r; ui.view = 'source'; ui.activeRenderId = r.id;
+  setSource(ui.src);
+  setCompareOutput(r, ui.resultKind);
   renderAll();
 }
-// Toggle from the Side-by-side button: compare the shown/last spliced result, or drop back to single.
 function toggleCompare() {
   if (ui.compare) return showSource();
-  const shown = data.renders.find((r) => r.spliced && (ui.resultSrc === r.spliced || ui.resultSrc === r.output));
-  const r = shown || splicedRenders()[0];
-  if (!r) return toast('Generate and splice a result first');
+  const r = previewRender();
+  if (!r) return toast('Generate a result first');
   enterCompare(r);
+}
+function renderViewBar() {
+  const r = previewRender();
+  const kinds = availableResultKinds(r);
+  const sel = $('result-variant');
+  sel.disabled = !ui.src || !kinds.length;
+  sel.replaceChildren(...(kinds.length ? kinds.map((k) => el('option', { value: k }, resultKindLabel(k, r))) : [el('option', { value: '' }, 'Result')]));
+  if (kinds.length) {
+    if (!kinds.includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
+    sel.value = ui.resultKind;
+  }
+  sel.classList.toggle('on', ui.view === 'result' && !ui.compare);
+  $('view-source').classList.toggle('on', ui.view === 'source' && !ui.compare);
+  $('view-side').classList.toggle('on', !!ui.compare);
+  $('view-side').disabled = !doneRenders().length;
+  $('viewbar').style.display = ui.src ? '' : 'none';
 }
 
 // Splice a run's edited window(s) back into the full source, then show the result.
@@ -832,8 +885,7 @@ function renderRenders() {
       el('span', { class: 'status' }, nm ? `draft · ${nm} mark${nm > 1 ? 's' : ''}` : 'draft · no marks'))));
   if (!data.renders.length) ul.append(el('li', { class: 'empty' }, 'Generate video to produce a result'));
   data.renders.forEach((r, i) => {
-    const on = !ui.compare && ui.view === 'result' && ui.activeRenderId === r.id;
-    const viewing = on ? ui.resultKind : null;
+    const on = ui.compare ? ui.compare.id === r.id : (ui.view === 'result' && ui.activeRenderId === r.id);
     const done = r.status === 'done';
     const hstat = r.harmonizing ? ' · harmonizing…' : r.harmonized ? ' · harmonized' : r.harmonizeErr ? ' · harmonize failed' : '';
     // Row = a name/status line on top + a wrapping actions line below, so a result with many
@@ -843,21 +895,16 @@ function renderRenders() {
       el('span', { class: `status${r.status === 'error' ? ' err' : r.stub ? ' stub' : ''}` },
         r.status === 'running' ? 'generating…' : r.status === 'splicing' ? 'splicing…' : r.status === 'error' ? r.error
           : (r.spliced ? 'spliced · ' : '') + new Date(r.at).toLocaleTimeString() + hstat));
-    // Left group: the Raw / Spliced view toggles (only when a spliced output exists). To compare
-    // side by side, select the result and use the transport's "Side by side" button.
-    const viewBtns = (done && (r.spliced || r.harmonized)) ? [
-      r.spliced ? el('button', { class: `x${viewing === 'raw' ? ' on' : ''}`, title: 'View the raw generated clip (unspliced)', onclick: (e) => { e.stopPropagation(); showResult(r, 'raw'); } }, 'Raw') : null,
-      r.spliced ? el('button', { class: `x${viewing === 'spliced' ? ' on' : ''}`, title: r.harmonized ? 'View the spliced result (pre-harmonization)' : 'View the spliced result (full-length)', onclick: (e) => { e.stopPropagation(); showResult(r, 'spliced'); } }, r.harmonized ? 'Spliced' : (r.harmonizing ? 'Preview' : 'Spliced')) : null,
-      r.harmonized ? el('button', { class: `x${viewing === 'harmonized' ? ' on' : ''}`, title: 'View the harmonized result (seams removed)', onclick: (e) => { e.stopPropagation(); showResult(r, 'harmonized'); } }, 'Harmonized') : null,
-    ].filter(Boolean) : [];
-    // Right group: management actions.
-    const manage = el('div', { class: 'ra-manage' },
+    const actions = el('div', { class: 'result-actions' },
       (r.run && done) ? el('button', { class: 'x', title: r.spliced ? 'Re-splice this edit into the source' : 'Splice this edit back into the full source clip', onclick: (e) => { e.stopPropagation(); spliceRun(r); } }, r.spliced ? 'Re-splice' : 'Splice') : null,
+      (r.run && done && r.spliced) ? el('button', { class: 'x', disabled: !!r.harmonizing, title: r.harmonized ? 'Re-run the default harmonize workflow on the spliced result' : 'Run the default harmonize workflow on the spliced result (removes splice seams)', onclick: (e) => { e.stopPropagation(); harmonizeRun(r); } }, r.harmonizing ? 'Harmonizing…' : r.harmonized ? 'Re-harmonize' : 'Harmonize') : null,
       r.run ? el('button', { class: 'x', title: 'Show the run folder (manifest, prompt, inputs)', onclick: (e) => { e.stopPropagation(); reveal(r.run); } }, 'Reveal') : null,
       el('button', { class: 'x', title: 'Remove from list', onclick: (e) => { e.stopPropagation(); mutate(() => { data.renders = data.renders.filter((x) => x !== r); }); } }, '×'));
-    const actions = el('div', { class: `result-actions${viewBtns.length ? ' has-view' : ''}` },
-      el('div', { class: 'ra-view' }, ...viewBtns), manage);
-    ul.append(el('li', { class: `result${on ? ' sel' : ''}`, onclick: () => done && showResult(r) }, main, actions));
+    ul.append(el('li', { class: `result${on ? ' sel' : ''}`, onclick: () => {
+      if (!done) return;
+      if (ui.compare) enterCompare(r);
+      else showResult(r);
+    } }, main, actions));
   });
   $('gen-video').disabled = !ui.id || data.renders.some((r) => r.status === 'running' || r.status === 'splicing');
 }
@@ -885,11 +932,7 @@ function renderAll() {
   for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === ui.tool);
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.color === ui.color);
   $('loop').classList.toggle('on', ui.loop);
-  $('view-source').classList.toggle('on', ui.view === 'source' && !ui.compare);
-  $('view-result').classList.toggle('on', ui.view === 'result' && !ui.compare);
-  $('view-result').disabled = !data.renders.some((r) => r.status === 'done');
-  $('view-side').classList.toggle('on', !!ui.compare);
-  $('view-side').disabled = !splicedRenders().length;
+  renderViewBar();
   $('stage-wrap').classList.toggle('compare', !!ui.compare);
   const vr = !ui.compare && ui.view === 'result' ? data.renders.find((r) => r.id === ui.activeRenderId) : null;
   const previewing = vr && vr.harmonizing && ui.resultKind !== 'harmonized' && ui.resultKind !== 'raw';
@@ -926,8 +969,15 @@ $('auto-kf').addEventListener('change', (e) => {
   e.target.value = n; data.settings.autoKeyframes = n; scheduleSave();
 });
 $('view-source').addEventListener('click', () => (ui.compare || ui.view !== 'source') && showSource());
-$('view-result').addEventListener('click', () => { const r = data.renders.find((x) => x.status === 'done'); if (r && (ui.compare || ui.view !== 'result')) showResult(r); });
 $('view-side').addEventListener('click', toggleCompare);
+$('result-variant').addEventListener('change', (e) => {
+  const kind = e.target.value;
+  if (!kind) return;
+  const r = previewRender();
+  if (!r) return;
+  if (ui.compare) { setCompareOutput(r, kind); renderAll(); }
+  else showResult(r, kind);
+});
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 window.addEventListener('resize', () => { renderTimeline(); renderInk(); });

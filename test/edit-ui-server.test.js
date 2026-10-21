@@ -271,3 +271,40 @@ test('transcript is null for a clip without audio', async () => {
 test('cross-site requests are refused', async () => {
   assert.equal((await fetch(`${base}api/recent`, { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403);
 });
+
+test('POST /api/harmonize harmonizes an already-spliced run on demand; refuses unspliced runs', async () => {
+  const outH = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-ondemand-'));
+  await writeFile(path.join(outH, 'clip.mp4'), 'harmonize-ondemand-bytes');
+  const { updateRun } = await import('../src/edit-ui/workspace.js');
+  let doSplice = false;
+  const stubSplice = async (ws, meta, m) => {
+    if (!doSplice) throw new Error('no splice yet');
+    const output = `${meta.id}/runs/${m.run}/spliced.mp4`;
+    await updateRun(path.join(ws, meta.id, 'runs', m.run), { spliced: { output } });
+    return { output };
+  };
+  const calls = [];
+  const stubHarmonize = async (args) => {
+    calls.push(args);
+    return { output: path.relative(args.workspace, path.join(args.runDir, 'harmonized.mp4')).split(path.sep).join('/'), previz: null };
+  };
+  const { server: sH, url: bH, initialId: idH } = await startEditUi({
+    workspace: path.join(outH, 'ws'), port: 0, generator: fakeGen, video: path.join(outH, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
+  });
+  try {
+    const req = { kind: 'video', id: idH, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const gen = await pollAt(bH, (await (await fetch(`${bH}api/generate`, json(req))).json()).jobId);
+    assert.equal(gen.status, 'done');
+    const unspliced = await fetch(`${bH}api/harmonize`, json({ id: idH, run: gen.run }));
+    assert.equal(unspliced.status, 409);                  // nothing spliced yet
+    doSplice = true;
+    const sp = await pollAt(bH, (await (await fetch(`${bH}api/splice`, json({ id: idH, run: gen.run }))).json()).jobId);
+    assert.equal(sp.status, 'done');
+    const resp = await fetch(`${bH}api/harmonize`, json({ id: idH, run: gen.run }));
+    assert.equal(resp.status, 202);
+    const harm = await pollAt(bH, (await resp.json()).jobId);
+    assert.equal(harm.status, 'done');
+    assert.match(harm.output, /harmonized\.mp4$/);
+    assert.match(calls[0].splicedAbs, /spliced\.mp4$/);
+  } finally { sH.close(); await rm(outH, { recursive: true, force: true }); }
+});

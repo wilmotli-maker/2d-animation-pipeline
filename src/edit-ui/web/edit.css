@@ -57,6 +57,12 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
   font-size: 11px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none; display: none; }
 .stage-wrap.compare .pane-label { display: block; }
 
+.viewbar { display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+.viewbar-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.viewbar .seg select { border-radius: 0; border-left: 0; min-width: 8.5em; padding: 4px 8px; }
+.viewbar .seg select.on { background: var(--accent-2); border-color: var(--accent); }
+.viewbar .seg select:disabled { opacity: 0.45; }
+
 .transport { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .transport .play { min-width: 44px; }
 .tc { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; margin-left: 8px; }
@@ -64,6 +70,7 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .seg button { border-radius: 0; }
 .seg button:first-child { border-radius: 6px 0 0 6px; }
 .seg button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+.viewbar .seg button + select + button { border-left: 0; }
 
 .timeline { display: grid; grid-template-columns: 54px 1fr; padding: 6px 14px 12px; background: var(--panel); user-select: none; }
 .lane-labels div { color: var(--dim); font-size: 11px; }
@@ -143,10 +150,7 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 /* Result rows: name/status on top, actions wrap below — so many controls never squeeze the name. */
 #render-list li.result { flex-direction: column; align-items: stretch; gap: 4px; }
 .result-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.result-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ra-view, .ra-manage { display: flex; align-items: center; gap: 4px; }
-/* Vertical separator between the Raw/Spliced toggles and the management actions. */
-.result-actions.has-view .ra-manage { border-left: 1px solid var(--line); padding-left: 8px; }
+.result-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
 #render-list .result-actions .x { flex: 0 0 auto; white-space: nowrap; }
 .list .empty, .empty { color: var(--dim); font-style: italic; cursor: default; }
 .x { background: none; border: none; color: var(--dim); padding: 0 4px; }

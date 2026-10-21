@@ -64,6 +64,15 @@
       <div class="progress" id="progress"><div></div><span></span></div>
     </div>
 
+    <div class="viewbar" id="viewbar">
+      <span class="dim viewbar-label">View</span>
+      <div class="seg">
+        <button id="view-source" class="toggle">Source</button>
+        <select id="result-variant" title="Which result output to show (Raw, Spliced, or Harmonized)"></select>
+        <button id="view-side" class="toggle" title="Side by side: source + the selected result output (same timeline when spliced)">Side by side</button>
+      </div>
+    </div>
+
     <div class="transport">
       <button id="to-start" title="Start (Home)">⏮</button>
       <button id="step-back" title="Previous frame (←)">◀︎|</button>
@@ -79,11 +88,6 @@
       <button id="mark-in" title="Set range in (I)">In</button>
       <button id="mark-out" title="Set range out — creates the range (O)">Out</button>
       <button id="add-kf" title="Add a keyframe at this frame (K)">+ Keyframe</button>
-      <span class="seg">
-        <button id="view-source" class="toggle">Source</button>
-        <button id="view-result" class="toggle">Result</button>
-        <button id="view-side" class="toggle" title="Side by side: source + a spliced result (same timeline)">Side by side</button>
-      </span>
     </div>
 
     <div class="timeline" id="timeline">
