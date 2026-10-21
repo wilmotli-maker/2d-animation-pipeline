@@ -23,7 +23,7 @@ import {
 } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
-import { harmonizeVideo, HARMONIZE_DEFAULT_RESOLUTION } from '../src/harmonize.js';
+import { harmonizeVideo, HARMONIZE_DEFAULT_RESOLUTION, HARMONIZE_DEFAULT_GUIDANCE } from '../src/harmonize.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 import { buildReviewPage, parseReviewArgs } from '../src/review-page.js';
 import { parseFlags, collectFlag } from '../src/args.js';
@@ -449,15 +449,17 @@ async function main() {
   } else if (cmd === 'video' && sub === 'harmonize') {
     const f = parseFlags(rest);
     if (!f.input) {
-      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--root <dir>]');
+      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--root <dir>]');
     }
+    if (f.guidance && f.guidance !== 'filter' && f.guidance !== 'previz') fail("video harmonize: --guidance must be filter or previz");
     const res = await harmonizeVideo(projectRoot(f.root), {
       input: f.input, refs: collectFlag(rest, 'ref'),
       resolution: f.resolution || HARMONIZE_DEFAULT_RESOLUTION,
+      guidance: f.guidance || HARMONIZE_DEFAULT_GUIDANCE, blur: f.blur != null ? Number(f.blur) : undefined,
       aspect: f['aspect-ratio'], out: f.out, keepPreviz: !f['drop-previz'], task: f.task,
     }, { runner: createRunner({ exec: inheritStderrExec }) });
-    console.log(`harmonized ${f.input}`);
-    console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, jobs previz ${res.jobs.previz} / restyle ${res.jobs.restyle})`);
+    console.log(`harmonized ${f.input}  (guidance: ${res.guidance.mode})`);
+    console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, jobs${res.jobs.previz ? ` previz ${res.jobs.previz} /` : ''} restyle ${res.jobs.restyle})`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
@@ -645,7 +647,7 @@ async function main() {
       '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
       '  pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]  # enlarge a sheet (panel-aware for turnaround/pose)',
       '  pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]  # enlarge any single image',
-      '  pipeline video harmonize --input <file> [--ref <img> ...] [--resolution 480p|720p] [--out <dir>] [--drop-previz]  # previz->restyle a clip into one uniform look (removes splice seams); 2 Seedance gens',
+      '  pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--resolution 480p|720p] [--out <dir>] [--drop-previz]  # restyle a clip into one uniform look (removes splice seams). guidance filter (default) = b+w+blur source, 1 Seedance gen; previz = generated grey maquette, 2 gens',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdtemp, mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, PREVIS_PROMPT, STYLE_PROMPT } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -16,9 +16,7 @@ async function project() {
 function fakes({ width = 560, height = 752, duration = 6.98, fail = null } = {}) {
   const calls = { uploads: [], batches: [], downloads: [], ff: [] };
   let n = 0;
-  const runner = {
-    async upload(file) { calls.uploads.push(file); return { id: `media-${++n}`, type: 'video', url: `https://x/${n}` }; },
-  };
+  const runner = { async upload(file) { calls.uploads.push(file); return { id: `media-${++n}`, type: 'video', url: `https://x/${n}` }; } };
   const runBatch = async (_runner, jobs) => {
     calls.batches.push(jobs);
     const ref = jobs[0].ref;
@@ -30,45 +28,52 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null } = {})
   const ff = async (args) => { calls.ff.push(args); const out = args[args.length - 1]; if (out.endsWith('.png') || out.endsWith('.mp4')) await writeFile(out, 'ff'); };
   return { runner, runBatch, downloadTo, ffprobe, ff, calls };
 }
-
 const exists = async (p) => { try { await access(p, constants.F_OK); return true; } catch { return false; } };
 
-test('runs previz then restyle with the right Seedance opts', async () => {
+test('default (filter) guidance: one restyle gen on a b+w+blur guidance clip', async () => {
   const { root, input } = await project();
   const d = fakes();
   const res = await harmonizeVideo(root, { input }, d);
 
-  assert.equal(d.calls.batches.length, 2, 'two generations');
-  const [previz, restyle] = d.calls.batches.map((b) => b[0]);
-  // previz: video_edit, no image reference, the previz prompt
-  assert.equal(previz.model, 'seedance_2_5');
-  assert.equal(previz.opts.mode, 'video_edit');
-  assert.equal(previz.opts.generateAudio, false);
-  assert.equal(previz.opts.prompt, PREVIS_PROMPT);
-  assert.ok(!previz.opts.imageReferences, 'previz has no appearance reference');
-  // restyle: image references present, the style prompt
-  assert.equal(restyle.opts.prompt, STYLE_PROMPT);
-  assert.equal(restyle.opts.imageReferences.length, 2, 'two appearance refs (first+last)');
-  // output + previz paths
+  assert.equal(d.calls.batches.length, 1, 'only one Seedance generation (the restyle)');
+  const restyle = d.calls.batches[0][0];
+  assert.equal(restyle.ref, 'harmonize');
+  assert.equal(restyle.opts.mode, 'video_edit');
+  assert.equal(restyle.opts.prompt, FILTER_STYLE_PROMPT);
+  assert.equal(restyle.opts.imageReferences.length, 2, 'first+last appearance refs');
+  // the guidance clip was built non-generatively with a desaturate+blur filter
+  const guide = d.calls.ff.find((a) => a.some((x) => typeof x === 'string' && x.includes('gblur')));
+  assert.ok(guide, 'ffmpeg built the b+w+blur guidance');
+  assert.ok(guide.some((x) => typeof x === 'string' && x.includes('hue=s=0')));
+  assert.equal(res.guidance.mode, 'filter');
+  assert.equal(res.jobs.previz, null, 'no previz generation');
   assert.equal(res.outputPath, path.join(root, 'clip.harmonized.mp4'));
-  assert.equal(res.previzPath, path.join(root, 'clip.previz.mp4'));
-  // the final mux ffmpeg call targets the harmonized output, pulling audio from the input
-  const mux = d.calls.ff.find((a) => a[a.length - 1] === res.outputPath);
-  assert.ok(mux && mux.includes('1:a?'), 'muxes input audio onto the restyled clip');
-  assert.deepEqual(res.jobs, { previz: 'job-previz', restyle: 'job-harmonize' });
 });
 
-test('extracts first+last frame as default refs, derives aspect from dims', async () => {
+test('previz guidance: generates a grey maquette then restyles (two gens)', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  const res = await harmonizeVideo(root, { input, guidance: 'previz' }, d);
+
+  assert.equal(d.calls.batches.length, 2);
+  const [previz, restyle] = d.calls.batches.map((b) => b[0]);
+  assert.equal(previz.opts.prompt, PREVIS_PROMPT);
+  assert.ok(!previz.opts.imageReferences, 'previz has no appearance ref');
+  assert.equal(restyle.opts.prompt, STYLE_PROMPT);
+  assert.equal(res.guidance.mode, 'previz');
+  assert.ok(res.jobs.previz);
+  // no gblur filter in previz mode (guidance comes from the generation)
+  assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.includes('gblur'))));
+});
+
+test('extracts first+last frame as default refs, derives aspect + duration', async () => {
   const { root, input } = await project();
   const d = fakes({ width: 560, height: 752 });
   const res = await harmonizeVideo(root, { input }, d);
-  // two frame extractions happened (first + last)
   const extracts = d.calls.ff.filter((a) => a[a.length - 1].endsWith('.png'));
   assert.equal(extracts.length, 2);
   assert.equal(res.aspectRatio, '3:4');
-  assert.equal(res.duration, 7); // round(6.98)
-  // refs uploaded to the restyle: input, previz, then the two refs
-  assert.equal(d.calls.uploads.length, 4);
+  assert.equal(res.duration, 7);
 });
 
 test('caller-supplied refs skip extraction', async () => {
@@ -77,32 +82,31 @@ test('caller-supplied refs skip extraction', async () => {
   await writeFile(ref, 'png');
   const d = fakes();
   await harmonizeVideo(root, { input, refs: [ref] }, d);
-  const extracts = d.calls.ff.filter((a) => a[a.length - 1].endsWith('.png'));
-  assert.equal(extracts.length, 0, 'no frame extraction when refs given');
-  const restyle = d.calls.batches[1][0];
-  assert.equal(restyle.opts.imageReferences.length, 1);
+  assert.equal(d.calls.ff.filter((a) => a[a.length - 1].endsWith('.png')).length, 0);
+  assert.equal(d.calls.batches[0][0].opts.imageReferences.length, 1);
 });
 
 test('writes outputs under --out when given', async () => {
   const { root, input } = await project();
-  const d = fakes();
-  const res = await harmonizeVideo(root, { input, out: 'harm' }, d);
+  const res = await harmonizeVideo(root, { input, out: 'harm' }, fakes());
   assert.equal(res.outputPath, path.join(root, 'harm', 'clip.harmonized.mp4'));
 });
 
-test('keepPreviz:false removes the previz intermediate', async () => {
+test('keepPreviz:false removes the guidance intermediate', async () => {
   const { root, input } = await project();
-  const d = fakes();
-  const res = await harmonizeVideo(root, { input, keepPreviz: false }, d);
+  const res = await harmonizeVideo(root, { input, keepPreviz: false }, fakes());
   assert.equal(res.previzPath, null);
-  assert.equal(await exists(path.join(root, 'clip.previz.mp4')), false);
+  assert.equal(await exists(path.join(root, 'clip.guidance.mp4')), false);
 });
 
-test('a failed previz throws and never starts the restyle', async () => {
+test('a failed restyle throws', async () => {
   const { root, input } = await project();
-  const d = fakes({ fail: 'previz' });
-  await assert.rejects(harmonizeVideo(root, { input }, d), /previz did not complete/);
-  assert.equal(d.calls.batches.length, 1, 'restyle never ran');
+  await assert.rejects(harmonizeVideo(root, { input }, fakes({ fail: 'harmonize' })), /harmonize did not complete/);
+});
+
+test('rejects an unknown guidance mode', async () => {
+  const { root, input } = await project();
+  await assert.rejects(harmonizeVideo(root, { input, guidance: 'nope' }, fakes()), /guidance must be/);
 });
 
 test('nearestAspect picks the closest allowed ratio', () => {
