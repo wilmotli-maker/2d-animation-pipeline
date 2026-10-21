@@ -136,12 +136,13 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
       const sres = await ctx.splice(workspace, meta, manifest);
       spliced = (sres && sres.output) || null;
     } catch (err) { warnings.push(`auto-splice skipped: ${err.message}`); }
-    // Optionally harmonize the spliced result (previz→restyle) to erase the splice seams. This runs
-    // in the background: the generate job returns the spliced output NOW as a clearly-marked preview,
-    // and the client polls `harmonizeJobId` to swap in the harmonized clip when it is ready. A
-    // harmonize failure never touches the spliced result.
+    // Optionally harmonize the spliced result (previz→restyle) to erase the splice seams. Off by
+    // default and opt-in per request (`request.harmonize`, driven by the per-session UI toggle) since
+    // it costs ~2 extra Seedance gens. Runs in the background: the generate job returns the spliced
+    // output NOW as a clearly-marked preview, and the client polls `harmonizeJobId` to swap in the
+    // harmonized clip when ready. A harmonize failure never touches the spliced result.
     let harmonizeJobId = null;
-    if (spliced && ctx.harmonize) harmonizeJobId = startHarmonize(ctx, run.dir, spliced);
+    if (spliced && ctx.harmonize && request.harmonize) harmonizeJobId = startHarmonize(ctx, run.dir, spliced);
     return { ...result, run: run.name, warnings, spliced, harmonizeJobId, harmonizing: !!harmonizeJobId };
   } catch (err) {
     await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });

@@ -161,7 +161,7 @@ test('a video generate auto-harmonizes the splice: spliced preview first, harmon
     workspace: path.join(out5, 'ws'), port: 0, generator: fakeGen, video: path.join(out5, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
   });
   try {
-    const req = { kind: 'video', id: id5, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const req = { kind: 'video', id: id5, harmonize: true, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
     const { jobId } = await (await fetch(`${b5}api/generate`, json(req))).json();
     const gen = await pollAt(b5, jobId);
     assert.equal(gen.status, 'done');
@@ -181,6 +181,26 @@ test('a video generate auto-harmonizes the splice: spliced preview first, harmon
   } finally { s5.close(); await rm(out5, { recursive: true, force: true }); }
 });
 
+test('harmonization is off by default: without the per-session flag it never runs', async () => {
+  const out7 = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-off-'));
+  await writeFile(path.join(out7, 'clip.mp4'), 'harmonize-off-bytes');
+  const stubSplice = async (ws, meta, m) => ({ output: `${meta.id}/runs/${m.run}/spliced.mp4` });
+  let harmCalled = 0;
+  const stubHarmonize = async () => { harmCalled++; return { output: 'x/harmonized.mp4' }; };
+  const { server: s7, url: b7, initialId: id7 } = await startEditUi({
+    workspace: path.join(out7, 'ws'), port: 0, generator: fakeGen, video: path.join(out7, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
+  });
+  try {
+    const req = { kind: 'video', id: id7, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const gen = await pollAt(b7, (await (await fetch(`${b7}api/generate`, json(req))).json()).jobId);
+    assert.equal(gen.status, 'done');
+    assert.match(gen.spliced, /spliced\.mp4$/);          // still spliced
+    assert.equal(gen.harmonizing ?? false, false);        // but harmonization was not triggered
+    assert.equal(gen.harmonizeJobId ?? null, null);
+    assert.equal(harmCalled, 0);
+  } finally { s7.close(); await rm(out7, { recursive: true, force: true }); }
+});
+
 test('a failing harmonization keeps the spliced preview and reports the error on its own job', async () => {
   const out6 = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-fail-'));
   await writeFile(path.join(out6, 'clip.mp4'), 'harmonize-fail-bytes');
@@ -190,7 +210,7 @@ test('a failing harmonization keeps the spliced preview and reports the error on
     workspace: path.join(out6, 'ws'), port: 0, generator: fakeGen, video: path.join(out6, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
   });
   try {
-    const req = { kind: 'video', id: id6, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const req = { kind: 'video', id: id6, harmonize: true, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
     const { jobId } = await (await fetch(`${b6}api/generate`, json(req))).json();
     const gen = await pollAt(b6, jobId);
     assert.equal(gen.status, 'done');
