@@ -104,3 +104,14 @@ In `server.js`'s `runVideoJob`, after the existing auto-splice:
   `web/index.html` (kept minimal, clearly marked).
 - Whether to persist a user preference for auto-harmonize on/off (left off in v1 pending
   the user's call on the credit-cost default).
+
+## Update 2026-10-21 — filter guidance is now the default
+
+`harmonizeVideo` gained a `guidance` mode. **`filter` (default)** builds the stage-1 driving clip
+non-generatively — the source through an ffmpeg `hue=s=0,gblur=sigma=1.2` (b+w + slight blur) — then
+restyles it (FILTER_STYLE_PROMPT, strong full-body framing guard). This is **one Seedance gen instead
+of two**, and tested higher-fidelity than the generated previz (the real structure survives, so the
+restyle follows it closely). **`previz`** keeps the two-gen grey-maquette path for sources too
+inconsistent for the filter to collapse. CLI: `--guidance filter|previz` (+ `--blur <sigma>`). The
+edit-ui auto-harmonize path inherits the new default. Validated on v013 via the harmonize-spike
+(`styled-fal-bw-blur*`).

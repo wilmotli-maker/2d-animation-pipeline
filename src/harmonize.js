@@ -38,6 +38,30 @@ export const STYLE_PROMPT =
   'reframe. Keep the background the same plain flat colour as the reference image; add no ' +
   'scenery, props or set.';
 
+// Restyle prompt for the FILTER guidance path (default): the stage-1 input is the source run
+// through a non-generative b+w + slight-blur filter, not a generated grey previz. It addresses the
+// references by position (@Video1 = the guidance clip, @Image1/@Image2 = appearance) and carries a
+// strong full-body framing guard (a looser prompt let the restyle crop below the knees).
+export const FILTER_STYLE_PROMPT =
+  '@Video1 is a desaturated, softened black-and-white guidance pass of the animation — take ONLY ' +
+  'its motion, pose, gesture, timing, composition and framing from it; ignore its greyscale and its ' +
+  'blur. @Image1 and @Image2 are the appearance references (the first and last frame of the finished ' +
+  'look): repaint the character in their EXACT style — character design, colour palette, line weight, ' +
+  'shading and texture — restoring full colour and crisp finished hand-drawn 2D rendering. Keep ' +
+  "@Video1's body motion, pose, gesture and timing completely unchanged and apply the reference look " +
+  'identically on every frame so the whole clip reads as one continuous, uniformly-styled 2D cartoon ' +
+  'shot. FRAMING — CRITICAL, match the reference images exactly: this is a FULL-BODY WIDE shot. The ' +
+  'ENTIRE character is visible at all times, from the very top of the hair down to the bottom of BOTH ' +
+  'feet, with a generous margin of empty background ABOVE the head and BELOW the feet. NEVER crop, cut ' +
+  'off or push the character out of frame below the knees, shins, ankles or feet; the feet stay fully ' +
+  'inside the frame on every frame. Do NOT zoom in, do NOT scale the character up, do NOT pan, tilt or ' +
+  "reframe, and do NOT let the character drift toward the camera — the character's size and position " +
+  'stay exactly as in @Video1 and the reference images. Background: the same plain flat colour as the ' +
+  'reference image; add no scenery, props or set.';
+
+export const HARMONIZE_DEFAULT_GUIDANCE = 'filter'; // 'filter' (non-generative b+w+blur) | 'previz' (generated grey maquette)
+export const HARMONIZE_DEFAULT_BLUR = 1.2;          // gaussian sigma for the filter guidance
+
 // Seedance 2.5 aspect ratios (see src/validate.js). Pick the closest to the source.
 const ASPECTS = [['3:4', 3 / 4], ['16:9', 16 / 9], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3], ['21:9', 21 / 9]];
 export function nearestAspect(width, height) {
@@ -86,25 +110,37 @@ async function seedanceEdit({ runner, runBatch, ref, videoId, imageIds, prompt, 
 }
 
 /**
- * Harmonize a video via previz → restyle. Writes `<base>.previz.mp4`,
- * `<base>.harmonized.mp4` (audio carried over from the input) beside the input, or
- * under `spec.out`. Returns { outputPath, previzPath, refs, jobs, model, resolution }.
+ * Harmonize a video so one continuous Seedance pass replaces the whole clip (removing splice
+ * seams). Two guidance modes build the stage-1 driving clip:
+ *   - 'filter' (default): run the source through a non-generative b+w + slight-blur ffmpeg filter.
+ *     Cheaper (ONE Seedance gen) and higher fidelity — the real structure survives, so the restyle
+ *     follows it closely. Restyled with FILTER_STYLE_PROMPT.
+ *   - 'previz': generate a smooth grey maquette (PREVIS_PROMPT), then restyle (STYLE_PROMPT). Two
+ *     Seedance gens; use when the source is too inconsistent for the filter to collapse.
+ * Then restyle from the appearance refs and mux the input's audio onto the result.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz? }
+ * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
+ * Returns { outputPath, previzPath, guidance, refs, jobs, model, resolution }.
+ *
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur? }
  * `deps`: { runner, runBatch, downloadTo, ff, ffprobe } — injected for tests.
  */
 export async function harmonizeVideo(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
   ff = defaultFf, ffprobe = defaultFfprobe,
 } = {}) {
-  const { input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true } = spec;
+  const {
+    input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
+    guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR,
+  } = spec;
   if (!input) throw new Error('harmonizeVideo: spec.input is required');
+  if (guidance !== 'filter' && guidance !== 'previz') throw new Error(`harmonizeVideo: guidance must be 'filter' or 'previz', got "${guidance}"`);
   if (!await exists(input)) throw new Error(`no such video: ${input}`);
 
   const outDir = spec.out ? path.resolve(root, spec.out) : path.dirname(path.resolve(root, input));
   await mkdir(outDir, { recursive: true });
   const base = path.basename(input).replace(/\.[^.]+$/, '');
-  const previzPath = path.join(outDir, `${base}.previz.mp4`);
+  const guidancePath = path.join(outDir, `${base}.guidance.mp4`);
   const restyledTmp = path.join(outDir, `.${base}.restyled.${process.pid}.mp4`);
   const outputPath = path.join(outDir, `${base}.harmonized.mp4`);
 
@@ -122,32 +158,42 @@ export async function harmonizeVideo(root, spec, {
     refs = [first, last];
   }
 
-  // Stage 1: previz (neutralise). No appearance reference — the point is to strip it.
-  const srcMedia = await runner.upload(input);
-  const previz = await seedanceEdit({
-    runner, runBatch, ref: 'previz', videoId: srcMedia.id, imageIds: null,
-    prompt: PREVIS_PROMPT, resolution, aspectRatio, duration,
-  });
-  await downloadTo(previz.outputUrl, previzPath);
+  // Stage 1: build the neutral guidance clip.
+  let previzJob = null;
+  let stylePrompt = FILTER_STYLE_PROMPT;
+  if (guidance === 'filter') {
+    // Non-generative: desaturate + slight blur to strip colour/texture while keeping the real motion.
+    await ff(['-i', input, '-vf', `hue=s=0,gblur=sigma=${blur}`, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidancePath]);
+  } else {
+    // Generate a smooth grey previz maquette (no appearance ref — the point is to strip it).
+    const srcMedia = await runner.upload(input);
+    const previz = await seedanceEdit({
+      runner, runBatch, ref: 'previz', videoId: srcMedia.id, imageIds: null,
+      prompt: PREVIS_PROMPT, resolution, aspectRatio, duration,
+    });
+    await downloadTo(previz.outputUrl, guidancePath);
+    previzJob = previz.id;
+    stylePrompt = STYLE_PROMPT;
+  }
 
-  // Stage 2: restyle (repaint) from the appearance refs.
-  const previzMedia = await runner.upload(previzPath);
+  // Stage 2: restyle (repaint) the guidance clip from the appearance refs.
+  const guidanceMedia = await runner.upload(guidancePath);
   const refMedia = [];
   for (const r of refs) refMedia.push((await runner.upload(r)).id);
   const restyle = await seedanceEdit({
-    runner, runBatch, ref: 'harmonize', videoId: previzMedia.id, imageIds: refMedia,
-    prompt: STYLE_PROMPT, resolution, aspectRatio, duration,
+    runner, runBatch, ref: 'harmonize', videoId: guidanceMedia.id, imageIds: refMedia,
+    prompt: stylePrompt, resolution, aspectRatio, duration,
   });
   await downloadTo(restyle.outputUrl, restyledTmp);
 
   // Carry the input's audio onto the silent restyled clip.
   await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
   await rm(restyledTmp, { force: true });
-  if (!keepPreviz) await rm(previzPath, { force: true });
+  if (!keepPreviz) await rm(guidancePath, { force: true });
 
   return {
-    outputPath, previzPath: keepPreviz ? previzPath : null, refs,
-    jobs: { previz: previz.id, restyle: restyle.id },
+    outputPath, previzPath: keepPreviz ? guidancePath : null, guidance: { mode: guidance, path: keepPreviz ? guidancePath : null },
+    refs, jobs: { previz: previzJob, restyle: restyle.id },
     model: HARMONIZE_MODEL, resolution, aspectRatio, duration,
   };
 }
