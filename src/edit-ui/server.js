@@ -178,8 +178,8 @@ function startHarmonize(ctx, runDir, splicedRel) {
 export function createDefaultHarmonizer() {
   return async function harmonize({ workspace, runDir, splicedAbs }) {
     const { harmonizeVideo } = await import('../harmonize.js');
-    const { createRunner } = await import('../cli.js');
-    const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir }, { runner: createRunner() });
+    const { createFalRunner } = await import('../fal.js');
+    const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir }, { runner: createFalRunner() });
     const rel = (p) => (p ? path.relative(workspace, p).split(path.sep).join('/') : null);
     return { output: rel(res.outputPath), previz: rel(res.previzPath) };
   };

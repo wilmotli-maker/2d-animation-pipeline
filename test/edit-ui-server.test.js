@@ -146,6 +146,12 @@ const pollAt = async (b, jobId) => {
   let job; for (let i = 0; i < 50; i++) { job = await (await fetch(`${b}api/jobs/${jobId}`)).json(); if (job.status !== 'running') break; await new Promise((s) => setTimeout(s, 10)); }
   return job;
 };
+// The run manifest is written by several concurrent updateRun calls, so a read can briefly land
+// mid-write (listRuns skips an unparseable manifest). Poll until the harmonize field appears.
+const pollRunHarmonize = async (b, id) => {
+  let runs = []; for (let i = 0; i < 100; i++) { ({ runs } = await (await fetch(`${b}api/runs?id=${id}`)).json()); if (runs[0] && runs[0].harmonize) break; await new Promise((s) => setTimeout(s, 10)); }
+  return runs;
+};
 
 test('a video generate auto-harmonizes the splice: spliced preview first, harmonized via its own job', async () => {
   const out5 = await mkdtemp(path.join(tmpdir(), 'edit-ui-harmonize-'));
@@ -175,7 +181,7 @@ test('a video generate auto-harmonizes the splice: spliced preview first, harmon
     assert.equal(harmCalls.length, 1);
     assert.match(harmCalls[0].splicedAbs, /spliced\.mp4$/);
 
-    const { runs } = await (await fetch(`${b5}api/runs?id=${id5}`)).json();
+    const runs = await pollRunHarmonize(b5, id5);
     assert.equal(runs[0].harmonize.status, 'done');       // and the manifest records it
     assert.match(runs[0].harmonize.output, /harmonized\.mp4$/);
   } finally { s5.close(); await rm(out5, { recursive: true, force: true }); }
@@ -218,7 +224,7 @@ test('a failing harmonization keeps the spliced preview and reports the error on
     const harm = await pollAt(b6, gen.harmonizeJobId);
     assert.equal(harm.status, 'error');
     assert.match(harm.error, /seedance boom/);
-    const { runs } = await (await fetch(`${b6}api/runs?id=${id6}`)).json();
+    const runs = await pollRunHarmonize(b6, id6);
     assert.equal(runs[0].harmonize.status, 'error');
   } finally { s6.close(); await rm(out6, { recursive: true, force: true }); }
 });
