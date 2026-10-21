@@ -27,7 +27,8 @@ const baseInputs = [
 ];
 
 // Minimal run scaffold: workspace/<id>/runs/v001 with a manifest + source.
-async function scaffold(fn, { inputs, marks = [], duration = 10, fps = 24 }) {
+async function scaffold(fn, opts) {
+  const { inputs, marks = [], duration = 10, fps = 24 } = opts;
   const ws = await mkdtemp(path.join(tmpdir(), 'trimgen-'));
   const id = 'abcdef0123456789';
   const runDir = path.join(ws, id, 'runs', 'v001');
@@ -39,7 +40,7 @@ async function scaffold(fn, { inputs, marks = [], duration = 10, fps = 24 }) {
     marks, prompts: [{ markId: null, text: 'raise a fist' }], inputs, warnings: [],
   };
   await writeFile(path.join(runDir, 'manifest.json'), JSON.stringify(manifest));
-  const deps = recordingDeps();
+  const deps = Object.assign(recordingDeps(), opts.genDeps || {});
   const gen = createTrimGenerator(deps);
   const job = {
     root: ws, videoPath: path.join(ws, id, 'source.mp4'), outDir: path.join(ws, id),
@@ -116,6 +117,24 @@ test('request.styleLock and the text-pose gesture clause reach the submitted pro
     assert.match(prompt, /peaking at about 2\.0s/);             // mark at frame 48 / 24fps = 2s, centered
     assert.match(prompt, /distinct new gesture/);
   }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
+});
+
+test('padMargin > 0 submits padded reference frames; padMargin 0 submits the raw frames', async () => {
+  const padCalls = [];
+  const fakePad = async (src, out) => { await writeFile(out, 'pad'); padCalls.push([src, out]); return { out }; };
+  await scaffold(async ({ gen, job, deps }) => {
+    await gen.run(job);
+    const o = deps.submissions[0].opts;
+    assert.match(o.startImage, /first-pad\.png$/);
+    assert.match(o.endImage, /last-pad\.png$/);
+    assert.equal(padCalls.length, 2);                 // first + last (no pose keyframes here)
+  }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10, genDeps: { padMargin: 0.1, padFrame: fakePad } });
+
+  await scaffold(async ({ gen, job, deps }) => {
+    await gen.run(job);
+    const o = deps.submissions[0].opts;
+    assert.match(o.startImage, /first\.png$/); assert.doesNotMatch(o.startImage, /pad/);
+  }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10, genDeps: { padMargin: 0, padFrame: fakePad } });
 });
 
 test('a range mark with an anchor times the gesture at the anchor, not the window midpoint', async () => {
