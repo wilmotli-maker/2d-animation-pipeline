@@ -10,6 +10,8 @@ import path from 'node:path';
 import { readRunView } from './runview.js';
 import { planWindows } from './windows.js';
 import { trimPadVideo, trimPadSpeech, extractFrame } from './trim-media.js';
+import { padFrame as defaultPadFrame } from './pad-frame.js';
+import { editUiPadMargin } from '../config.js';
 import { buildTrimPrompt } from './trim-prompt.js';
 import { nearestAspect } from './inputs.js';
 import { updateRun } from './workspace.js';
@@ -42,6 +44,8 @@ export function createTrimGenerator(deps = {}) {
       // Resolve injected deps at call time (like `runner`) so tests can swap them per run.
       const ffmpeg = deps.ffmpeg || defaultFfmpeg;
       const transcribe = deps.transcribe || defaultTranscribe;
+      const padFrame = deps.padFrame || defaultPadFrame;
+      const padMargin = deps.padMargin != null ? deps.padMargin : editUiPadMargin();
       const runBatch = deps.runBatch || defaultRunBatch;
       const download = deps.download || defaultDownload;
       const now = deps.now || (() => new Date().toISOString());
@@ -121,6 +125,17 @@ export function createTrimGenerator(deps = {}) {
             .slice(0, 6);
           entry.keyframeCount = poses.length;
 
+          // Optional margin padding (EDIT_UI_PAD_REFS): give the generator empty space around the
+          // subject so it stops cropping edges; the splice TRS align re-absorbs the scale.
+          let first_ = first, last_ = last, posePaths = poses.map((p) => p.path);
+          if (padMargin > 0) {
+            first_ = path.join(wDir, 'first-pad.png'); await padFrame(first, first_, { margin: padMargin });
+            last_ = path.join(wDir, 'last-pad.png'); await padFrame(last, last_, { margin: padMargin });
+            posePaths = await Promise.all(poses.map(async (p, i) => {
+              const o = path.join(wDir, `pose${i + 1}-pad.png`); await padFrame(p.path, o, { margin: padMargin }); return o;
+            }));
+          }
+
           const gestureOffset = w.editCenters.length ? w.editCenters[0] - w.window[0] : undefined;
           const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: windowPrompt(w), gestureOffset, styleLock });
           const promptFile = path.join(wDir, 'prompt.md');
@@ -129,8 +144,8 @@ export function createTrimGenerator(deps = {}) {
           // Submit via the selected backend (hf or muapi). Seedance needs an INTEGER duration (>= 4);
           // clipDuration is frame math so round it (sub-frame vs the frame-accurate trim/de-pad).
           const r = await backend.submit({
-            wName, wDir, promptFile, prompt, first, last,
-            poses: poses.map((p) => p.path),
+            wName, wDir, promptFile, prompt, first: first_, last: last_,
+            poses: posePaths,
             speechRefPath: view.speechref ? srTrim : null,
             resolution: '480p', aspectRatio: aspect,
             duration: Math.max(4, Math.round(w.clipDuration)), generateAudio: true,

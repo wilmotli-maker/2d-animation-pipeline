@@ -227,6 +227,14 @@ export function flowMorphScriptPath(root = REPO_ROOT) {
   return path.join(root, 'python', 'flow_morph.py');
 }
 
+// Opt-in margin padding for edit-ui reference frames (EDIT_UI_PAD_REFS=0.1 = 10% per side). 0 = off.
+// Padding the start/end/keyframe refs stops the generator cropping the subject at the frame edges;
+// the splice's TRS align re-absorbs the resulting scale. Clamped to [0, 0.4].
+export function editUiPadMargin() {
+  const v = Number(process.env.EDIT_UI_PAD_REFS);
+  return Number.isFinite(v) ? Math.max(0, Math.min(0.4, v)) : 0;
+}
+
 // Packages python/flow_morph.py imports. cv2 is already a project dep (plate
 // matte), so this adds nothing new to the install surface.
 export const FLOW_MORPH_DEPS = ['opencv-python-headless', 'numpy'];
