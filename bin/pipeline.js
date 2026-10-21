@@ -5,6 +5,7 @@ import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
 import { createMuapiRunner } from '../src/muapi.js';
+import { createFalRunner } from '../src/fal.js';
 import { resolveWavespeedKey, wavespeedKeyStatus } from '../src/wavespeed.js';
 import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 import { readFile } from 'node:fs/promises';
@@ -39,21 +40,21 @@ function fail(msg) {
   process.exit(1);
 }
 
-// Pick the generation backend for shot generate / generate-batch.
-//   --runner higgsfield (default) -> the higgsfield CLI runner (createRunner)
-//   --runner muapi                -> the direct MuAPI Seedance 2.5 runner (bypasses HF's
-//                                    moderation wrapper). --spicy uses the relaxed route.
-// MUAPI_KEY + FAL_KEY come from the environment (.env is loaded at startup).
+// Pick the generation backend for shot generate / generate-batch / video harmonize.
+//   --runner fal (default) -> direct fal.ai Seedance 2.5 (no moderation, cheapest at 480p)
+//   --runner higgsfield    -> the higgsfield CLI runner (createRunner)
+//   --runner muapi         -> the direct MuAPI Seedance 2.5 runner (bypasses HF's moderation
+//                             wrapper). --spicy uses the relaxed route.
+// FAL_KEY + MUAPI_KEY come from the environment (.env is loaded at startup).
 function pickGenerationRunner(f) {
-  const r = (f.runner && f.runner !== true) ? String(f.runner).toLowerCase() : 'higgsfield';
+  const r = (f.runner && f.runner !== true) ? String(f.runner).toLowerCase() : 'fal';
+  const res = (f.resolution && f.resolution !== true) ? String(f.resolution) : '480p';
+  if (r === 'fal') return createFalRunner({ resolution: res });
   if (r === 'higgsfield' || r === 'hf') return createRunner();
   if (r === 'muapi') {
-    return createMuapiRunner({
-      spicy: f.spicy === true || f.spicy === 'true',
-      resolution: (f.resolution && f.resolution !== true) ? String(f.resolution) : '480p',
-    });
+    return createMuapiRunner({ spicy: f.spicy === true || f.spicy === 'true', resolution: res });
   }
-  fail(`--runner must be one of: higgsfield, muapi (got "${r}")`);
+  fail(`--runner must be one of: fal, higgsfield, muapi (got "${r}")`);
 }
 
 // Print a ✓/⚠/✗ checklist and return true if there are no failures.
@@ -193,7 +194,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner higgsfield|muapi] [--spicy] [--draft] [--root <dir>]');
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]');
     }
     const genVersion = Number(f.version);
     if (!Number.isInteger(genVersion) || genVersion < 1) {
@@ -211,7 +212,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'generate-batch') {
     const f = parseFlags(rest);
     if (!f.manifest) {
-      fail('usage: pipeline shot generate-batch --manifest <file.json> [--concurrency <n>] [--runner higgsfield|muapi] [--spicy] [--draft] [--root <dir>]\n' +
+      fail('usage: pipeline shot generate-batch --manifest <file.json> [--concurrency <n>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]\n' +
         '  manifest: JSON array of { id, version, model, prompt|prompt-file|promptFile, images?, speechAudio?, videos?, audios?, resolution?, duration?, aspectRatio?, generateAudio?, mode?, task? }');
     }
     const { items, concurrency: manifestConc } = await loadManifest(f.manifest);
@@ -449,7 +450,7 @@ async function main() {
   } else if (cmd === 'video' && sub === 'harmonize') {
     const f = parseFlags(rest);
     if (!f.input) {
-      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--root <dir>]');
+      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--runner fal|higgsfield|muapi] [--root <dir>]');
     }
     if (f.guidance && f.guidance !== 'filter' && f.guidance !== 'previz') fail("video harmonize: --guidance must be filter or previz");
     const res = await harmonizeVideo(projectRoot(f.root), {
@@ -457,7 +458,7 @@ async function main() {
       resolution: f.resolution || HARMONIZE_DEFAULT_RESOLUTION,
       guidance: f.guidance || HARMONIZE_DEFAULT_GUIDANCE, blur: f.blur != null ? Number(f.blur) : undefined,
       aspect: f['aspect-ratio'], out: f.out, keepPreviz: !f['drop-previz'], task: f.task,
-    }, { runner: createRunner({ exec: inheritStderrExec }) });
+    }, { runner: pickGenerationRunner(f) });
     console.log(`harmonized ${f.input}  (guidance: ${res.guidance.mode})`);
     console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, jobs${res.jobs.previz ? ` previz ${res.jobs.previz} /` : ''} restyle ${res.jobs.restyle})`);
   } else if (cmd === 'verify' && sub === 'element') {
@@ -651,8 +652,8 @@ async function main() {
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner higgsfield|muapi] [--spicy] [--draft] [--task <label>]',
-      '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--runner higgsfield|muapi] [--spicy] [--draft] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--task <label>]',
+      '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
       '  pipeline element sheet-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many element sheets in parallel from one JSON manifest',
       '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
       '  pipeline credits backfill [--root <ep>] [--type <t> --name <n>] [--sheet <slug>] [--since <ISO>] [--until <ISO>]',
