@@ -357,6 +357,24 @@ async function handle(ctx, req, res) {
     return sendJson(res, 202, { jobId });
   }
 
+  // Harmonize an already-generated, spliced run on demand: POST {id, run} -> {jobId}. Runs the same
+  // default harmonizer as the generate-time toggle, input = the run's spliced clip.
+  if (req.method === 'POST' && p === '/api/harmonize') {
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    if (!ctx.harmonize) return sendJson(res, 501, { error: 'harmonize is not enabled on this server' });
+    const m = await readMeta(workspace, body && body.id);
+    if (!m) return sendJson(res, 404, { error: 'unknown video' });
+    const base = videoDirs(workspace, m.id);
+    const runDir = resolveWithin(base.runs, String(body.run || ''));
+    if (!runDir || !(await realWithin(base.dir, runDir))) return sendJson(res, 404, { error: 'unknown run' });
+    let manifest;
+    try { manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8')); } catch { return sendJson(res, 404, { error: 'unknown run' }); }
+    const splicedRel = manifest.spliced && manifest.spliced.output;
+    if (!splicedRel) return sendJson(res, 409, { error: 'splice this run before harmonizing it' });
+    return sendJson(res, 202, { jobId: startHarmonize(ctx, runDir, splicedRel) });
+  }
+
   if (get && p.startsWith('/api/jobs/')) {
     const job = ctx.jobs.get(p.slice('/api/jobs/'.length));
     return job ? sendJson(res, 200, job) : sendJson(res, 404, { error: 'unknown job' });

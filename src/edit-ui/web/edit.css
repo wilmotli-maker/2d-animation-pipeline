@@ -57,6 +57,54 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
   font-size: 11px; letter-spacing: .04em; text-transform: uppercase; pointer-events: none; display: none; }
 .stage-wrap.compare .pane-label { display: block; }
 
+.viewbar { display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+.viewbar-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+/* Result toggle + picker read as one control (attached to Source in the seg). */
+.viewbar .seg-result {
+  display: inline-flex;
+  align-items: stretch;
+  margin-left: -1px;
+  border: 1px solid var(--line);
+  border-radius: 0 6px 6px 0;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.viewbar .seg-result.on {
+  background: var(--accent-2);
+  border-color: var(--accent);
+}
+.viewbar .seg-result #view-result {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 10px;
+  flex: none;
+}
+.viewbar .seg-result.on #view-result,
+.viewbar .seg-result.on #view-result.on {
+  background: transparent;
+  border-color: transparent;
+}
+.viewbar .seg-result #result-pick {
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  min-width: 10em;
+  max-width: 22em;
+  padding: 4px 24px 4px 8px;
+  margin: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.viewbar .seg-result.on #result-pick {
+  border-left-color: rgba(90, 169, 255, 0.55);
+  color: var(--text);
+}
+.viewbar .seg-result #result-pick:disabled { opacity: 0.45; cursor: default; }
+.viewbar .seg-result #result-pick:focus { outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.viewbar .seg-result.on #result-pick:focus { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
+
 .transport { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .transport .play { min-width: 44px; }
 .tc { font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; margin-left: 8px; }
@@ -143,10 +191,7 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 /* Result rows: name/status on top, actions wrap below — so many controls never squeeze the name. */
 #render-list li.result { flex-direction: column; align-items: stretch; gap: 4px; }
 .result-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.result-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ra-view, .ra-manage { display: flex; align-items: center; gap: 4px; }
-/* Vertical separator between the Raw/Spliced toggles and the management actions. */
-.result-actions.has-view .ra-manage { border-left: 1px solid var(--line); padding-left: 8px; }
+.result-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
 #render-list .result-actions .x { flex: 0 0 auto; white-space: nowrap; }
 .list .empty, .empty { color: var(--dim); font-style: italic; cursor: default; }
 .x { background: none; border: none; color: var(--dim); padding: 0 4px; }
