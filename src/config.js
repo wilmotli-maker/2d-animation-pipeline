@@ -227,6 +227,12 @@ export function flowMorphScriptPath(root = REPO_ROOT) {
   return path.join(root, 'python', 'flow_morph.py');
 }
 
+// Colour-conform (python/colour_conform.py) shares the flow-morph python toolchain (cv2 + numpy via
+// the same uv runner / FLOW_MORPH_PYTHON override), so no new install surface.
+export function colourConformScriptPath(root = REPO_ROOT) {
+  return path.join(root, 'python', 'colour_conform.py');
+}
+
 // Packages python/flow_morph.py imports. cv2 is already a project dep (plate
 // matte), so this adds nothing new to the install surface.
 export const FLOW_MORPH_DEPS = ['opencv-python-headless', 'numpy'];
