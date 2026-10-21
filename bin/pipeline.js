@@ -573,10 +573,11 @@ async function main() {
     const workspace = f.workspace ? (await import('node:path')).resolve(f.workspace) : DEFAULT_WORKSPACE;
     let generator;
     try { generator = resolveGenerator(f.generator || process.env.PIPELINE_EDIT_GENERATOR); } catch (e) { fail(`edit-ui: ${e.message}`); }
-    // Harmonize spliced results by default (previz→restyle, removes seams); --no-harmonize turns it off.
+    // Harmonization (previz→restyle, removes splice seams) is available but OFF by default — the user
+    // opts in per session with the UI's "Harmonize" toggle. --no-harmonize removes the capability.
     const harmonize = f['no-harmonize'] ? null : createDefaultHarmonizer();
     const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator, harmonize });
-    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name}, harmonize: ${harmonize ? 'on' : 'off'})  — Ctrl+C to stop`);
+    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name}, harmonize: ${harmonize ? 'available (per-session toggle, default off)' : 'disabled'})  — Ctrl+C to stop`);
   } else if (cmd === 'edit-ui-splice') {
     const f = parseFlags([sub, ...rest].filter((x) => x != null));
     if (!f.id || !f.run) fail('usage: pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]');
