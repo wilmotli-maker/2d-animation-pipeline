@@ -251,31 +251,79 @@ function newMark(s, e, anchor) {
   data.marks.push(m);
   return m;
 }
-// Mark the current frame: reuse a region that already covers it, else create a 4s region
-// centered on it (shifted inward near the clip edges) with the frame as its anchor.
-// Resolve the marked region for frame f: reuse a range already covering it, else create a 4s region
-// anchored at f. Selects it and returns the mark. Shared by the Mark action and Add-keyframe so a
-// keyframe gets the same auto-region as marking does. (Creates a mark when none covers f, so call
-// inside mutate() when the creation should be undoable.)
+// Ideal edit window for a mark, in frames — mirrors planWindows() in src/edit-ui/windows.js
+// (overlap or touch ⇒ one merged generation window).
+function markIdealWindow(m) {
+  const minW = regionFrames();
+  if (m.kind === 'frame') {
+    const t = m.start;
+    return [t - minW / 2, t + minW / 2];
+  }
+  const mid = (m.start + m.end) / 2;
+  const w = Math.max(minW, m.end - m.start + 1);
+  const center = m.anchor != null ? m.anchor : mid;
+  return [center - w / 2, center + w / 2];
+}
+function rehomeMarkContent(fromId, toId) {
+  for (const p of data.prompts) if (p.markId === fromId) p.markId = toId;
+  for (const a of data.annotations) if (a.markId === fromId) a.markId = toId;
+  for (const k of data.keyframes) if (k.markId === fromId) k.markId = toId;
+}
+function mergeTwoMarks(keep, drop, anchorFrame) {
+  const lo = Math.min(keep.start, drop.start);
+  const hi = Math.max(keep.end, drop.end);
+  [keep.start, keep.end] = clampRegion(lo, hi);
+  keep.kind = 'range';
+  if (anchorFrame != null) keep.anchor = Math.min(keep.end, Math.max(keep.start, anchorFrame));
+  else if (keep.anchor == null && drop.anchor != null) keep.anchor = drop.anchor;
+  rehomeMarkContent(drop.id, keep.id);
+  data.marks = data.marks.filter((m) => m.id !== drop.id);
+}
+// Merge marks whose ideal windows overlap or touch (same rule as generation window planning).
+function mergeOverlappingMarks(preferId, anchorFrame) {
+  let prefer = preferId;
+  for (let pass = 0; pass < data.marks.length + 1; pass++) {
+    const items = data.marks.map((m) => { const [w0, w1] = markIdealWindow(m); return { m, w0, w1 }; })
+      .sort((a, b) => a.w0 - b.w0 || a.m.start - b.m.start);
+    let merged = false;
+    for (let i = 0; i < items.length - 1; i++) {
+      const a = items[i]; const b = items[i + 1];
+      if (b.w0 <= a.w1) {
+        const keep = a.m.id === prefer ? a.m : (b.m.id === prefer ? b.m : a.m);
+        const drop = keep === a.m ? b.m : a.m;
+        mergeTwoMarks(keep, drop, anchorFrame);
+        if (drop.id === prefer) prefer = keep.id;
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) break;
+  }
+  return data.marks.find((m) => m.id === prefer) || data.marks.find((m) => inMark(m, anchorFrame));
+}
+// Create a 4s region anchored at f, merge with any overlapping marks, select for editing.
 function regionForFrame(f) {
-  const existing = data.marks.find((m) => m.kind === 'range' && inMark(m, f));
-  if (existing) { ui.sel = existing.id; return existing; }
   const half = Math.round(regionFrames() / 2);
   const m = newMark(f - half, f + half, f);
-  ui.sel = m.id;
-  return m;
+  const survivor = mergeOverlappingMarks(m.id, f) || m;
+  ui.sel = survivor.id;
+  ui.selFocus = 'mark';
+  return survivor;
 }
 function addRegionMark() {
   if (!ui.src) return;
-  const f = curFrame();
-  if (data.marks.some((m) => m.kind === 'range' && inMark(m, f))) { regionForFrame(f); return renderAll(); }
-  mutate(() => { regionForFrame(f); });
+  mutate(() => { regionForFrame(curFrame()); });
 }
 function setIn() { if (!ui.src) return; ui.pendingIn = curFrame(); renderTimeline(); toast(`In at frame ${ui.pendingIn} — press O to close the range`); }
 function setOut() {
   if (ui.pendingIn == null) return toast('Set an In point first (I)');
   const a = ui.pendingIn; ui.pendingIn = null;
-  mutate(() => { ui.sel = newMark(a, curFrame()).id; });
+  mutate(() => {
+    const m = newMark(a, curFrame());
+    const survivor = mergeOverlappingMarks(m.id, curFrame()) || m;
+    ui.sel = survivor.id;
+    ui.selFocus = 'mark';
+  });
 }
 // The mark new content at frame f should attach to: the selected mark if it
 // covers f, else an existing frame mark at f, else a new frame mark (selected).
@@ -312,8 +360,11 @@ function deleteMark(id) {
     data.annotations = data.annotations.filter((a) => a.markId !== id);
     data.prompts = data.prompts.filter((p) => p.markId !== id);
     data.keyframes = data.keyframes.filter((k) => k.markId !== id);
-    if (ui.sel === id) ui.sel = null;
+    if (ui.sel === id) { ui.sel = null; ui.selFocus = null; }
   });
+}
+function appendEls(parent, ...nodes) {
+  for (const n of nodes.flat()) if (n != null && n !== false) parent.append(n);
 }
 
 // ---- timeline ------------------------------------------------------------
@@ -545,7 +596,13 @@ $('track').addEventListener('pointerdown', (e) => {
   const up = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
     ghost.remove();
-    if (a !== b) mutate(() => { ui.sel = newMark(a, b).id; }); else { ui.sel = null; renderAll(); }
+    if (a !== b) mutate(() => {
+      const m = newMark(a, b);
+      const anchor = Math.round((a + b) / 2);
+      const survivor = mergeOverlappingMarks(m.id, anchor) || m;
+      ui.sel = survivor.id;
+      ui.selFocus = 'mark';
+    }); else { ui.sel = null; ui.selFocus = null; renderAll(); }
   };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 });
@@ -645,9 +702,11 @@ function ensureKeyframe(m, f) {
 function addKeyframe() {
   if (!ui.src) return;
   const f = curFrame();
-  // Attach the keyframe to a marked region (same auto-4s-region logic as the Mark action), not a
-  // bare frame mark, so it defines an edit window just like marking does.
-  mutate(() => ensureKeyframe(regionForFrame(f), f));
+  mutate(() => {
+    const m = regionForFrame(f);
+    const k = ensureKeyframe(m, f);
+    ui.selFocus = { kf: k.id };
+  });
 }
 function pushVersion(k, v) {
   commit();
@@ -1015,14 +1074,14 @@ function renderInspector() {
       el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); generateKeyframe(k); } }, `Generate keyframe @ f${f}`),
       el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); renderAll(); uploadKeyframe(k); } }, 'Upload keyframe…')) : null,
   ].filter(Boolean) : [];
-  box.append(
+  appendEls(box,
     el('header', {}, el('h2', {}, m.kind === 'range' ? 'Selected range' : 'Selected frame'),
       ro ? null : el('button', { class: 'x', onclick: () => deleteMark(m.id) }, 'Delete mark')),
     el('div', { class: 'title' }, label),
     el('div', { class: 'sub' }, m.kind === 'range'
       ? `Frames ${m.start}–${m.end} · ${m.end - m.start + 1}f · ${fmt(m.start / fps())}–${fmt((m.end + 1) / fps())}${snap}`
       : `Frame ${m.start} · ${fmt(m.start / fps())}${snap}`),
-    el('h3', {}, 'Prompts', ro ? null : el('button', { onclick: () => addPrompt(m.id) }, '+ Prompt')),
+    el('h3', {}, 'Prompts', ...(ro ? [] : [el('button', { onclick: () => addPrompt(m.id) }, '+ Prompt')])),
     ...promptNodes,
     ro ? el('div', { class: 'hint' }, 'Click an ink dot or keyframe on the timeline to inspect that item.') : null,
     ro ? null : el('h3', {}, 'Annotations'),
