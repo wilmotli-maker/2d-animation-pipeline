@@ -90,6 +90,59 @@ function optimise(P0, ps, active, O, G, size) {
   return P;
 }
 
+// One TRS for a whole clip: same-index pairs, reusing the seam fitter. `seed` starts the search
+// near the expected scale (harmonize pads first, then undoes that pad).
+export function fitGlobalTransform(O, G, { W, H, stride = 1, seed = null } = {}) {
+  const n = Math.min(O.length, G.length);
+  const ps = [];
+  for (let i = 0; i < n; i += stride) ps.push([i, i]);
+  if (!ps.length) return { ...IDENT };
+  return optimise(seed ? { ...IDENT, ...seed } : { ...IDENT }, ps, MODES.trs, O, G, { W, H });
+}
+
+export function nearIdentity(P) {
+  return Math.abs(P.s - 1) < 0.012 && Math.abs(P.tx) < 0.75 && Math.abs(P.ty) < 0.75 && Math.abs(P.rot) < 0.3;
+}
+
+// A shrink, a rotation, or a shift uncovers pixels the model never drew. A pure scale-up only
+// crops, so it does not need a fill.
+export function revealsFill(P) {
+  return P.s < 0.999 || Math.abs(P.rot) > 0.05 || Math.abs(P.tx) > 0.5 || Math.abs(P.ty) > 0.5;
+}
+
+// True when every corner patch is a flat tone. A character or a scene in a corner fails it,
+// and we then refuse to paint a solid rectangle over that corner.
+export function cornersFlat(frame, W, H, { patch = 6, maxStd = 12 } = {}) {
+  const spots = [[0, 0], [W - patch, 0], [0, H - patch], [W - patch, H - patch]];
+  for (const [x0, y0] of spots) {
+    let sum = 0, sum2 = 0, n = 0;
+    for (let y = y0; y < y0 + patch; y++) {
+      for (let x = x0; x < x0 + patch; x++) {
+        const v = frame[y * W + x];
+        sum += v; sum2 += v * v; n++;
+      }
+    }
+    const mean = sum / n;
+    if (sum2 / n - mean * mean > maxStd * maxStd) return false;
+  }
+  return true;
+}
+
+// Place `generated` onto the reference frame. Scale is an explicit even size (the restyle can
+// differ in resolution from the source, so `iw*s` would land on the wrong canvas). The fill is a
+// per-frame corner sample: a flat grey background drifts over the clip, and a single colour leaves
+// a rectangle. gbrap before rotate — yuva420p rotate-fill fringes the edge green.
+export function framingAlignFilter({ P, W0, H0, fitW, fitH }) {
+  const th = (-P.rot * Math.PI / 180).toFixed(6);
+  const ox = `((W-w)/2+${((W0 / fitW) * P.tx).toFixed(3)})`;
+  const oy = `((H-h)/2+${((H0 / fitH) * P.ty).toFixed(3)})`;
+  const sw = Math.max(2, Math.round(W0 * P.s / 2) * 2);
+  const sh = Math.max(2, Math.round(H0 * P.s / 2) * 2);
+  return `[0:v]split[a][b];[a]crop=12:12:6:6,scale=${W0}:${H0}:flags=neighbor[cv];` +
+    `[b]format=gbrap,rotate=${th}:ow=iw:oh=ih:c=none,scale=${sw}:${sh}:flags=bicubic[g];` +
+    `[cv][g]overlay=x=${ox}:y=${oy}:format=auto[v]`;
+}
+
 // Build the ffmpeg filter_complex that composes orig_head + gen_middle + orig_tail (ported from
 // splice-match.js). Returns { filter, expectedOutputFrames, k }. seam mid=two seams, head=keep tail
 // only, tail=keep head only. blend>0 (mid only) crossfades; retime stretches the gen segment.
@@ -251,6 +304,50 @@ export async function probeSize(file, { ffprobe = defaultFfprobe }) {
 }
 export async function probeHasAudio(file, { ffprobe = defaultFfprobe }) {
   return /audio/.test(await ffprobe(['-select_streams', 'a:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file]));
+}
+
+// Mean RGB of an 8×8 patch inset from the top-left, as an ffmpeg colour. Used to fill a padded
+// guidance frame with the clip's own flat background.
+export async function sampleCornerHex(file, { ffmpegOut = defaultFfmpegOut } = {}) {
+  const raw = await ffmpegOut(['-i', file, '-frames:v', '1', '-vf', 'format=rgb24,crop=8:8:4:4', '-f', 'rawvideo', '-']);
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw || []);
+  if (buf.length < 3) return '0x808080';
+  const hex = (n) => n.toString(16).padStart(2, '0');
+  return `0x${hex(buf[0])}${hex(buf[1])}${hex(buf[2])}`;
+}
+
+// Fit one TRS from `generated` onto `reference` and render it. Scale outside [minScale, maxScale]
+// is left untouched — a 12% pad undoes at about 1.32, which must stay inside the range.
+export async function alignFraming(reference, generated, out, opts = {}) {
+  const ffmpeg = opts.ffmpeg || defaultFfmpeg;
+  const ffprobe = opts.ffprobe || defaultFfprobe;
+  const decode = opts.decode || ((file, o) => decodeGrayFrames(file, { ...o, ...(opts.ffmpegOut ? { ffmpeg: opts.ffmpegOut } : {}) }));
+  const { w: W0, h: H0 } = opts.size || await probeSize(reference, { ffprobe });
+  const maxEdge = opts.fitMaxEdge ?? 188;
+  const fitH = Math.max(2, Math.round(maxEdge / 2) * 2);
+  const fitW = Math.max(2, Math.round((fitH * W0) / H0 / 2) * 2);
+  const fitFps = opts.fitFps ?? 8;
+  const O = await decode(reference, { fps: fitFps, W: fitW, H: fitH });
+  const G = await decode(generated, { fps: fitFps, W: fitW, H: fitH });
+  const n = Math.min(O.length, G.length);
+  const ident = { tx: 0, ty: 0, rot: 0, s: 1 };
+  if (n < 2) return { applied: false, reason: 'too-short', transform: ident };
+  const stride = Math.max(1, Math.floor(n / 16));
+  const seed = opts.seedScale ? { s: opts.seedScale } : null;
+  const P = fitGlobalTransform(O, G, { W: fitW, H: fitH, stride, seed });
+  const transform = { tx: +P.tx.toFixed(3), ty: +P.ty.toFixed(3), rot: +P.rot.toFixed(3), s: +P.s.toFixed(4) };
+  const sampled = [];
+  for (let i = 0; i < n; i += stride) sampled.push(G[i]);
+  if (revealsFill(P) && !sampled.every((f) => cornersFlat(f, fitW, fitH))) {
+    return { applied: false, reason: 'background-not-flat', transform };
+  }
+  const minScale = opts.minScale ?? 0.7;
+  const maxScale = opts.maxScale ?? 1.6;
+  if (P.s < minScale || P.s > maxScale) return { applied: false, reason: 'scale-out-of-range', transform };
+  if (nearIdentity(P)) return { applied: false, reason: 'identity', transform };
+  const filter = framingAlignFilter({ P, W0, H0, fitW, fitH });
+  await ffmpeg(['-i', generated, '-filter_complex', filter, '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', out]);
+  return { applied: true, reason: 'aligned', transform };
 }
 
 export async function spliceClip(opts, deps = {}) {
