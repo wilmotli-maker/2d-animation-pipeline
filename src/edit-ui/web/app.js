@@ -24,7 +24,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, selFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
+  sel: null, selFocus: null, draftSel: null, draftSelFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -138,7 +138,7 @@ async function loadVideo(id) {
     fetch(`/api/video?id=${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown video')))),
     fetch(`/api/session?id=${id}`).then((r) => r.json()),
   ]);
-  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, selFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null });
+  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, selFocus: null, draftSel: null, draftSelFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null });
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
@@ -291,6 +291,21 @@ function select(id) {
   ui.selFocus = ui.sel ? 'mark' : null;
   renderAll();
 }
+function selectMark(id, frame) {
+  ui.sel = id;
+  ui.selFocus = 'mark';
+  if (frame != null) seekFrame(frame);
+  else renderAll();
+}
+function stashDraftSelection() {
+  if (timelineEdits() !== data) return;
+  ui.draftSel = ui.sel;
+  ui.draftSelFocus = ui.selFocus;
+}
+function restoreDraftSelection() {
+  ui.sel = ui.draftSel;
+  ui.selFocus = ui.draftSelFocus;
+}
 function deleteMark(id) {
   mutate(() => {
     data.marks = data.marks.filter((m) => m.id !== id);
@@ -352,6 +367,7 @@ function onRangeBodyPointer(e, m, editable) {
   const ann = annsOf(m).find((a) => a.frame === f);
   if (kf) pickTimelineMark(m.id, f, { kf: kf.id });
   else if (ann) pickTimelineMark(m.id, f, { ann: ann.id });
+  else if (editable) pickMarkPrompts(m, f);
   else {
     ui.sel = m.id;
     ui.selFocus = null;
@@ -428,7 +444,7 @@ function renderTimeline() {
       node.title = markLabel(m);
       node.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
-        if (editable) { select(m.id); if (ui.sel === m.id) seekFrame(m.start); }
+        if (editable) selectMark(m.id, m.start);
         else pickMarkPrompts(m, m.start);
       });
     }
@@ -833,6 +849,7 @@ function applyViewState() {
   }
 }
 function showResult(r, want = null) {
+  stashDraftSelection();
   ui.activeRenderId = r.id;
   ui.resultKind = pickResult(r, want).kind;
   ui.view = 'result';
@@ -842,6 +859,8 @@ function showResult(r, want = null) {
 }
 function showSource() {
   ui.view = 'source';
+  ui.sideBySide = false;
+  restoreDraftSelection();
   applyViewState();
   renderAll();
 }
@@ -934,9 +953,13 @@ function renderInspector() {
     box.append(
       el('header', {}, el('h2', {}, m.kind === 'range' ? 'Range' : 'Frame')),
       el('div', { class: 'sub' }, `${markLabel(m)}${snap}`),
-      el('div', { class: 'hint' }, m.kind === 'range'
-        ? 'This bar can cover many frames. Click the labeled chip, anchor tick, or double-click the bar for mark-wide prompts. Click ink or keyframe lanes (or a frame that has one) for that item.'
-        : 'Select the mark chip or use the timeline for linked ink and keyframes.'),
+      el('div', { class: 'hint' }, ro
+        ? (m.kind === 'range'
+          ? 'Click the labeled chip, anchor tick, or double-click the bar for mark-wide prompts. Use ink or keyframe lanes for each item.'
+          : 'Use the timeline for linked ink and keyframes.')
+        : (m.kind === 'range'
+          ? 'Click the bar, chip, or this mark in the Marks list to edit prompts. Use ink / keyframe rows or lanes for each item.'
+          : 'Click the mark or its row in the Marks list to edit prompts.')),
     );
     return;
   }
@@ -975,9 +998,23 @@ function renderInspector() {
       inp.addEventListener('input', () => { m.label = inp.value; scheduleSave(); renderTimeline(); renderMarksList(); });
       return inp;
     })();
+  const f = kfFrame(m);
   const promptNodes = promptsOf(m).length
     ? promptsOf(m).map((p) => promptCard(p, ro))
     : [el('div', { class: 'hint' }, ro ? 'No prompts on this mark.' : 'No prompts — describe the edit for this mark.')];
+  const draftAnn = !ro && annsOf(m).length
+    ? el('ul', { class: 'list' }, annsOf(m).sort((a, b) => a.frame - b.frame).map((a) => el('li', { onclick: () => pickTimelineMark(m.id, a.frame, { ann: a.id }) },
+      el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color } }),
+      el('span', { class: 'grow' }, `Ink @ f${a.frame}`), el('span', { class: 'dim' }, `${a.strokes.length} stroke${a.strokes.length === 1 ? '' : 's'}`),
+      el('button', { class: 'x', title: 'Delete', onclick: (e) => { e.stopPropagation(); mutate(() => { data.annotations = data.annotations.filter((x) => x !== a); }); } }, '×'))))
+    : (!ro ? el('div', { class: 'hint' }, `Pen (B) to scribble on ${m.kind === 'range' ? 'a frame in this range' : 'this frame'}.`) : null);
+  const draftKfBlock = !ro ? [
+    el('h3', {}, 'Keyframes'),
+    kfsOf(m).length ? el('div', { class: 'kf-grid' }, kfsOf(m).map((k) => keyframeCard(k, false))) : null,
+    !kfsOf(m).some((k) => k.frame === f) ? el('div', { class: 'actions', style: { marginTop: '6px' } },
+      el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); generateKeyframe(k); } }, `Generate keyframe @ f${f}`),
+      el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); renderAll(); uploadKeyframe(k); } }, 'Upload keyframe…')) : null,
+  ].filter(Boolean) : [];
   box.append(
     el('header', {}, el('h2', {}, m.kind === 'range' ? 'Selected range' : 'Selected frame'),
       ro ? null : el('button', { class: 'x', onclick: () => deleteMark(m.id) }, 'Delete mark')),
@@ -987,7 +1024,10 @@ function renderInspector() {
       : `Frame ${m.start} · ${fmt(m.start / fps())}${snap}`),
     el('h3', {}, 'Prompts', ro ? null : el('button', { onclick: () => addPrompt(m.id) }, '+ Prompt')),
     ...promptNodes,
-    el('div', { class: 'hint' }, 'Click an ink dot or keyframe on the timeline to inspect that annotation or image.'),
+    ro ? el('div', { class: 'hint' }, 'Click an ink dot or keyframe on the timeline to inspect that item.') : null,
+    ro ? null : el('h3', {}, 'Annotations'),
+    ro ? null : draftAnn,
+    ...draftKfBlock,
   );
 }
 function renderMarksList() {
@@ -1156,7 +1196,10 @@ $('view-result').addEventListener('click', () => {
 });
 $('view-side-by-side').addEventListener('click', () => {
   if (!doneRenders().length) return toast('Generate a result first');
-  ui.sideBySide = !ui.sideBySide;
+  const enabling = !ui.sideBySide;
+  if (enabling) stashDraftSelection();
+  else if (ui.view === 'source') restoreDraftSelection();
+  ui.sideBySide = enabling;
   if (ui.sideBySide && !ui.activeRenderId) ui.activeRenderId = doneRenders()[0].id;
   applyViewState();
   renderAll();
