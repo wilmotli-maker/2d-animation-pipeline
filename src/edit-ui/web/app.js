@@ -3,6 +3,7 @@
 // everything hangs off *marks* (a frame or a frame range) on the timeline:
 // scribbled annotations, prompts and keyframes all belong to a mark (shown on
 // the Marks / Ink / Keys lanes). Unlinked prompts apply to the whole video. Session state autosaves to the server.
+import * as Regions from './regions.js';
 const $ = (id) => document.getElementById(id);
 const video = $('video'); const video2 = $('video2'); const ink = $('ink'); const stage = $('stage'); const lanes = $('lanes');
 const COLORS = ['#ff4d6d', '#ffc43d', '#4cc38a', '#5aa9ff', '#c78bff', '#ffffff'];
@@ -24,7 +25,7 @@ const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: 
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
-  sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
+  sel: null, selFocus: null, draftSel: null, draftSelFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -59,14 +60,14 @@ function el(tag, attrs = {}, ...kids) {
   return n;
 }
 const fileUrl = (rel, bust) => `/files/${rel.split('/').map(encodeURIComponent).join('/')}${bust ? `?v=${bust}` : ''}`;
-const markById = (id) => data.marks.find((m) => m.id === id);
-const selMark = () => (ui.sel ? markById(ui.sel) : null);
 const markLabel = (m) => m.label || (m.kind === 'frame' ? `Frame ${m.start}` : `Frames ${m.start}–${m.end}`);
 const inMark = (m, f) => f >= m.start && f <= m.end;
-const annsOf = (m) => data.annotations.filter((a) => a.markId === m.id);
-const promptsOf = (m) => data.prompts.filter((p) => p.markId === m.id);
-const kfsOf = (m) => data.keyframes.filter((k) => k.markId === m.id).sort((a, b) => a.frame - b.frame);
-const hasContent = (m) => annsOf(m).length || promptsOf(m).length || kfsOf(m).length;
+function promptsSource() {
+  const ed = timelineEdits();
+  if (ed === data) return data.prompts;
+  return ed.prompts ?? [];
+}
+const promptsOf = (m) => promptsSource().filter((p) => p.markId === m.id);
 
 function seekFrame(f) {
   if (!ui.src) return;
@@ -138,9 +139,10 @@ async function loadVideo(id) {
     fetch(`/api/video?id=${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown video')))),
     fetch(`/api/session?id=${id}`).then((r) => r.json()),
   ]);
-  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null });
+  Object.assign(ui, { id, src: meta.src, name: meta.name, meta, peaks: null, undo: [], redo: [], sel: null, selFocus: null, draftSel: null, draftSelFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null });
   history.replaceState(null, '', `?id=${id}`);
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
+  Regions.migrateMarks(data, rcfg()); // legacy range-mark anchors → separate frame-mark ticks
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
   data.settings = { autoKeyframes: 0, styleLock: '', harmonize: false, ...(sess.settings || {}) };
   ui.transcribing = false;
@@ -148,6 +150,7 @@ async function loadVideo(id) {
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
   data.renders = data.renders.filter((r) => r.status !== 'running');
   for (const r of data.renders) if (r.harmonizing) r.harmonizing = false; // the harmonize job is gone after a reload
+  for (const r of data.renders) ensureEditPrompts(r);
   if (meta.width && meta.height) stage.style.aspectRatio = `${meta.width} / ${meta.height}`;
   $('file-name').textContent = meta.name;
   document.title = `${meta.name} — Edit`;
@@ -231,69 +234,82 @@ function toggleMute() { video.muted = !video.muted; $('mute').textContent = vide
 // mark stays a 'frame' (the attach point for an annotation or keyframe).
 const REGION_SECONDS = 4;
 const regionFrames = () => Math.max(1, Math.round(REGION_SECONDS * fps()));
-// Expand [a,b] to at least the 4s minimum (centered on its midpoint) and shift it fully inside
-// [0, lastFrame]. A clip shorter than the minimum collapses to the whole clip.
-function clampRegion(a, b) {
-  const span = regionFrames(); const hi = lastFrame();
-  let s = a, e = b;
-  if (e - s < span) { const mid = (a + b) / 2; s = Math.round(mid - span / 2); e = s + span; }
-  if (s < 0) { s = 0; e = Math.min(hi, s + span); }
-  if (e > hi) { e = hi; s = Math.max(0, e - span); }
-  return [Math.max(0, s), Math.min(hi, e)];
-}
-function newMark(s, e, anchor) {
-  let a = Math.min(s, e), b = Math.max(s, e);
-  if (a === b) { const m = { id: uid('m'), kind: 'frame', start: a, end: a, label: '' }; data.marks.push(m); return m; }
-  [a, b] = clampRegion(a, b);
-  const anc = Math.min(b, Math.max(a, anchor != null ? anchor : Math.round((a + b) / 2)));
-  const m = { id: uid('m'), kind: 'range', start: a, end: b, anchor: anc, label: '' };
-  data.marks.push(m);
-  return m;
-}
-// Mark the current frame: reuse a region that already covers it, else create a 4s region
-// centered on it (shifted inward near the clip edges) with the frame as its anchor.
-// Resolve the marked region for frame f: reuse a range already covering it, else create a 4s region
-// anchored at f. Selects it and returns the mark. Shared by the Mark action and Add-keyframe so a
-// keyframe gets the same auto-region as marking does. (Creates a mark when none covers f, so call
-// inside mutate() when the creation should be undoable.)
+// The pure region/mark model lives in ./regions.js. These thin wrappers bind it to the live edit
+// set (writes → `data`; reads → `timelineEdits()`, which may be a read-only result snapshot) and
+// the three frame/id helpers the UI owns. Model: a *region* is a range mark (the bar / generation
+// window); a *mark* is a frame-mark tick inside it; keyframes and ink live inside a region by frame.
+const rcfg = () => ({ regionFrames, lastFrame, uid });
+const clampRegion = (a, b) => Regions.clampRegion(a, b, rcfg());
+const markIdealWindow = (m) => Regions.markIdealWindow(m, rcfg());
+const regionList = () => Regions.regionList(timelineEdits());
+const frameMarkList = () => Regions.frameMarkList(timelineEdits());
+const regionAt = (f) => Regions.regionAt(timelineEdits(), f);
+const frameMarkAt = (f) => Regions.frameMarkAt(timelineEdits(), f);
+const regionContents = (R) => Regions.regionContents(timelineEdits(), R);
+const mergeRegions = (id) => Regions.mergeRegions(data, id, rcfg());
+const ensureRegionAround = (f) => Regions.ensureRegionAround(data, f, rcfg());
+// Mark the current frame: ensure a region, add a tick there, select just that tick.
 function regionForFrame(f) {
-  const existing = data.marks.find((m) => m.kind === 'range' && inMark(m, f));
-  if (existing) { ui.sel = existing.id; return existing; }
-  const half = Math.round(regionFrames() / 2);
-  const m = newMark(f - half, f + half, f);
-  ui.sel = m.id;
+  const m = Regions.addMarkAtFrame(data, f, rcfg());
+  selectMark(m.id, f);
   return m;
 }
 function addRegionMark() {
   if (!ui.src) return;
-  const f = curFrame();
-  if (data.marks.some((m) => m.kind === 'range' && inMark(m, f))) { regionForFrame(f); return renderAll(); }
-  mutate(() => { regionForFrame(f); });
+  mutate(() => { regionForFrame(curFrame()); });
 }
 function setIn() { if (!ui.src) return; ui.pendingIn = curFrame(); renderTimeline(); toast(`In at frame ${ui.pendingIn} — press O to close the range`); }
 function setOut() {
   if (ui.pendingIn == null) return toast('Set an In point first (I)');
-  const a = ui.pendingIn; ui.pendingIn = null;
-  mutate(() => { ui.sel = newMark(a, curFrame()).id; });
-}
-// The mark new content at frame f should attach to: the selected mark if it
-// covers f, else an existing frame mark at f, else a new frame mark (selected).
-function markForFrame(f) {
-  const s = selMark();
-  if (s && inMark(s, f)) return s;
-  const m = data.marks.find((x) => x.kind === 'frame' && x.start === f) || newMark(f, f);
-  ui.sel = m.id;
-  return m;
-}
-function select(id) { ui.sel = ui.sel === id ? null : id; renderAll(); }
-function deleteMark(id) {
+  const a = ui.pendingIn; ui.pendingIn = null; const b = curFrame();
   mutate(() => {
-    data.marks = data.marks.filter((m) => m.id !== id);
-    data.annotations = data.annotations.filter((a) => a.markId !== id);
-    data.prompts = data.prompts.filter((p) => p.markId !== id);
-    data.keyframes = data.keyframes.filter((k) => k.markId !== id);
-    if (ui.sel === id) ui.sel = null;
+    const m = Regions.addRange(data, a, b, rcfg());
+    selectMark(m.id, m.start);
   });
+}
+// New content (ink) at frame f attaches to the region covering f (created if needed).
+function markForFrame(f) { return ensureRegionAround(f); }
+// ---- selection -----------------------------------------------------------
+// Selection is EITHER one item (a tick / keyframe / ink, selFocus 'mark' | {kf} | {ann})
+// OR a whole region ("select all", selFocus 'region'). ui.sel is the owning mark/region id.
+function selectMark(id, frame) {
+  ui.sel = id; ui.selFocus = 'mark';
+  if (frame != null) seekFrame(frame);
+  renderAll(); // re-render the marks lane so the new selection highlights
+}
+function selectRegion(R, frame) {
+  ui.sel = R.id; ui.selFocus = 'region';
+  if (frame != null) seekFrame(frame);
+  renderAll();
+}
+function clearSelection() { ui.sel = null; ui.selFocus = null; }
+const regionSelected = (R) => R.kind === 'range' && ui.selFocus === 'region' && ui.sel === R.id;
+function inSelectedRegion(frame) {
+  if (ui.selFocus !== 'region') return false;
+  const R = markById(ui.sel);
+  return !!R && R.kind === 'range' && inMark(R, frame);
+}
+function stashDraftSelection() {
+  if (timelineEdits() !== data) return;
+  ui.draftSel = ui.sel;
+  ui.draftSelFocus = ui.selFocus;
+}
+function restoreDraftSelection() {
+  ui.sel = ui.draftSel;
+  ui.selFocus = ui.draftSelFocus;
+}
+// Delete only what's selected (yellow): a single tick / keyframe / ink, or — when a whole region
+// is selected — the region and everything inside it. An empty region (no contents) is allowed.
+function deleteSelection() {
+  const focus = ui.selFocus;
+  if (!ui.sel || !focus) return;
+  mutate(() => {
+    Regions.deleteSelection(data, { sel: ui.sel, focus });
+    clearSelection();
+  });
+}
+function appendEls(parent, ...nodes) {
+  for (const n of nodes.flat()) if (n != null && n !== false) parent.append(n);
 }
 
 // ---- timeline ------------------------------------------------------------
@@ -308,13 +324,61 @@ function selectedRender() {
   return doneRenders()[0] || null;
 }
 const renderRowLabel = (r, i) => (r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`);
-const resultPickValue = (r, kind) => `${r.id}|${kind}`;
-const parseResultPick = (v) => { const i = v.indexOf('|'); return i < 0 ? null : { id: v.slice(0, i), kind: v.slice(i + 1) }; };
 // The edit set the timeline shows: a result's frozen snapshot while reviewing/comparing it, else
 // the live working draft (data). Results from before snapshots existed fall back to the draft.
 function timelineEdits() {
   const r = activeResult();
   return (r && r.edits) ? r.edits : data;
+}
+const isDraftEdits = () => timelineEdits() === data;
+function markById(id) { return timelineEdits().marks.find((m) => m.id === id); }
+const selMark = () => (ui.sel ? markById(ui.sel) : null);
+function annsOf(m) { return timelineEdits().annotations.filter((a) => a.markId === m.id); }
+function kfsOf(m) { return timelineEdits().keyframes.filter((k) => k.markId === m.id).sort((a, b) => a.frame - b.frame); }
+const hasContent = (m) => annsOf(m).length || promptsOf(m).length || kfsOf(m).length;
+function syncSelectionToEdits() {
+  if (ui.sel && !markById(ui.sel)) { ui.sel = null; ui.selFocus = null; return; }
+  const ed = timelineEdits();
+  if (ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.kf && !ed.keyframes.some((k) => k.id === ui.selFocus.kf)) ui.selFocus = 'mark';
+  if (ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.ann && !ed.annotations.some((a) => a.id === ui.selFocus.ann)) ui.selFocus = 'mark';
+}
+function pickTimelineMark(markId, frame, focus = 'mark') {
+  ui.sel = markId;
+  ui.selFocus = focus;
+  seekFrame(frame);
+  renderAll();
+}
+function pickMarkPrompts(m, frame) {
+  pickTimelineMark(m.id, frame, m.kind === 'range' ? 'region' : 'mark');
+}
+// Click on a region bar background: select the whole region (select-all). Read-only: show prompts.
+function onRegionBodyPointer(e, R, editable) {
+  e.stopPropagation();
+  const f = frameAtX(e.clientX);
+  if (editable) selectRegion(R, f);
+  else pickTimelineMark(R.id, f, 'region');
+}
+const inkFocused = (a) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.ann === a.id;
+const kfFocused = (k) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.kf === k.id;
+const markLaneFocused = (m) => ui.sel === m.id && ui.selFocus === 'mark';
+// Yellow when individually selected OR part of a region that's fully selected (select-all).
+const tickActive = (m) => markLaneFocused(m) || inSelectedRegion(m.start);
+const kfActive = (k) => kfFocused(k) || inSelectedRegion(k.frame);
+const annActive = (a) => inkFocused(a) || inSelectedRegion(a.frame);
+// A triangle-topped tick at a frame mark's frame.
+function markTick(m, editable) {
+  const f = m.start;
+  const t = el('div', {
+    class: `mark-anchor${tickActive(m) ? ' sel' : ''}${editable ? '' : ' ro'}`,
+    title: `Mark @ f${f}`,
+    style: { left: xOfFrame(f + 0.5) },
+  });
+  t.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (editable) selectMark(m.id, f);
+    else pickMarkPrompts(m, f);
+  });
+  return t;
 }
 const xOfFrame = (f) => `${(f / (lastFrame() + 1)) * 100}%`;
 function frameAtX(clientX) {
@@ -342,47 +406,53 @@ function renderTimeline() {
   // the editing-only pending-in marker below.
   const resultView = ui.view === 'result';
   const ed = timelineEdits();
-  const editable = ed === data;                 // only the working draft is interactive
+  const editable = isDraftEdits();              // only the working draft is editable on the timeline
   // The mark/ink/keyframe positions are in SOURCE frames, so they only line up on a source-length
   // timeline (source, a spliced result, or the compare pane). A raw result is the short generated
   // window with its own timeline, so the overlays would overflow — hide them there.
   const srcTimeline = ui.sideBySide || !(resultView && ui.resultRaw);
-  // Marks lane: ranges under frame marks.
+  // Marks lane: region bars with frame-mark ticks on top.
   const track = $('track'); track.replaceChildren();
-  const sorted = srcTimeline ? [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1)) : [];
-  for (const m of sorted) {
-    const sel = editable && ui.sel === m.id;
+  const marks = srcTimeline ? ed.marks : [];
+  for (const R of marks.filter((m) => m.kind === 'range')) {
     const node = el('div', {
-      class: `mark ${m.kind}${sel ? ' sel' : ''}${editable ? '' : ' ro'}`, title: markLabel(m),
-      style: { left: xOfFrame(m.start), ...(m.kind === 'range' ? { width: `calc(${xOfFrame(m.end + 1)} - ${xOfFrame(m.start)})` } : {}) },
+      class: `mark range${regionSelected(R) ? ' sel' : ''}${editable ? '' : ' ro'}`,
+      style: { left: xOfFrame(R.start), width: `calc(${xOfFrame(R.end + 1)} - ${xOfFrame(R.start)})` },
     });
-    node.addEventListener('pointerdown', (e) => { e.stopPropagation(); if (editable) { select(m.id); if (!sel) seekFrame(m.start); } else seekFrame(m.start); });
-    if (editable && m.kind === 'range' && sel) {
+    const body = el('div', {
+      class: 'mark-body',
+      title: editable ? 'Click to select the whole region (all marks, keyframes, ink) · drag edges to resize' : 'Click for region prompts',
+    });
+    body.addEventListener('pointerdown', (e) => onRegionBodyPointer(e, R, editable));
+    node.append(body);
+    if (editable && regionSelected(R)) {
       for (const side of ['l', 'r']) {
         const h = el('div', { class: `h ${side}` });
-        h.addEventListener('pointerdown', (e) => { e.stopPropagation(); dragHandle(m, side); });
+        h.addEventListener('pointerdown', (e) => { e.stopPropagation(); dragHandle(R, side); });
         node.append(h);
       }
     }
     track.append(node);
-    // Anchor tick: the marked moment / target-pose time inside the region.
-    if (m.kind === 'range' && m.anchor != null) {
-      track.append(el('div', { class: `mark-anchor${sel ? ' sel' : ''}`, title: `Target pose @ f${m.anchor}`,
-        style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); if (editable) select(m.id); seekFrame(m.anchor); } }));
-    }
   }
-  // Ink lane: one dot per annotated frame. Clicking selects its mark.
+  for (const m of marks.filter((m) => m.kind === 'frame')) track.append(markTick(m, editable));
+  // Ink lane: one dot per annotated frame.
   const la = $('lane-ann'); la.replaceChildren();
   for (const a of (srcTimeline ? ed.annotations : [])) {
-    la.append(el('div', { class: `dot${editable && ui.sel === a.markId ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
+    la.append(el('div', { class: `dot${annActive(a) ? ' sel' : ''}`, title: `Ink @ f${a.frame}`,
       style: { left: xOfFrame(a.frame + 0.5), background: a.strokes[0]?.color || 'var(--ink)' },
-      onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = a.markId; seekFrame(a.frame); renderAll(); } }));
+      onpointerdown: (e) => {
+        e.stopPropagation();
+        pickTimelineMark((regionAt(a.frame) || { id: a.markId }).id, a.frame, { ann: a.id });
+      } }));
   }
   // Keys lane: filled = has an image, hollow = not generated/uploaded yet.
   const lk = $('lane-kf'); lk.replaceChildren();
   for (const k of (srcTimeline ? ed.keyframes : [])) {
-    lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}`, title: `Keyframe f${k.frame}`,
-      style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => { e.stopPropagation(); if (editable) ui.sel = k.markId; seekFrame(k.frame); renderAll(); } }));
+    lk.append(el('div', { class: `diamond${k.versions.length ? '' : ' empty'}${k.status === 'running' ? ' busy' : ''}${kfActive(k) ? ' sel' : ''}`, title: `Keyframe f${k.frame}`,
+      style: { left: xOfFrame(k.frame + 0.5) }, onpointerdown: (e) => {
+        e.stopPropagation();
+        pickTimelineMark((regionAt(k.frame) || { id: k.markId }).id, k.frame, { kf: k.id });
+      } }));
   }
   const pin = $('pending-in');
   pin.style.display = (resultView || ui.pendingIn == null) ? 'none' : 'block';
@@ -418,12 +488,7 @@ function dragHandle(m, side) {
   };
   const up = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
-    // Content outside the trimmed range would be orphaned: clamp it in. Keep the anchor (the
-    // marked moment) inside the region too — it stays put, so it may now be off-center.
-    for (const a of annsOf(m)) a.frame = Math.min(m.end, Math.max(m.start, a.frame));
-    for (const k of kfsOf(m)) k.frame = Math.min(m.end, Math.max(m.start, k.frame));
-    if (m.anchor != null) m.anchor = Math.min(m.end, Math.max(m.start, m.anchor));
-    if (m.start === m.end) m.kind = 'frame';
+    Regions.clampRegionContents(data, m, rcfg()); // pull orphaned ticks/keyframes/ink back inside
     renderAll(); scheduleSave();
   };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
@@ -451,7 +516,10 @@ $('track').addEventListener('pointerdown', (e) => {
   const up = () => {
     window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
     ghost.remove();
-    if (a !== b) mutate(() => { ui.sel = newMark(a, b).id; }); else { ui.sel = null; renderAll(); }
+    if (a !== b) mutate(() => {
+      const m = Regions.addRange(data, a, b, rcfg());
+      selectMark(m.id, m.start);
+    }); else { clearSelection(); renderAll(); }
   };
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
 });
@@ -529,13 +597,15 @@ function addPrompt(markId) {
   mutate(() => data.prompts.push(p));
   document.querySelector(`[data-prompt="${p.id}"] textarea`)?.focus();
 }
-function promptCard(p) {
-  const ta = el('textarea', { placeholder: p.markId ? 'Describe the edit for this mark…' : 'Applies to the whole video…' });
+function promptCard(p, ro = false) {
+  const ta = el('textarea', { placeholder: p.markId ? 'Describe the edit for this mark…' : 'Applies to the whole video…', readOnly: ro });
   ta.value = p.text;
-  ta.addEventListener('focus', () => commit());
-  ta.addEventListener('input', () => { p.text = ta.value; scheduleSave(); });
-  return el('div', { class: 'prompt', 'data-prompt': p.id }, ta,
-    el('div', { class: 'row' }, el('button', { class: 'x', onclick: () => mutate(() => { data.prompts = data.prompts.filter((x) => x !== p); }) }, 'Delete')));
+  if (!ro) {
+    ta.addEventListener('focus', () => commit());
+    ta.addEventListener('input', () => { p.text = ta.value; scheduleSave(); });
+  }
+  return el('div', { class: `prompt${ro ? ' ro' : ''}`, 'data-prompt': p.id }, ta,
+    ro ? null : el('div', { class: 'row' }, el('button', { class: 'x', onclick: () => mutate(() => { data.prompts = data.prompts.filter((x) => x !== p); }) }, 'Delete')));
 }
 
 // ---- keyframes -----------------------------------------------------------
@@ -549,9 +619,11 @@ function ensureKeyframe(m, f) {
 function addKeyframe() {
   if (!ui.src) return;
   const f = curFrame();
-  // Attach the keyframe to a marked region (same auto-4s-region logic as the Mark action), not a
-  // bare frame mark, so it defines an edit window just like marking does.
-  mutate(() => ensureKeyframe(regionForFrame(f), f));
+  mutate(() => {
+    const R = ensureRegionAround(f);   // keyframes live inside a region (not a separate tick)
+    const k = ensureKeyframe(R, f);
+    ui.sel = R.id; ui.selFocus = { kf: k.id };
+  });
 }
 function pushVersion(k, v) {
   commit();
@@ -595,7 +667,7 @@ $('kf-input').addEventListener('change', async (e) => {
     renderAll(); scheduleSave();
   } catch (err) { toast(`upload failed: ${err.message}`, 5000); }
 });
-function keyframeCard(k) {
+function keyframeCard(k, ro = false) {
   const v = k.versions[k.current];
   const here = k.frame === curFrame();
   const thumb = el('div', { class: 'thumb', title: 'Go to frame', onclick: () => seekFrame(k.frame),
@@ -603,6 +675,11 @@ function keyframeCard(k) {
   const status = k.status === 'error' ? el('div', { class: 'status err', style: { padding: '0 6px 4px' } }, k.error)
     : v ? el('div', { class: `status${v.stub ? ' stub' : ''}`, style: { padding: '0 6px 4px' } }, v.source === 'upload' ? `uploaded · ${v.note}` : v.stub ? 'placeholder (stub)' : 'generated') : null;
   const many = k.versions.length > 1;
+  if (ro) {
+    return el('div', { class: `kf-card${here ? ' here' : ''}` }, thumb,
+      el('div', { class: 'bar' }, el('span', { class: 'grow' }, `f${k.frame}`), many ? el('span', { class: 'dim' }, `${k.current + 1}/${k.versions.length}`) : null),
+      status);
+  }
   return el('div', { class: `kf-card${here ? ' here' : ''}` }, thumb,
     el('div', { class: 'bar' },
       el('span', { class: 'grow' }, `f${k.frame}`),
@@ -620,7 +697,24 @@ function keyframeCard(k) {
 const clone = (x) => JSON.parse(JSON.stringify(x));
 // Freeze the edits a result was generated from, so each result shows its own marks/annotations/
 // keyframes on the timeline and the live "working" set (data.*) stays an independent draft.
-const snapshotEdits = () => ({ marks: clone(data.marks), annotations: clone(data.annotations), keyframes: clone(data.keyframes) });
+const snapshotEdits = () => ({
+  marks: clone(data.marks),
+  annotations: clone(data.annotations),
+  keyframes: clone(data.keyframes),
+  prompts: clone(data.prompts),
+});
+// Older results only snapshotted marks/annotations/keyframes; pull prompts from the run manifest once.
+function ensureEditPrompts(r) {
+  if (!r?.edits || r.edits.prompts !== undefined || !r.run || !ui.id) return;
+  r.edits.prompts = [];
+  const url = fileUrl(`${ui.id}/runs/${r.run}/manifest.json`, r.at);
+  fetch(url).then((res) => (res.ok ? res.json() : null)).then((manifest) => {
+    if (!manifest || !Array.isArray(manifest.prompts)) return;
+    r.edits.prompts = manifest.prompts;
+    scheduleSave();
+    if (ui.activeRenderId === r.id && (ui.view === 'result' || ui.sideBySide)) renderAll();
+  }).catch(() => {});
+}
 async function generateVideo() {
   if (!ui.id) return;
   const r = { id: uid('r'), status: 'running', at: new Date().toISOString(), edits: snapshotEdits() };
@@ -731,44 +825,43 @@ function applyViewState() {
   }
 }
 function showResult(r, want = null) {
+  stashDraftSelection();
   ui.activeRenderId = r.id;
   ui.resultKind = pickResult(r, want).kind;
   ui.view = 'result';
+  ensureEditPrompts(r);
   applyViewState();
   renderAll();
 }
 function showSource() {
   ui.view = 'source';
+  ui.sideBySide = false;
+  restoreDraftSelection();
   applyViewState();
   renderAll();
 }
-function selectResultPick(value) {
-  const parsed = parseResultPick(value);
-  if (!parsed) return;
-  const r = data.renders.find((x) => x.id === parsed.id);
-  if (!r || r.status !== 'done') return;
-  ui.activeRenderId = r.id;
-  ui.resultKind = availableResultKinds(r).includes(parsed.kind) ? parsed.kind : pickResult(r, null).kind;
+function pickerRender() {
+  if (!ui.activeRenderId) return null;
+  const r = data.renders.find((x) => x.id === ui.activeRenderId);
+  return r && r.status === 'done' ? r : null;
+}
+function selectResultKind(kind) {
+  const r = pickerRender();
+  if (!r || !availableResultKinds(r).includes(kind)) return;
+  ui.resultKind = kind;
   ui.view = 'result';
   applyViewState();
   renderAll();
 }
 function renderViewBar() {
   const pick = $('result-pick');
-  const options = [];
-  data.renders.forEach((r, i) => {
-    if (r.status !== 'done') return;
-    for (const kind of availableResultKinds(r)) {
-      options.push(el('option', { value: resultPickValue(r, kind) }, `${renderRowLabel(r, i)} · ${resultKindLabel(kind, r)}`));
-    }
-  });
-  pick.disabled = !ui.src || !options.length;
-  pick.replaceChildren(...(options.length ? options : [el('option', { value: '' }, 'No results')]));
-  const r = selectedRender();
-  if (r && r.status === 'done') {
-    if (!availableResultKinds(r).includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
-    const want = resultPickValue(r, ui.resultKind);
-    if ([...pick.options].some((o) => o.value === want)) pick.value = want;
+  const r = pickerRender();
+  const kinds = r ? availableResultKinds(r) : [];
+  pick.disabled = !ui.src || !kinds.length;
+  pick.replaceChildren(...(kinds.length ? kinds.map((kind) => el('option', { value: kind }, resultKindLabel(kind, r))) : [el('option', { value: '' }, '—')]));
+  if (kinds.length) {
+    if (!kinds.includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
+    if ([...pick.options].some((o) => o.value === ui.resultKind)) pick.value = ui.resultKind;
   }
   const resultOn = ui.view === 'result';
   $('view-source').classList.toggle('on', ui.view === 'source');
@@ -817,50 +910,116 @@ async function computeResultPeaks(url, buckets = 2000) {
 // ---- sidebar -------------------------------------------------------------
 function renderInspector() {
   const box = $('inspector'); box.replaceChildren();
+  const ro = !isDraftEdits();
+  const ed = timelineEdits();
   const m = selMark();
   if (!m) {
     box.append(el('header', {}, el('h2', {}, 'Selection')),
       el('div', { class: 'hint' }, ui.src
-        ? 'Select a mark on the Marks lane, or create one: M marks a 4s region around the current frame (drag the edges to extend, 4s minimum), I/O or drag on the Marks lane marks a custom range. Drawing or adding a keyframe without a selection marks the current frame.'
+        ? (ro
+          ? 'Select a mark for its prompts, or click an ink dot / keyframe on the timeline for that item (read-only snapshot).'
+          : 'Select a mark on the Marks lane, or create one: M marks a 4s region around the current frame (drag the edges to extend, 4s minimum), I/O or drag on the Marks lane marks a custom range. Drawing or adding a keyframe without a selection marks the current frame.')
         : 'Open a video to begin.'));
     return;
   }
-  const label = el('input', { type: 'text', placeholder: markLabel({ ...m, label: '' }) }); label.value = m.label || '';
-  label.addEventListener('focus', () => commit());
-  label.addEventListener('input', () => { m.label = label.value; scheduleSave(); renderTimeline(); renderMarksList(); });
+  const snap = ro ? ' · snapshot' : '';
+  const focus = ui.selFocus;
+
+  if (focus && typeof focus === 'object' && focus.kf) {
+    const k = ed.keyframes.find((x) => x.id === focus.kf);
+    if (!k) { ui.selFocus = 'mark'; return renderInspector(); }
+    box.append(
+      el('header', {}, el('h2', {}, 'Selected keyframe')),
+      el('div', { class: 'sub' }, `Frame ${k.frame} · ${fmt(k.frame / fps())} · ${markLabel(m)}${snap}`),
+      keyframeCard(k, ro),
+    );
+    return;
+  }
+
+  if (focus && typeof focus === 'object' && focus.ann) {
+    const a = ed.annotations.find((x) => x.id === focus.ann);
+    if (!a) { ui.selFocus = 'mark'; return renderInspector(); }
+    box.append(
+      el('header', {}, el('h2', {}, 'Selected ink')),
+      el('div', { class: 'sub' }, `Frame ${a.frame} · ${fmt(a.frame / fps())} · ${markLabel(m)}${snap}`),
+      el('ul', { class: 'list' }, el('li', {},
+        el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color || 'var(--ink)' } }),
+        el('span', { class: 'grow' }, `${a.strokes.length} stroke${a.strokes.length === 1 ? '' : 's'}`),
+        el('span', { class: 'dim' }, a.strokes[0]?.color || ''))),
+      ro ? null : el('div', { class: 'hint' }, 'Scribble with Pen (B) on the viewer to add or change ink on the working draft.'),
+    );
+    return;
+  }
+
+  // A whole-region selection ('region') or a single tick (frame mark): edit that item's prompts.
+  // Region selections also show the region's ink + keyframes; a tick shows only its prompts.
+  const isRegion = focus === 'region' || m.kind === 'range';
+  const label = ro
+    ? el('span', {}, m.label || markLabel({ ...m, label: '' }))
+    : (() => {
+      const inp = el('input', { type: 'text', placeholder: markLabel({ ...m, label: '' }) }); inp.value = m.label || '';
+      inp.addEventListener('focus', () => commit());
+      inp.addEventListener('input', () => { m.label = inp.value; scheduleSave(); renderTimeline(); renderMarksList(); });
+      return inp;
+    })();
   const f = kfFrame(m);
-  box.append(...[
-    el('header', {}, el('h2', {}, m.kind === 'range' ? 'Selected range' : 'Selected frame'),
-      el('button', { class: 'x', onclick: () => deleteMark(m.id) }, 'Delete mark')),
-    el('div', { class: 'title' }, label),
-    el('div', { class: 'sub' }, m.kind === 'range'
-      ? `Frames ${m.start}–${m.end} · ${m.end - m.start + 1}f · ${fmt(m.start / fps())}–${fmt((m.end + 1) / fps())}`
-      : `Frame ${m.start} · ${fmt(m.start / fps())}`),
-    el('h3', {}, 'Prompts', el('button', { onclick: () => addPrompt(m.id) }, '+ Prompt')),
-    promptsOf(m).length ? promptsOf(m).map(promptCard) : el('div', { class: 'hint' }, 'No prompts — describe the edit for this mark.'),
-    el('h3', {}, 'Annotations'),
-    annsOf(m).length
-      ? el('ul', { class: 'list' }, annsOf(m).sort((a, b) => a.frame - b.frame).map((a) => el('li', { onclick: () => seekFrame(a.frame) },
-        el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color } }),
-        el('span', { class: 'grow' }, `Ink @ f${a.frame}`), el('span', { class: 'dim' }, `${a.strokes.length} stroke${a.strokes.length === 1 ? '' : 's'}`),
-        el('button', { class: 'x', title: 'Delete', onclick: (e) => { e.stopPropagation(); mutate(() => { data.annotations = data.annotations.filter((x) => x !== a); }); } }, '×'))))
-      : el('div', { class: 'hint' }, `Pen (B) to scribble on ${m.kind === 'range' ? 'a frame in this range' : 'this frame'}.`),
+  const promptNodes = promptsOf(m).length
+    ? promptsOf(m).map((p) => promptCard(p, ro))
+    : [el('div', { class: 'hint' }, ro ? 'No prompts here.' : `No prompts — describe the edit for this ${isRegion ? 'region' : 'mark'}.`)];
+  const draftAnn = isRegion && !ro && (annsOf(m).length
+    ? el('ul', { class: 'list' }, annsOf(m).sort((a, b) => a.frame - b.frame).map((a) => el('li', { onclick: () => pickTimelineMark(m.id, a.frame, { ann: a.id }) },
+      el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color } }),
+      el('span', { class: 'grow' }, `Ink @ f${a.frame}`), el('span', { class: 'dim' }, `${a.strokes.length} stroke${a.strokes.length === 1 ? '' : 's'}`),
+      el('button', { class: 'x', title: 'Delete', onclick: (e) => { e.stopPropagation(); mutate(() => { data.annotations = data.annotations.filter((x) => x !== a); }); } }, '×'))))
+    : el('div', { class: 'hint' }, 'Pen (B) to scribble on a frame in this region.'));
+  const draftKfBlock = isRegion && !ro ? [
     el('h3', {}, 'Keyframes'),
-    kfsOf(m).length ? el('div', { class: 'kf-grid' }, kfsOf(m).map(keyframeCard)) : null,
-    kfsOf(m).some((k) => k.frame === f) ? null : el('div', { class: 'actions', style: { marginTop: '6px' } },
+    kfsOf(m).length ? el('div', { class: 'kf-grid' }, kfsOf(m).map((k) => keyframeCard(k, false))) : null,
+    !kfsOf(m).some((k) => k.frame === f) ? el('div', { class: 'actions', style: { marginTop: '6px' } },
       el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); generateKeyframe(k); } }, `Generate keyframe @ f${f}`),
-      el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); renderAll(); uploadKeyframe(k); } }, 'Upload keyframe…')),
-  ].flat().filter(Boolean));
+      el('button', { onclick: () => { commit(); const k = ensureKeyframe(m, f); renderAll(); uploadKeyframe(k); } }, 'Upload keyframe…')) : null,
+  ].filter(Boolean) : [];
+  appendEls(box,
+    el('header', {}, el('h2', {}, isRegion ? 'Selected region' : 'Selected mark'),
+      ro ? null : el('button', { class: 'x', onclick: () => deleteSelection() }, isRegion ? 'Delete region' : 'Delete mark')),
+    el('div', { class: 'title' }, label),
+    el('div', { class: 'sub' }, isRegion
+      ? `Frames ${m.start}–${m.end} · ${m.end - m.start + 1}f · ${fmt(m.start / fps())}–${fmt((m.end + 1) / fps())}${snap}`
+      : `Frame ${m.start} · ${fmt(m.start / fps())}${snap}`),
+    el('h3', {}, 'Prompts', ...(ro ? [] : [el('button', { onclick: () => addPrompt(m.id) }, '+ Prompt')])),
+    ...promptNodes,
+    ro ? el('div', { class: 'hint' }, 'Click an ink dot or keyframe on the timeline to inspect that item.') : null,
+    isRegion && !ro ? el('h3', {}, 'Annotations') : null,
+    draftAnn || null,
+    ...draftKfBlock,
+  );
 }
 function renderMarksList() {
   const ml = $('marks-list'); ml.replaceChildren();
-  if (!data.marks.length) ml.append(el('li', { class: 'empty' }, ui.src ? 'No marks yet' : '—'));
-  for (const m of [...data.marks].sort((a, b) => a.start - b.start)) {
-    const counts = [[annsOf(m).length, 'ink'], [promptsOf(m).length, 'prompt'], [kfsOf(m).length, 'kf']].filter(([c]) => c);
-    ml.append(el('li', { class: ui.sel === m.id ? 'sel' : '', onclick: () => { select(m.id); seekFrame(m.start); } },
+  const regions = regionList().sort((a, b) => a.start - b.start);
+  if (!regions.length) { ml.append(el('li', { class: 'empty' }, ui.src ? 'No regions yet' : '—')); return; }
+  for (const R of regions) {
+    const c = regionContents(R);
+    const counts = [[c.annotations.length, 'ink'], [promptsOf(R).length, 'prompt'], [c.keyframes.length, 'kf']].filter(([n]) => n);
+    ml.append(el('li', { class: regionSelected(R) ? 'sel' : '', onclick: () => selectRegion(R, R.start) },
       el('span', { class: 'chip-dot', style: { background: 'var(--accent)' } }),
-      el('span', { class: 'grow' }, markLabel(m)),
-      counts.map(([c, k]) => el('span', { class: `mini ${k}`, html: `${ICONS[k]}${c > 1 ? c : ''}` }))));
+      el('span', { class: 'grow' }, markLabel(R)),
+      counts.map(([n, k]) => el('span', { class: `mini ${k}`, html: `${ICONS[k]}${n > 1 ? n : ''}` }))));
+    for (const t of c.marks.sort((x, y) => x.start - y.start)) {
+      ml.append(el('li', { class: `sub${markLaneFocused(t) ? ' sel' : ''}`, onclick: () => selectMark(t.id, t.start) },
+        el('span', { class: 'chip-dot', style: { background: 'var(--accent)' } }),
+        el('span', { class: 'grow' }, `Mark @ f${t.start}`)));
+    }
+    for (const a of c.annotations.sort((x, y) => x.frame - y.frame)) {
+      ml.append(el('li', { class: `sub${annActive(a) ? ' sel' : ''}`, onclick: () => pickTimelineMark(R.id, a.frame, { ann: a.id }) },
+        el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color || 'var(--ink)' } }),
+        el('span', { class: 'grow' }, `Ink @ f${a.frame}`)));
+    }
+    for (const k of c.keyframes.sort((x, y) => x.frame - y.frame)) {
+      ml.append(el('li', { class: `sub${kfActive(k) ? ' sel' : ''}`, onclick: () => pickTimelineMark(R.id, k.frame, { kf: k.id }) },
+        el('span', { class: 'chip-dot', style: { background: 'var(--kf)' } }),
+        el('span', { class: 'grow' }, `Keyframe @ f${k.frame}`)));
+    }
   }
 }
 async function transcribe() {
@@ -954,6 +1113,7 @@ function renderFrameState() {
   if (f !== lastFrameShown) { lastFrameShown = f; if (video.paused && !document.activeElement?.matches('textarea, input[type=text]')) renderInspector(); }
 }
 function renderAll() {
+  syncSelectionToEdits();
   stage.className = `stage tool-${ui.tool}`;
   for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === ui.tool);
   for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('on', b.dataset.color === ui.color);
@@ -1005,12 +1165,15 @@ $('view-result').addEventListener('click', () => {
 });
 $('view-side-by-side').addEventListener('click', () => {
   if (!doneRenders().length) return toast('Generate a result first');
-  ui.sideBySide = !ui.sideBySide;
+  const enabling = !ui.sideBySide;
+  if (enabling) stashDraftSelection();
+  else if (ui.view === 'source') restoreDraftSelection();
+  ui.sideBySide = enabling;
   if (ui.sideBySide && !ui.activeRenderId) ui.activeRenderId = doneRenders()[0].id;
   applyViewState();
   renderAll();
 });
-$('result-pick').addEventListener('change', (e) => { if (e.target.value) selectResultPick(e.target.value); });
+$('result-pick').addEventListener('change', (e) => { if (e.target.value) selectResultKind(e.target.value); });
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 window.addEventListener('resize', () => { renderTimeline(); renderInk(); });
@@ -1027,8 +1190,8 @@ window.addEventListener('keydown', (e) => {
     Home: () => seekFrame(loopBounds()[0]), End: () => seekFrame(loopBounds()[1]),
     l: () => { ui.loop = !ui.loop; renderAll(); }, u: toggleMute, m: addRegionMark, i: setIn, o: setOut, k: addKeyframe,
     b: () => setTool('pen'), e: () => setTool('erase'), v: () => setTool('none'),
-    Escape: () => { ui.pendingIn = null; ui.sel = null; renderAll(); },
-    Backspace: () => { if (ui.sel) deleteMark(ui.sel); },
+    Escape: () => { ui.pendingIn = null; clearSelection(); renderAll(); },
+    Backspace: deleteSelection, Delete: deleteSelection,
   };
   const fn = keys[e.key] || keys[e.key.toLowerCase()];
   if (fn) { e.preventDefault(); fn(); }
