@@ -158,8 +158,17 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .tick span.end { left: auto; right: 3px; } /* right-edge labels grow leftward so they don't bleed out */
 .tick.minor { top: 13px; }
 .mark { position: absolute; top: 3px; bottom: 3px; border-radius: 3px; cursor: pointer; }
-.mark.range { background: var(--range); border: 1px solid var(--accent); }
+.mark.range { background: var(--range); border: 1px solid var(--accent); pointer-events: none; }
 .mark.range.sel { background: var(--range-sel); border-color: var(--sel); }
+.mark.range .mark-body { position: absolute; inset: 0; pointer-events: auto; cursor: crosshair; border-radius: inherit; }
+.mark.range .mark-chip {
+  position: absolute; top: 1px; transform: translateX(-50%); z-index: 3; pointer-events: auto;
+  max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: inherit; font-size: 10px; line-height: 1.2; padding: 0 5px; border-radius: 4px;
+  background: rgba(0, 0, 0, .55); border: 1px solid var(--accent); color: var(--text); cursor: pointer;
+}
+.mark.range .mark-chip.on { border-color: var(--sel); background: rgba(255, 196, 61, .25); }
+.mark.range .h { pointer-events: auto; }
 .mark.frame { width: 3px; margin-left: -1px; background: var(--frame); }
 .mark.frame.sel { background: var(--sel); }
 .mark.ro { cursor: pointer; } /* a result's snapshot mark: seek-only, not editable */
@@ -189,6 +198,8 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .list li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
 .list li:hover { background: var(--panel-2); }
 .list li.sel { background: rgba(255, 196, 61, .14); }
+.list li.sub { padding-left: 18px; font-size: 12px; }
+.list li.sub .grow { color: var(--dim); }
 .list li .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list li input[type=text] { flex: 1; min-width: 0; padding: 1px 4px; }
 /* Result rows: name/status on top, actions wrap below — so many controls never squeeze the name. */

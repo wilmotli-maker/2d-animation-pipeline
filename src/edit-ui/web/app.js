@@ -337,6 +337,28 @@ function pickTimelineMark(markId, frame, focus = 'mark') {
   seekFrame(frame);
   renderAll();
 }
+function pickMarkPrompts(m, frame) {
+  pickTimelineMark(m.id, frame, 'mark');
+}
+// Click in a range body: seek; prefer keyframe/ink at that frame; double-click (or chip) for mark prompts.
+function onRangeBodyPointer(e, m, editable) {
+  e.stopPropagation();
+  const f = frameAtX(e.clientX);
+  if (e.detail >= 2) {
+    pickMarkPrompts(m, f);
+    return;
+  }
+  const kf = kfsOf(m).find((k) => k.frame === f);
+  const ann = annsOf(m).find((a) => a.frame === f);
+  if (kf) pickTimelineMark(m.id, f, { kf: kf.id });
+  else if (ann) pickTimelineMark(m.id, f, { ann: ann.id });
+  else {
+    ui.sel = m.id;
+    ui.selFocus = null;
+    seekFrame(f);
+    renderAll();
+  }
+}
 const inkFocused = (a) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.ann === a.id;
 const kfFocused = (k) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.kf === k.id;
 const markLaneFocused = (m) => ui.sel === m.id && ui.selFocus === 'mark';
@@ -377,20 +399,38 @@ function renderTimeline() {
   for (const m of sorted) {
     const sel = markLaneFocused(m);
     const node = el('div', {
-      class: `mark ${m.kind}${sel ? ' sel' : ''}${ui.sel === m.id && !sel ? ' dim' : ''}${editable ? '' : ' ro'}`, title: markLabel(m),
+      class: `mark ${m.kind}${sel ? ' sel' : ''}${ui.sel === m.id && !sel && ui.selFocus !== null ? ' dim' : ''}${editable ? '' : ' ro'}`,
       style: { left: xOfFrame(m.start), ...(m.kind === 'range' ? { width: `calc(${xOfFrame(m.end + 1)} - ${xOfFrame(m.start)})` } : {}) },
     });
-    node.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      if (editable) { select(m.id); if (ui.sel === m.id) seekFrame(m.start); }
-      else pickTimelineMark(m.id, m.start, 'mark');
-    });
-    if (editable && m.kind === 'range' && sel) {
-      for (const side of ['l', 'r']) {
-        const h = el('div', { class: `h ${side}` });
-        h.addEventListener('pointerdown', (e) => { e.stopPropagation(); dragHandle(m, side); });
-        node.append(h);
+    if (m.kind === 'range') {
+      const anchorF = m.anchor != null ? m.anchor : m.start;
+      const body = el('div', {
+        class: 'mark-body',
+        title: 'Click to seek · double-click for mark prompts · use ink/keys lanes for each item',
+      });
+      body.addEventListener('pointerdown', (e) => onRangeBodyPointer(e, m, editable));
+      const chip = el('button', {
+        type: 'button',
+        class: `mark-chip${markLaneFocused(m) ? ' on' : ''}`,
+        title: 'Mark prompts (range-wide)',
+        style: { left: `calc(${xOfFrame(anchorF + 0.5)} - ${xOfFrame(m.start)})` },
+      }, markLabel(m));
+      chip.addEventListener('pointerdown', (e) => { e.stopPropagation(); pickMarkPrompts(m, anchorF); });
+      node.append(body, chip);
+      if (editable && markLaneFocused(m)) {
+        for (const side of ['l', 'r']) {
+          const h = el('div', { class: `h ${side}` });
+          h.addEventListener('pointerdown', (e) => { e.stopPropagation(); dragHandle(m, side); });
+          node.append(h);
+        }
       }
+    } else {
+      node.title = markLabel(m);
+      node.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        if (editable) { select(m.id); if (ui.sel === m.id) seekFrame(m.start); }
+        else pickMarkPrompts(m, m.start);
+      });
     }
     track.append(node);
     // Anchor tick: the marked moment / target-pose time inside the region.
@@ -398,8 +438,7 @@ function renderTimeline() {
       track.append(el('div', { class: `mark-anchor${markLaneFocused(m) ? ' sel' : ''}`, title: `Target pose @ f${m.anchor}`,
         style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => {
           e.stopPropagation();
-          if (editable) { ui.sel = m.id; ui.selFocus = 'mark'; seekFrame(m.anchor); renderAll(); }
-          else pickTimelineMark(m.id, m.anchor, 'mark');
+          pickMarkPrompts(m, m.anchor);
         } }));
     }
   }
@@ -891,6 +930,17 @@ function renderInspector() {
   const snap = ro ? ' · snapshot' : '';
   const focus = ui.selFocus;
 
+  if (focus !== 'mark' && !(focus && typeof focus === 'object' && (focus.kf || focus.ann))) {
+    box.append(
+      el('header', {}, el('h2', {}, m.kind === 'range' ? 'Range' : 'Frame')),
+      el('div', { class: 'sub' }, `${markLabel(m)}${snap}`),
+      el('div', { class: 'hint' }, m.kind === 'range'
+        ? 'This bar can cover many frames. Click the labeled chip, anchor tick, or double-click the bar for mark-wide prompts. Click ink or keyframe lanes (or a frame that has one) for that item.'
+        : 'Select the mark chip or use the timeline for linked ink and keyframes.'),
+    );
+    return;
+  }
+
   if (focus && typeof focus === 'object' && focus.kf) {
     const k = ed.keyframes.find((x) => x.id === focus.kf);
     if (!k) { ui.selFocus = 'mark'; return renderInspector(); }
@@ -946,10 +996,21 @@ function renderMarksList() {
   if (!marks.length) ml.append(el('li', { class: 'empty' }, ui.src ? 'No marks yet' : '—'));
   for (const m of [...marks].sort((a, b) => a.start - b.start)) {
     const counts = [[annsOf(m).length, 'ink'], [promptsOf(m).length, 'prompt'], [kfsOf(m).length, 'kf']].filter(([c]) => c);
-    ml.append(el('li', { class: ui.sel === m.id ? 'sel' : '', onclick: () => { select(m.id); seekFrame(m.start); } },
+    const markSel = markLaneFocused(m);
+    ml.append(el('li', { class: markSel ? 'sel' : '', onclick: () => pickMarkPrompts(m, m.anchor ?? m.start) },
       el('span', { class: 'chip-dot', style: { background: 'var(--accent)' } }),
       el('span', { class: 'grow' }, markLabel(m)),
       counts.map(([c, k]) => el('span', { class: `mini ${k}`, html: `${ICONS[k]}${c > 1 ? c : ''}` }))));
+    for (const a of annsOf(m).sort((x, y) => x.frame - y.frame)) {
+      ml.append(el('li', { class: `sub${inkFocused(a) ? ' sel' : ''}`, onclick: () => pickTimelineMark(m.id, a.frame, { ann: a.id }) },
+        el('span', { class: 'chip-dot', style: { background: a.strokes[0]?.color || 'var(--ink)' } }),
+        el('span', { class: 'grow' }, `Ink @ f${a.frame}`)));
+    }
+    for (const k of kfsOf(m)) {
+      ml.append(el('li', { class: `sub${kfFocused(k) ? ' sel' : ''}`, onclick: () => pickTimelineMark(m.id, k.frame, { kf: k.id }) },
+        el('span', { class: 'chip-dot', style: { background: 'var(--kf)' } }),
+        el('span', { class: 'grow' }, `Keyframe @ f${k.frame}`)));
+    }
   }
 }
 async function transcribe() {
