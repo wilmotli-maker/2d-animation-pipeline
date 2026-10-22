@@ -308,8 +308,6 @@ function selectedRender() {
   return doneRenders()[0] || null;
 }
 const renderRowLabel = (r, i) => (r.run ? `Run ${r.run}` : `Result ${data.renders.length - i}`);
-const resultPickValue = (r, kind) => `${r.id}|${kind}`;
-const parseResultPick = (v) => { const i = v.indexOf('|'); return i < 0 ? null : { id: v.slice(0, i), kind: v.slice(i + 1) }; };
 // The edit set the timeline shows: a result's frozen snapshot while reviewing/comparing it, else
 // the live working draft (data). Results from before snapshots existed fall back to the draft.
 function timelineEdits() {
@@ -742,33 +740,29 @@ function showSource() {
   applyViewState();
   renderAll();
 }
-function selectResultPick(value) {
-  const parsed = parseResultPick(value);
-  if (!parsed) return;
-  const r = data.renders.find((x) => x.id === parsed.id);
-  if (!r || r.status !== 'done') return;
+function pickerRender() {
+  if (!ui.activeRenderId) return null;
+  const r = data.renders.find((x) => x.id === ui.activeRenderId);
+  return r && r.status === 'done' ? r : null;
+}
+function selectResultKind(kind) {
+  const r = pickerRender();
+  if (!r || !availableResultKinds(r).includes(kind)) return;
   ui.activeRenderId = r.id;
-  ui.resultKind = availableResultKinds(r).includes(parsed.kind) ? parsed.kind : pickResult(r, null).kind;
+  ui.resultKind = kind;
   ui.view = 'result';
   applyViewState();
   renderAll();
 }
 function renderViewBar() {
   const pick = $('result-pick');
-  const options = [];
-  data.renders.forEach((r, i) => {
-    if (r.status !== 'done') return;
-    for (const kind of availableResultKinds(r)) {
-      options.push(el('option', { value: resultPickValue(r, kind) }, `${renderRowLabel(r, i)} · ${resultKindLabel(kind, r)}`));
-    }
-  });
-  pick.disabled = !ui.src || !options.length;
-  pick.replaceChildren(...(options.length ? options : [el('option', { value: '' }, 'No results')]));
-  const r = selectedRender();
-  if (r && r.status === 'done') {
-    if (!availableResultKinds(r).includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
-    const want = resultPickValue(r, ui.resultKind);
-    if ([...pick.options].some((o) => o.value === want)) pick.value = want;
+  const r = pickerRender();
+  const kinds = r ? availableResultKinds(r) : [];
+  pick.disabled = !ui.src || !kinds.length;
+  pick.replaceChildren(...(kinds.length ? kinds.map((kind) => el('option', { value: kind }, resultKindLabel(kind, r))) : [el('option', { value: '' }, '—')]));
+  if (kinds.length) {
+    if (!kinds.includes(ui.resultKind)) ui.resultKind = pickResult(r, null).kind;
+    if ([...pick.options].some((o) => o.value === ui.resultKind)) pick.value = ui.resultKind;
   }
   const resultOn = ui.view === 'result';
   $('view-source').classList.toggle('on', ui.view === 'source');
@@ -1010,7 +1004,7 @@ $('view-side-by-side').addEventListener('click', () => {
   applyViewState();
   renderAll();
 });
-$('result-pick').addEventListener('change', (e) => { if (e.target.value) selectResultPick(e.target.value); });
+$('result-pick').addEventListener('change', (e) => { if (e.target.value) selectResultKind(e.target.value); });
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 window.addEventListener('resize', () => { renderTimeline(); renderInk(); });
