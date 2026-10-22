@@ -261,54 +261,72 @@ function markIdealWindow(m) {
   }
   const mid = (m.start + m.end) / 2;
   const w = Math.max(minW, m.end - m.start + 1);
-  const center = m.anchor != null ? m.anchor : mid;
-  return [center - w / 2, center + w / 2];
+  return [mid - w / 2, mid + w / 2];
 }
-function rehomeMarkContent(fromId, toId) {
-  for (const p of data.prompts) if (p.markId === fromId) p.markId = toId;
-  for (const a of data.annotations) if (a.markId === fromId) a.markId = toId;
-  for (const k of data.keyframes) if (k.markId === fromId) k.markId = toId;
-}
-function mergeTwoMarks(keep, drop, anchorFrame) {
-  const lo = Math.min(keep.start, drop.start);
-  const hi = Math.max(keep.end, drop.end);
-  [keep.start, keep.end] = clampRegion(lo, hi);
-  keep.kind = 'range';
-  if (anchorFrame != null) keep.anchor = Math.min(keep.end, Math.max(keep.start, anchorFrame));
-  else if (keep.anchor == null && drop.anchor != null) keep.anchor = drop.anchor;
-  rehomeMarkContent(drop.id, keep.id);
-  data.marks = data.marks.filter((m) => m.id !== drop.id);
-}
-// Merge marks whose ideal windows overlap or touch (same rule as generation window planning).
-function mergeOverlappingMarks(preferId, anchorFrame) {
-  let prefer = preferId;
-  for (let pass = 0; pass < data.marks.length + 1; pass++) {
-    const items = data.marks.map((m) => { const [w0, w1] = markIdealWindow(m); return { m, w0, w1 }; })
-      .sort((a, b) => a.w0 - b.w0 || a.m.start - b.m.start);
-    let merged = false;
-    for (let i = 0; i < items.length - 1; i++) {
-      const a = items[i]; const b = items[i + 1];
-      if (b.w0 <= a.w1) {
-        const keep = a.m.id === prefer ? a.m : (b.m.id === prefer ? b.m : a.m);
-        const drop = keep === a.m ? b.m : a.m;
-        mergeTwoMarks(keep, drop, anchorFrame);
-        if (drop.id === prefer) prefer = keep.id;
-        merged = true;
-        break;
+const idealWindowsTouch = (a, b) => a[0] <= b[1] && b[0] <= a[1];
+function marksInIdealCluster(seed) {
+  const cluster = new Map([[seed.id, seed]]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const m of data.marks) {
+      if (cluster.has(m.id)) continue;
+      const wm = markIdealWindow(m);
+      for (const c of cluster.values()) {
+        if (idealWindowsTouch(wm, markIdealWindow(c))) {
+          cluster.set(m.id, m);
+          grew = true;
+          break;
+        }
       }
     }
-    if (!merged) break;
   }
-  return data.marks.find((m) => m.id === prefer) || data.marks.find((m) => inMark(m, anchorFrame));
+  return [...cluster.values()];
 }
-// Create a 4s region anchored at f, merge with any overlapping marks, select for editing.
+// A range mark that joins a cluster becomes a frame mark at its anchor (edit center kept).
+function demoteRangeToFrame(m) {
+  const t = m.anchor != null ? m.anchor : Math.round((m.start + m.end) / 2);
+  m.kind = 'frame';
+  m.start = t;
+  m.end = t;
+  delete m.anchor;
+}
+// Overlapping ideal windows share one expanded range bar; each mark stays (extra ranges → frame marks).
+function integrateOverlappingRegions(preferId, anchorFrame) {
+  const prefer = data.marks.find((m) => m.id === preferId);
+  if (!prefer) return null;
+  const cluster = marksInIdealCluster(prefer);
+  if (cluster.length <= 1) return prefer;
+
+  let host = prefer.kind === 'range' ? prefer : cluster.find((m) => m.kind === 'range');
+  const lo = Math.min(...cluster.map((m) => m.start));
+  const hi = Math.max(...cluster.map((m) => m.end));
+  if (!host) {
+    host = newMark(lo, hi, anchorFrame != null ? anchorFrame : prefer.start);
+  } else {
+    [host.start, host.end] = clampRegion(lo, hi);
+    host.kind = 'range';
+  }
+
+  for (const m of cluster) {
+    if (m.id === host.id) continue;
+    if (m.kind === 'range') demoteRangeToFrame(m);
+  }
+  return prefer;
+}
+// Create a 4s region anchored at f; if it overlaps an existing window, add a frame mark at f instead.
 function regionForFrame(f) {
   const half = Math.round(regionFrames() / 2);
-  const m = newMark(f - half, f + half, f);
-  const survivor = mergeOverlappingMarks(m.id, f) || m;
-  ui.sel = survivor.id;
+  const [a, b] = clampRegion(f - half, f + half);
+  const seedW = markIdealWindow({ kind: 'range', start: a, end: b, anchor: f });
+  const overlaps = data.marks.some((m) => idealWindowsTouch(markIdealWindow(m), seedW));
+  const prefer = overlaps
+    ? (data.marks.find((m) => m.kind === 'frame' && m.start === f) || newMark(f, f))
+    : newMark(f - half, f + half, f);
+  integrateOverlappingRegions(prefer.id, f);
+  ui.sel = prefer.id;
   ui.selFocus = 'mark';
-  return survivor;
+  return prefer;
 }
 function addRegionMark() {
   if (!ui.src) return;
@@ -320,8 +338,8 @@ function setOut() {
   const a = ui.pendingIn; ui.pendingIn = null;
   mutate(() => {
     const m = newMark(a, curFrame());
-    const survivor = mergeOverlappingMarks(m.id, curFrame()) || m;
-    ui.sel = survivor.id;
+    integrateOverlappingRegions(m.id, curFrame());
+    ui.sel = m.id;
     ui.selFocus = 'mark';
   });
 }
@@ -429,6 +447,29 @@ function onRangeBodyPointer(e, m, editable) {
 const inkFocused = (a) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.ann === a.id;
 const kfFocused = (k) => ui.selFocus && typeof ui.selFocus === 'object' && ui.selFocus.kf === k.id;
 const markLaneFocused = (m) => ui.sel === m.id && ui.selFocus === 'mark';
+// The marked moment a mark points at: a range's anchor (off-center ok), a frame mark's frame.
+const markEditFrame = (m) => (m.kind === 'range' ? (m.anchor != null ? m.anchor : Math.round((m.start + m.end) / 2)) : m.start);
+// A range bar stays highlighted when it, or any mark whose edit point sits inside it, is selected.
+function rangeActive(m) {
+  if (markLaneFocused(m)) return true;
+  const sm = selMark();
+  return !!sm && ui.selFocus != null && sm.id !== m.id && inMark(m, markEditFrame(sm));
+}
+// A triangle-topped tick at a mark's edit point — same look for range anchors and frame marks.
+function markTick(m, editable) {
+  const f = markEditFrame(m);
+  const t = el('div', {
+    class: `mark-anchor${markLaneFocused(m) ? ' sel' : ''}${editable ? '' : ' ro'}`,
+    title: m.kind === 'range' ? `Target pose @ f${f}` : `Mark @ f${f}`,
+    style: { left: xOfFrame(f + 0.5) },
+  });
+  t.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    if (editable) selectMark(m.id, f);
+    else pickMarkPrompts(m, f);
+  });
+  return t;
+}
 const xOfFrame = (f) => `${(f / (lastFrame() + 1)) * 100}%`;
 function frameAtX(clientX) {
   const r = lanes.getBoundingClientRect();
@@ -464,26 +505,17 @@ function renderTimeline() {
   const track = $('track'); track.replaceChildren();
   const sorted = srcTimeline ? [...ed.marks].sort((a, b) => (a.kind === 'range' ? 0 : 1) - (b.kind === 'range' ? 0 : 1)) : [];
   for (const m of sorted) {
-    const sel = markLaneFocused(m);
-    const node = el('div', {
-      class: `mark ${m.kind}${sel ? ' sel' : ''}${ui.sel === m.id && !sel && ui.selFocus !== null ? ' dim' : ''}${editable ? '' : ' ro'}`,
-      style: { left: xOfFrame(m.start), ...(m.kind === 'range' ? { width: `calc(${xOfFrame(m.end + 1)} - ${xOfFrame(m.start)})` } : {}) },
-    });
     if (m.kind === 'range') {
-      const anchorF = m.anchor != null ? m.anchor : m.start;
+      const node = el('div', {
+        class: `mark range${rangeActive(m) ? ' sel' : ''}${editable ? '' : ' ro'}`,
+        style: { left: xOfFrame(m.start), width: `calc(${xOfFrame(m.end + 1)} - ${xOfFrame(m.start)})` },
+      });
       const body = el('div', {
         class: 'mark-body',
         title: 'Click to seek · double-click for mark prompts · use ink/keys lanes for each item',
       });
       body.addEventListener('pointerdown', (e) => onRangeBodyPointer(e, m, editable));
-      const chip = el('button', {
-        type: 'button',
-        class: `mark-chip${markLaneFocused(m) ? ' on' : ''}`,
-        title: 'Mark prompts (range-wide)',
-        style: { left: `calc(${xOfFrame(anchorF + 0.5)} - ${xOfFrame(m.start)})` },
-      }, markLabel(m));
-      chip.addEventListener('pointerdown', (e) => { e.stopPropagation(); pickMarkPrompts(m, anchorF); });
-      node.append(body, chip);
+      node.append(body);
       if (editable && markLaneFocused(m)) {
         for (const side of ['l', 'r']) {
           const h = el('div', { class: `h ${side}` });
@@ -491,23 +523,10 @@ function renderTimeline() {
           node.append(h);
         }
       }
-    } else {
-      node.title = markLabel(m);
-      node.addEventListener('pointerdown', (e) => {
-        e.stopPropagation();
-        if (editable) selectMark(m.id, m.start);
-        else pickMarkPrompts(m, m.start);
-      });
+      track.append(node);
     }
-    track.append(node);
-    // Anchor tick: the marked moment / target-pose time inside the region.
-    if (m.kind === 'range' && m.anchor != null) {
-      track.append(el('div', { class: `mark-anchor${markLaneFocused(m) ? ' sel' : ''}`, title: `Target pose @ f${m.anchor}`,
-        style: { left: xOfFrame(m.anchor + 0.5) }, onpointerdown: (e) => {
-          e.stopPropagation();
-          pickMarkPrompts(m, m.anchor);
-        } }));
-    }
+    // Every mark shows a triangle tick at its edit center: a range's anchor / a frame mark's frame.
+    track.append(markTick(m, editable));
   }
   // Ink lane: one dot per annotated frame. Clicking selects its mark.
   const la = $('lane-ann'); la.replaceChildren();
@@ -599,8 +618,8 @@ $('track').addEventListener('pointerdown', (e) => {
     if (a !== b) mutate(() => {
       const m = newMark(a, b);
       const anchor = Math.round((a + b) / 2);
-      const survivor = mergeOverlappingMarks(m.id, anchor) || m;
-      ui.sel = survivor.id;
+      integrateOverlappingRegions(m.id, anchor);
+      ui.sel = m.id;
       ui.selFocus = 'mark';
     }); else { ui.sel = null; ui.selFocus = null; renderAll(); }
   };
