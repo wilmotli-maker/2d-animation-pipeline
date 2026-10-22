@@ -163,6 +163,9 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .mark.frame { width: 3px; margin-left: -1px; background: var(--frame); }
 .mark.frame.sel { background: var(--sel); }
 .mark.ro { cursor: pointer; } /* a result's snapshot mark: seek-only, not editable */
+.mark.dim { opacity: 0.55; } /* parent mark while a child ink/keyframe is focused */
+.diamond.sel { box-shadow: 0 0 0 2px var(--sel); }
+.lane.ann .dot.sel { box-shadow: 0 0 0 2px var(--sel); }
 .mark .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
 .mark .h.l { left: -4px; } .mark .h.r { right: -4px; }
 /* Anchor tick: the marked moment / target-pose time inside a region (may be off-center). */
