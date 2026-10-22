@@ -61,7 +61,12 @@ function el(tag, attrs = {}, ...kids) {
 const fileUrl = (rel, bust) => `/files/${rel.split('/').map(encodeURIComponent).join('/')}${bust ? `?v=${bust}` : ''}`;
 const markLabel = (m) => m.label || (m.kind === 'frame' ? `Frame ${m.start}` : `Frames ${m.start}–${m.end}`);
 const inMark = (m, f) => f >= m.start && f <= m.end;
-const promptsOf = (m) => data.prompts.filter((p) => p.markId === m.id);
+function promptsSource() {
+  const ed = timelineEdits();
+  if (ed === data) return data.prompts;
+  return ed.prompts ?? [];
+}
+const promptsOf = (m) => promptsSource().filter((p) => p.markId === m.id);
 
 function seekFrame(f) {
   if (!ui.src) return;
@@ -143,6 +148,7 @@ async function loadVideo(id) {
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
   data.renders = data.renders.filter((r) => r.status !== 'running');
   for (const r of data.renders) if (r.harmonizing) r.harmonizing = false; // the harmonize job is gone after a reload
+  for (const r of data.renders) ensureEditPrompts(r);
   if (meta.width && meta.height) stage.style.aspectRatio = `${meta.width} / ${meta.height}`;
   $('file-name').textContent = meta.name;
   document.title = `${meta.name} — Edit`;
@@ -660,7 +666,24 @@ function keyframeCard(k, ro = false) {
 const clone = (x) => JSON.parse(JSON.stringify(x));
 // Freeze the edits a result was generated from, so each result shows its own marks/annotations/
 // keyframes on the timeline and the live "working" set (data.*) stays an independent draft.
-const snapshotEdits = () => ({ marks: clone(data.marks), annotations: clone(data.annotations), keyframes: clone(data.keyframes) });
+const snapshotEdits = () => ({
+  marks: clone(data.marks),
+  annotations: clone(data.annotations),
+  keyframes: clone(data.keyframes),
+  prompts: clone(data.prompts),
+});
+// Older results only snapshotted marks/annotations/keyframes; pull prompts from the run manifest once.
+function ensureEditPrompts(r) {
+  if (!r?.edits || r.edits.prompts !== undefined || !r.run || !ui.id) return;
+  r.edits.prompts = [];
+  const url = fileUrl(`${ui.id}/runs/${r.run}/manifest.json`, r.at);
+  fetch(url).then((res) => (res.ok ? res.json() : null)).then((manifest) => {
+    if (!manifest || !Array.isArray(manifest.prompts)) return;
+    r.edits.prompts = manifest.prompts;
+    scheduleSave();
+    if (ui.activeRenderId === r.id && (ui.view === 'result' || ui.sideBySide)) renderAll();
+  }).catch(() => {});
+}
 async function generateVideo() {
   if (!ui.id) return;
   const r = { id: uid('r'), status: 'running', at: new Date().toISOString(), edits: snapshotEdits() };
@@ -774,6 +797,7 @@ function showResult(r, want = null) {
   ui.activeRenderId = r.id;
   ui.resultKind = pickResult(r, want).kind;
   ui.view = 'result';
+  ensureEditPrompts(r);
   applyViewState();
   renderAll();
 }
