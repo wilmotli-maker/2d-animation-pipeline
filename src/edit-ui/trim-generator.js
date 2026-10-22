@@ -125,7 +125,7 @@ export function createTrimGenerator(deps = {}) {
             .slice(0, 6);
           entry.keyframeCount = poses.length;
 
-          // Optional margin padding (EDIT_UI_PAD_REFS): give the generator empty space around the
+          // Margin padding (EDIT_UI_PAD_REFS, default 0.1): give the generator empty space around the
           // subject so it stops cropping edges; the splice TRS align re-absorbs the scale.
           let first_ = first, last_ = last, posePaths = poses.map((p) => p.path);
           if (padMargin > 0) {
