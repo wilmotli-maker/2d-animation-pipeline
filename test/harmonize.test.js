@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, chromaRestoreGain, restoreWashedChroma, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -26,7 +27,8 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null } = {})
   const downloadTo = async (url, dest) => { calls.downloads.push({ url, dest }); await writeFile(dest, `dl:${url}`); };
   const ffprobe = async () => JSON.stringify({ streams: [{ width, height }], format: { duration } });
   const ff = async (args) => { calls.ff.push(args); const out = args[args.length - 1]; if (out.endsWith('.png') || out.endsWith('.mp4')) await writeFile(out, 'ff'); };
-  return { runner, runBatch, downloadTo, ffprobe, ff, calls };
+  const restoreChroma = async () => ({ applied: false, framesBoosted: 0, maxGain: 1 });
+  return { runner, runBatch, downloadTo, ffprobe, ff, restoreChroma, calls };
 }
 const exists = async (p) => { try { await access(p, constants.F_OK); return true; } catch { return false; } };
 
@@ -107,6 +109,81 @@ test('a failed restyle throws', async () => {
 test('rejects an unknown guidance mode', async () => {
   const { root, input } = await project();
   await assert.rejects(harmonizeVideo(root, { input, guidance: 'nope' }, fakes()), /guidance must be/);
+});
+
+test('chromaRestoreGain lifts every frame short of the source and leaves a stronger one alone', () => {
+  assert.equal(chromaRestoreGain(120, 110), 120 / 110);
+  assert.equal(chromaRestoreGain(120, 70), 120 / 70);
+  assert.equal(chromaRestoreGain(120, 130), 1); // already stronger than the source
+  assert.equal(chromaRestoreGain(120, 8), 1); // hue is gone; a gain would amplify noise
+  assert.equal(chromaRestoreGain(120, 0), 1);
+  assert.equal(chromaRestoreGain(0, 40), 1);
+  assert.equal(chromaRestoreGain(300, 20), 3); // capped
+});
+
+test('muxes audio onto the chroma-restored clip when the restyle came back washed', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  const seen = [];
+  d.restoreChroma = async (source, result, out) => {
+    seen.push({ source, result, out });
+    await writeFile(out, 'chroma');
+    return { applied: true, framesBoosted: 40, maxGain: 1.8 };
+  };
+  const res = await harmonizeVideo(root, { input }, d);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].source, input);
+  assert.match(seen[0].result, /\.restyled\./);
+  const mux = d.calls.ff.find((a) => a.includes('-c:v') && a.includes('copy'));
+  assert.equal(mux[1], seen[0].out, 'audio is muxed onto the chroma-restored video');
+  assert.equal(res.chroma.framesBoosted, 40);
+  assert.equal(res.chroma.maxGain, 1.8);
+  assert.equal(await exists(seen[0].out), false, 'the temp restored clip is removed');
+});
+
+const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+
+function ffmpeg(args) {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args], { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`ffmpeg ${r.status}: ${r.stderr}`);
+}
+
+// Mean channel-difference of the centre of one frame. The test plate is flat grey, so the
+// centre is the coloured box and this tracks how much colour survived.
+async function centerChroma(file, frame) {
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', file, '-vf', `select=eq(n\\,${frame}),crop=16:16:32:24`, '-vframes', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { encoding: 'buffer' });
+  if (r.status !== 0) throw new Error(`ffmpeg ${r.status}: ${r.stderr}`);
+  const buf = r.stdout;
+  let chroma = 0, n = 0;
+  for (let p = 0; p < buf.length; p += 3) {
+    chroma += Math.abs(buf[p] - buf[p + 1]) + Math.abs(buf[p + 1] - buf[p + 2]) + Math.abs(buf[p + 2] - buf[p]);
+    n++;
+  }
+  return n ? chroma / n : 0;
+}
+
+test('restoreWashedChroma recolours only the frames the restyle washed out', { skip: !hasFfmpeg && 'ffmpeg not on PATH' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'chroma-'));
+  const src = path.join(dir, 'src.mp4');
+  const washed = path.join(dir, 'washed.mp4');
+  const out = path.join(dir, 'out.mp4');
+  ffmpeg(['-f', 'lavfi', '-i', 'color=c=0x9a9a9a:s=80x64:r=24', '-frames:v', '16', '-vf', 'drawbox=x=24:y=16:w=32:h=32:color=0xdd3355@1:t=fill', '-pix_fmt', 'yuv420p', src]);
+  ffmpeg(['-i', src, '-vf', "hue=s=0.35:enable='lt(n,8)'", '-pix_fmt', 'yuv420p', washed]);
+
+  const unchanged = await restoreWashedChroma(src, src, path.join(dir, 'same.mp4'));
+  assert.equal(unchanged.applied, false);
+
+  const res = await restoreWashedChroma(src, washed, out);
+  assert.equal(res.applied, true);
+  assert.ok(res.framesBoosted >= 6 && res.framesBoosted <= 8, `boosted ${res.framesBoosted} frames`);
+
+  const [srcEarly, washedEarly, outEarly, washedLate, outLate] = await Promise.all([
+    centerChroma(src, 2), centerChroma(washed, 2), centerChroma(out, 2),
+    centerChroma(washed, 12), centerChroma(out, 12),
+  ]);
+  assert.ok(outEarly > washedEarly * 1.4, `washed frame chroma ${washedEarly} -> ${outEarly}`);
+  assert.ok(Math.abs(outEarly - srcEarly) < Math.abs(washedEarly - srcEarly), 'restored frame is closer to the source');
+  assert.ok(Math.abs(outLate - washedLate) < 20, `coloured frame should stay put (${washedLate} vs ${outLate})`);
 });
 
 test('nearestAspect picks the closest allowed ratio', () => {
