@@ -274,11 +274,13 @@ function markForFrame(f) { return ensureRegionAround(f); }
 // OR a whole region ("select all", selFocus 'region'). ui.sel is the owning mark/region id.
 function selectMark(id, frame) {
   ui.sel = id; ui.selFocus = 'mark';
-  if (frame != null) seekFrame(frame); else renderAll();
+  if (frame != null) seekFrame(frame);
+  renderAll(); // re-render the marks lane so the new selection highlights
 }
 function selectRegion(R, frame) {
   ui.sel = R.id; ui.selFocus = 'region';
-  if (frame != null) seekFrame(frame); else renderAll();
+  if (frame != null) seekFrame(frame);
+  renderAll();
 }
 function clearSelection() { ui.sel = null; ui.selFocus = null; }
 const regionSelected = (R) => R.kind === 'range' && ui.selFocus === 'region' && ui.sel === R.id;
