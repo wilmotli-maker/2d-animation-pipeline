@@ -201,6 +201,7 @@ select, textarea, input[type=text] { font: inherit; color: var(--text); backgrou
 .prompt { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--panel-2); }
 .prompt.sel { border-color: var(--sel); }
 .prompt textarea { width: 100%; min-height: 54px; resize: vertical; background: var(--bg); }
+.prompt.ro textarea { opacity: 0.92; cursor: default; }
 .prompt .links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
 .chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 1px 4px 1px 7px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
 .chip.global { color: var(--dim); padding-right: 7px; }
