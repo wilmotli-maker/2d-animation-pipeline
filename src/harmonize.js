@@ -88,11 +88,20 @@ function runProc(bin, args) {
 const defaultFf = (args) => runProc('ffmpeg', ['-v', 'error', '-y', ...args]);
 const defaultFfprobe = (args) => runProc('ffprobe', ['-v', 'error', ...args]);
 
+function parseRate(text) {
+  const [a, b] = String(text || '').split('/').map(Number);
+  if (!b) return a > 0 ? a : 0;
+  return a > 0 ? a / b : 0;
+}
+
 async function probe(ffprobe, input) {
-  const out = await ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', input]);
+  const out = await ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=width,height,avg_frame_rate', '-show_entries', 'format=duration', '-of', 'json', input]);
   const j = JSON.parse(out);
   const s = (j.streams && j.streams[0]) || {};
-  return { width: Number(s.width) || 0, height: Number(s.height) || 0, duration: Number(j.format && j.format.duration) || 0 };
+  return {
+    width: Number(s.width) || 0, height: Number(s.height) || 0,
+    duration: Number(j.format && j.format.duration) || 0, fps: parseRate(s.avg_frame_rate) || 24,
+  };
 }
 
 // One Seedance video_edit generation. Returns { outputUrl, id }.
@@ -109,151 +118,43 @@ async function seedanceEdit({ runner, runBatch, ref, videoId, imageIds, prompt, 
   return { outputUrl: r.outputUrl, id: r.id };
 }
 
-// The filter guidance is fully grey, and the restyle is asked to invent colour back from two
-// stills. It does that on the generated span and on frames near those stills, and leaves the
-// source head/tail — worst next to the splices — washed toward the grey guidance. Scaling
-// chroma (not luma) back up to the source frame's foreground chroma undoes that leak without
-// touching frames the restyle already coloured at least as strongly as the source.
-// Below `minResult` the hue is gone and a gain would only amplify noise. Every frame that is
-// short of the source is corrected by the full ratio, so a gradual wash stays gradual.
-export function chromaRestoreGain(sourceChroma, resultChroma, { maxGain = 3, minResult = 12 } = {}) {
-  if (!(sourceChroma > 0) || !(resultChroma >= minResult)) return 1;
-  if (resultChroma >= sourceChroma) return 1;
-  const gain = sourceChroma / resultChroma;
-  return gain > maxGain ? maxGain : gain;
+// Output frames [start, end) occupied by the retimed gen span of a splice.
+// The head is orig [0, inPoint.origFrame); the gen is retimed to
+// (outPoint.origFrame - inPoint.origFrame) frames. Grey only that window.
+export function splicedGenSpan(report) {
+  if (!report || report.retime === false) return null;
+  const start = report.inPoint && report.inPoint.origFrame;
+  const end = report.outPoint && report.outPoint.origFrame;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return null;
+  return [start, end];
 }
 
-function scaleFrameChroma(frame, gain) {
-  for (let p = 0; p < frame.length; p += 3) {
-    const r = frame[p], g = frame[p + 1], b = frame[p + 2];
-    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    frame[p] = clampByte(y + (r - y) * gain);
-    frame[p + 1] = clampByte(y + (g - y) * gain);
-    frame[p + 2] = clampByte(y + (b - y) * gain);
-  }
-}
-function clampByte(v) { return v < 0 ? 0 : v > 255 ? 255 : (v + 0.5) | 0; }
-
-function parseRate(text) {
-  const [a, b] = String(text || '').split('/').map(Number);
-  if (!b) return a > 0 ? a : 0;
-  return a > 0 ? a / b : 0;
+// Desaturate and blur frames [startFrame, endFrame) and leave every other frame coloured.
+// Commas inside enable= are escaped so the filtergraph parser does not split on them.
+export function selectiveGreyFilter(startFrame, endFrame, blur) {
+  const last = endFrame - 1;
+  const window = `between(n\\,${startFrame}\\,${last})`;
+  return `hue=s=0:enable='${window}',gblur=sigma=${blur}:enable='${window}'`;
 }
 
-function analysisSize(w, h, maxEdge = 96) {
-  const s = Math.min(1, maxEdge / Math.max(w, h));
-  return { W: Math.max(8, Math.round(w * s)), H: Math.max(8, Math.round(h * s)) };
-}
-
-// Mean |r-g|+|g-b|+|b-r| over pixels that aren't the flat corner plate. 0 when the frame is empty.
-function meanFgChroma(buf, offset, W, H) {
-  const bgAt = offset + (W + 1) * 3; // (1,1), inside the margin these clips keep clear
-  const bg = [buf[bgAt], buf[bgAt + 1], buf[bgAt + 2]];
-  let chroma = 0, n = 0;
-  const fb = W * H;
-  for (let i = 0; i < fb; i++) {
-    const p = offset + i * 3;
-    const r = buf[p], g = buf[p + 1], b = buf[p + 2];
-    if (Math.abs(r - bg[0]) + Math.abs(g - bg[1]) + Math.abs(b - bg[2]) < 40) continue;
-    chroma += Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-    n++;
-  }
-  return n > fb * 0.01 ? chroma / n : 0;
-}
-
-function runBinary(bin, args) {
-  return new Promise((resolve, reject) => {
-    const c = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const chunks = []; let err = '';
-    c.stdout.on('data', (d) => chunks.push(d));
-    c.stderr.on('data', (d) => { err += d; });
-    c.on('error', reject);
-    c.on('close', (code) => (code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`${bin} exited ${code}: ${err.slice(-300)}`))));
-  });
-}
-
-async function probeStream(file) {
-  const out = await runProc('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,avg_frame_rate', '-of', 'json', file]);
-  const s = (JSON.parse(out).streams || [])[0] || {};
-  const fpsText = s.avg_frame_rate && s.avg_frame_rate !== '0/0' ? s.avg_frame_rate : '24/1';
-  return { width: Number(s.width) || 0, height: Number(s.height) || 0, fpsText, fps: parseRate(fpsText) || 24 };
-}
-
-async function decodeScaledRgb(file, W, H) {
-  const buf = await runBinary('ffmpeg', ['-v', 'error', '-i', file, '-vf', `scale=${W}:${H}:flags=area,format=rgb24`, '-f', 'rawvideo', '-']);
-  const fb = W * H * 3;
-  return { n: Math.floor(buf.length / fb), buf, fb };
-}
-
-function perFrameChroma(decoded, W, H) {
-  const out = new Array(decoded.n);
-  for (let i = 0; i < decoded.n; i++) out[i] = meanFgChroma(decoded.buf, i * decoded.fb, W, H);
-  return out;
-}
-
-function sourceFrameFor(i, resultFps, sourceFps, nSource) {
-  if (nSource < 1) return 0;
-  const idx = Math.round((i / (resultFps || 1)) * (sourceFps || resultFps || 1));
-  return Math.max(0, Math.min(nSource - 1, idx));
-}
-
-function spawnProc(args, stdio) {
-  const c = spawn('ffmpeg', args, { stdio });
-  let err = '';
-  c.stderr.on('data', (d) => { err += d; });
-  const done = new Promise((resolve, reject) => {
-    c.on('error', reject);
-    c.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${err.slice(-300)}`))));
-  });
-  return { proc: c, done };
-}
-
-async function writeGainedFrames(result, out, { width, height, fpsText, gains }) {
-  const frameBytes = width * height * 3;
-  const dec = spawnProc(['-v', 'error', '-i', result, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], ['ignore', 'pipe', 'pipe']);
-  const enc = spawnProc([
-    '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${width}x${height}`, '-r', fpsText,
-    '-i', 'pipe:0', '-an', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', out,
-  ], ['pipe', 'ignore', 'pipe']);
-  let pending = Buffer.alloc(0);
-  let i = 0;
-  for await (const chunk of dec.proc.stdout) {
-    pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-    while (pending.length >= frameBytes) {
-      const frame = Buffer.from(pending.subarray(0, frameBytes));
-      pending = pending.subarray(frameBytes);
-      const gain = gains[i] ?? 1;
-      if (gain !== 1) scaleFrameChroma(frame, gain);
-      if (!enc.proc.stdin.write(frame)) await new Promise((r) => enc.proc.stdin.once('drain', r));
-      i++;
-    }
-  }
-  enc.proc.stdin.end();
-  await Promise.all([dec.done, enc.done]);
-  return i;
-}
-
-/**
- * Boost foreground chroma on result frames that came back washed relative to the same moment
- * in `source`. No-op (and no re-encode) when every frame is already at least as strong as the source.
- * Returns { applied, framesBoosted, maxGain }.
- */
-export async function restoreWashedChroma(source, result, out) {
-  const [srcMeta, resMeta] = await Promise.all([probeStream(source), probeStream(result)]);
-  const srcSize = analysisSize(srcMeta.width, srcMeta.height);
-  const resSize = analysisSize(resMeta.width, resMeta.height);
-  const [srcDec, resDec] = await Promise.all([
-    decodeScaledRgb(source, srcSize.W, srcSize.H),
-    decodeScaledRgb(result, resSize.W, resSize.H),
-  ]);
-  const srcChroma = perFrameChroma(srcDec, srcSize.W, srcSize.H);
-  const resChroma = perFrameChroma(resDec, resSize.W, resSize.H);
-  const gains = resChroma.map((ch, i) => chromaRestoreGain(srcChroma[sourceFrameFor(i, resMeta.fps, srcMeta.fps, srcChroma.length)] || 0, ch));
-  const framesBoosted = gains.reduce((n, g) => n + (g > 1 ? 1 : 0), 0);
-  const maxGain = gains.reduce((m, g) => (g > m ? g : m), 1);
-  if (!framesBoosted) return { applied: false, framesBoosted: 0, maxGain: 1 };
-  await writeGainedFrames(result, out, { width: resMeta.width, height: resMeta.height, fpsText: resMeta.fpsText, gains });
-  return { applied: true, framesBoosted, maxGain };
+// The coloured head and tail are the finished look. The grey middle is the only region to repaint.
+export function selectiveFilterPrompt(startFrame, endFrame, fps) {
+  const a = (startFrame / fps).toFixed(2);
+  const b = (endFrame / fps).toFixed(2);
+  return '@Video1 is the animation. Follow its motion, pose, gesture, timing, composition and framing ' +
+    `on every frame. From ${a}s to ${b}s the picture has been turned grey and slightly softened — that ` +
+    'middle stretch is the ONLY part to repaint. Repaint it in the EXACT colour, line weight, shading and ' +
+    `texture of the coloured frames before ${a}s and after ${b}s, and of @Image1 and @Image2. Those coloured ` +
+    'frames are already the finished look: keep their colour, saturation, line and texture unchanged. Do not ' +
+    'desaturate them, do not fade their colour toward grey, and do not restyle them. The grey middle must ' +
+    'match their colour on every frame so the whole clip reads as one continuous shot. FRAMING — CRITICAL, ' +
+    'match the reference images exactly: this is a FULL-BODY WIDE shot. The ENTIRE character is visible at ' +
+    'all times, from the very top of the hair down to the bottom of BOTH feet, with a generous margin of ' +
+    'empty background ABOVE the head and BELOW the feet. NEVER crop, cut off or push the character out of ' +
+    'frame below the knees, shins, ankles or feet; the feet stay fully inside the frame on every frame. Do ' +
+    'NOT zoom in, do NOT scale the character up, do NOT pan, tilt or reframe, and do NOT let the character ' +
+    "drift toward the camera — the character's size and position stay exactly as in @Video1 and the reference " +
+    'images. Background: the same plain flat colour as the reference image; add no scenery, props or set.';
 }
 
 /**
@@ -269,17 +170,21 @@ export async function restoreWashedChroma(source, result, out) {
  * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
  * Returns { outputPath, previzPath, guidance, refs, jobs, model, resolution }.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur? }
- * `deps`: { runner, runBatch, downloadTo, ff, ffprobe, restoreChroma } — injected for tests.
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan? }
+ * `genSpan` is `[startFrame, endFrame)` of the spliced clip to desaturate. Omit it to grey the whole clip.
+ * `deps`: { runner, runBatch, downloadTo, ff, ffprobe } — injected for tests.
  */
 export async function harmonizeVideo(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
-  ff = defaultFf, ffprobe = defaultFfprobe, restoreChroma = restoreWashedChroma,
+  ff = defaultFf, ffprobe = defaultFfprobe,
 } = {}) {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
-    guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR,
+    guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR, genSpan = null,
   } = spec;
+  if (genSpan && (!Number.isInteger(genSpan[0]) || !Number.isInteger(genSpan[1]) || genSpan[1] <= genSpan[0])) {
+    throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
+  }
   if (!input) throw new Error('harmonizeVideo: spec.input is required');
   if (guidance !== 'filter' && guidance !== 'previz') throw new Error(`harmonizeVideo: guidance must be 'filter' or 'previz', got "${guidance}"`);
   if (!await exists(input)) throw new Error(`no such video: ${input}`);
@@ -309,8 +214,12 @@ export async function harmonizeVideo(root, spec, {
   let previzJob = null;
   let stylePrompt = FILTER_STYLE_PROMPT;
   if (guidance === 'filter') {
-    // Non-generative: desaturate + slight blur to strip colour/texture while keeping the real motion.
-    await ff(['-i', input, '-vf', `hue=s=0,gblur=sigma=${blur}`, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidancePath]);
+    // Full-clip grey asks the restyle to invent every frame's colour from two stills, and it only
+    // does that reliably where it repaints. A gen span keeps the source head/tail in colour — the
+    // look to copy — and greys only the generated middle, which is the part to repaint.
+    const vf = genSpan ? selectiveGreyFilter(genSpan[0], genSpan[1], blur) : `hue=s=0,gblur=sigma=${blur}`;
+    if (genSpan) stylePrompt = selectiveFilterPrompt(genSpan[0], genSpan[1], meta.fps);
+    await ff(['-i', input, '-vf', vf, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidancePath]);
   } else {
     // Generate a smooth grey previz maquette (no appearance ref — the point is to strip it).
     const srcMedia = await runner.upload(input);
@@ -333,21 +242,15 @@ export async function harmonizeVideo(root, spec, {
   });
   await downloadTo(restyle.outputUrl, restyledTmp);
 
-  // Put back chroma the restyle left on the table. The gen span is usually already at the
-  // source's colour; the source head and tail are the frames that come back grey.
-  const chromaTmp = path.join(outDir, `.${base}.chroma.${process.pid}.mp4`);
-  const chroma = await restoreChroma(input, restyledTmp, chromaTmp);
-  const videoForMux = chroma.applied ? chromaTmp : restyledTmp;
-
   // Carry the input's audio onto the silent restyled clip.
-  await ff(['-i', videoForMux, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
+  await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
   await rm(restyledTmp, { force: true });
-  if (chroma.applied) await rm(chromaTmp, { force: true });
   if (!keepPreviz) await rm(guidancePath, { force: true });
 
   return {
-    outputPath, previzPath: keepPreviz ? guidancePath : null, guidance: { mode: guidance, path: keepPreviz ? guidancePath : null },
+    outputPath, previzPath: keepPreviz ? guidancePath : null,
+    guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null },
     refs, jobs: { previz: previzJob, restyle: restyle.id },
-    model: HARMONIZE_MODEL, resolution, aspectRatio, duration, chroma,
+    model: HARMONIZE_MODEL, resolution, aspectRatio, duration,
   };
 }

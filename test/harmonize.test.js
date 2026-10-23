@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, chromaRestoreGain, restoreWashedChroma, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -27,8 +27,7 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null } = {})
   const downloadTo = async (url, dest) => { calls.downloads.push({ url, dest }); await writeFile(dest, `dl:${url}`); };
   const ffprobe = async () => JSON.stringify({ streams: [{ width, height }], format: { duration } });
   const ff = async (args) => { calls.ff.push(args); const out = args[args.length - 1]; if (out.endsWith('.png') || out.endsWith('.mp4')) await writeFile(out, 'ff'); };
-  const restoreChroma = async () => ({ applied: false, framesBoosted: 0, maxGain: 1 });
-  return { runner, runBatch, downloadTo, ffprobe, ff, restoreChroma, calls };
+  return { runner, runBatch, downloadTo, ffprobe, ff, calls };
 }
 const exists = async (p) => { try { await access(p, constants.F_OK); return true; } catch { return false; } };
 
@@ -111,34 +110,23 @@ test('rejects an unknown guidance mode', async () => {
   await assert.rejects(harmonizeVideo(root, { input, guidance: 'nope' }, fakes()), /guidance must be/);
 });
 
-test('chromaRestoreGain lifts every frame short of the source and leaves a stronger one alone', () => {
-  assert.equal(chromaRestoreGain(120, 110), 120 / 110);
-  assert.equal(chromaRestoreGain(120, 70), 120 / 70);
-  assert.equal(chromaRestoreGain(120, 130), 1); // already stronger than the source
-  assert.equal(chromaRestoreGain(120, 8), 1); // hue is gone; a gain would amplify noise
-  assert.equal(chromaRestoreGain(120, 0), 1);
-  assert.equal(chromaRestoreGain(0, 40), 1);
-  assert.equal(chromaRestoreGain(300, 20), 3); // capped
+test('splicedGenSpan is the retimed gen window in the spliced output', () => {
+  assert.deepEqual(splicedGenSpan({ retime: true, inPoint: { origFrame: 55 }, outPoint: { origFrame: 146 } }), [55, 146]);
+  assert.equal(splicedGenSpan({ retime: false, inPoint: { origFrame: 55 }, outPoint: { origFrame: 146 } }), null);
+  assert.equal(splicedGenSpan(null), null);
 });
 
-test('muxes audio onto the chroma-restored clip when the restyle came back washed', async () => {
+test('a gen span greys only that window and tells the restyle to keep the coloured ends', async () => {
   const { root, input } = await project();
   const d = fakes();
-  const seen = [];
-  d.restoreChroma = async (source, result, out) => {
-    seen.push({ source, result, out });
-    await writeFile(out, 'chroma');
-    return { applied: true, framesBoosted: 40, maxGain: 1.8 };
-  };
-  const res = await harmonizeVideo(root, { input }, d);
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].source, input);
-  assert.match(seen[0].result, /\.restyled\./);
-  const mux = d.calls.ff.find((a) => a.includes('-c:v') && a.includes('copy'));
-  assert.equal(mux[1], seen[0].out, 'audio is muxed onto the chroma-restored video');
-  assert.equal(res.chroma.framesBoosted, 40);
-  assert.equal(res.chroma.maxGain, 1.8);
-  assert.equal(await exists(seen[0].out), false, 'the temp restored clip is removed');
+  await harmonizeVideo(root, { input, genSpan: [48, 96] }, d);
+  const guide = d.calls.ff.find((a) => a.some((x) => typeof x === 'string' && x.includes('gblur')));
+  assert.equal(guide[guide.indexOf('-vf') + 1], selectiveGreyFilter(48, 96, 1.2));
+  const prompt = d.calls.batches[0][0].opts.prompt;
+  assert.equal(prompt, selectiveFilterPrompt(48, 96, 24));
+  assert.match(prompt, /From 2\.00s to 4\.00s/);
+  assert.match(prompt, /ONLY part to repaint/);
+  assert.doesNotMatch(prompt, /black-and-white guidance pass/);
 });
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
@@ -162,28 +150,16 @@ async function centerChroma(file, frame) {
   return n ? chroma / n : 0;
 }
 
-test('restoreWashedChroma recolours only the frames the restyle washed out', { skip: !hasFfmpeg && 'ffmpeg not on PATH' }, async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), 'chroma-'));
+test('selective grey filter desaturates only the gen span', { skip: !hasFfmpeg && 'ffmpeg not on PATH' }, async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'selective-'));
   const src = path.join(dir, 'src.mp4');
-  const washed = path.join(dir, 'washed.mp4');
-  const out = path.join(dir, 'out.mp4');
+  const out = path.join(dir, 'guidance.mp4');
   ffmpeg(['-f', 'lavfi', '-i', 'color=c=0x9a9a9a:s=80x64:r=24', '-frames:v', '16', '-vf', 'drawbox=x=24:y=16:w=32:h=32:color=0xdd3355@1:t=fill', '-pix_fmt', 'yuv420p', src]);
-  ffmpeg(['-i', src, '-vf', "hue=s=0.35:enable='lt(n,8)'", '-pix_fmt', 'yuv420p', washed]);
-
-  const unchanged = await restoreWashedChroma(src, src, path.join(dir, 'same.mp4'));
-  assert.equal(unchanged.applied, false);
-
-  const res = await restoreWashedChroma(src, washed, out);
-  assert.equal(res.applied, true);
-  assert.ok(res.framesBoosted >= 6 && res.framesBoosted <= 8, `boosted ${res.framesBoosted} frames`);
-
-  const [srcEarly, washedEarly, outEarly, washedLate, outLate] = await Promise.all([
-    centerChroma(src, 2), centerChroma(washed, 2), centerChroma(out, 2),
-    centerChroma(washed, 12), centerChroma(out, 12),
-  ]);
-  assert.ok(outEarly > washedEarly * 1.4, `washed frame chroma ${washedEarly} -> ${outEarly}`);
-  assert.ok(Math.abs(outEarly - srcEarly) < Math.abs(washedEarly - srcEarly), 'restored frame is closer to the source');
-  assert.ok(Math.abs(outLate - washedLate) < 20, `coloured frame should stay put (${washedLate} vs ${outLate})`);
+  ffmpeg(['-i', src, '-vf', selectiveGreyFilter(4, 12, 0.4), '-pix_fmt', 'yuv420p', out]);
+  const [head, mid, tail] = await Promise.all([centerChroma(out, 1), centerChroma(out, 6), centerChroma(out, 14)]);
+  assert.ok(head > 80, `head stayed coloured (${head})`);
+  assert.ok(mid < 15, `gen span is grey (${mid})`);
+  assert.ok(tail > 80, `tail stayed coloured (${tail})`);
 });
 
 test('nearestAspect picks the closest allowed ratio', () => {
