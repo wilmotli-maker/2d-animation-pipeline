@@ -17,6 +17,8 @@ import { access, mkdir, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
+import { padFrame as defaultPadFrame } from './edit-ui/pad-frame.js';
+import { alignFraming as defaultAlignFraming, sampleCornerHex } from './edit-ui/splice.js';
 
 export const HARMONIZE_MODEL = 'seedance_2_5';
 export const HARMONIZE_DEFAULT_RESOLUTION = '480p';
@@ -32,32 +34,43 @@ export const STYLE_PROMPT =
   'design, colour palette, line weight, shading and texture. Keep the body motion, pose, ' +
   'gesture and timing from the video completely unchanged. Apply the reference look ' +
   'identically on every frame so the whole clip reads as one continuous, uniformly-styled ' +
-  'shot. FRAMING: preserve the exact framing, character scale and composition of the ' +
-  'video — the entire character stays in frame from the top of the head to the feet with ' +
-  'the same margins; never crop below the feet, knees or waist, never zoom in, never ' +
-  'reframe. Keep the background the same plain flat colour as the reference image; add no ' +
-  'scenery, props or set.';
+  'shot. FRAMING: the video is the camera. Copy its framing exactly — the same character ' +
+  'scale, the same position and the same margins, including the top of the head and the ' +
+  'feet. Do not zoom, do not scale the character up or down, do not pan or reframe. Keep ' +
+  'the background the same plain flat colour as the reference image; add no scenery, props ' +
+  'or set.';
 
-// Restyle prompt for the FILTER guidance path (default): the stage-1 input is the source run
-// through a non-generative b+w + slight-blur filter, not a generated grey previz. It addresses the
-// references by position (@Video1 = the guidance clip, @Image1/@Image2 = appearance) and carries a
-// strong full-body framing guard (a looser prompt let the restyle crop below the knees).
+// Restyle prompt for the FILTER guidance path (default). @Video1 is the camera: a prompt that
+// asked for a "generous margin" or to match the reference stills' crop did not stop the model
+// zooming. The guidance clip and the stills are padded before this prompt runs, so copying
+// @Video1's framing copies the padded frame; a later TRS removes that pad.
 export const FILTER_STYLE_PROMPT =
   '@Video1 is a desaturated, softened black-and-white guidance pass of the animation — take ONLY ' +
   'its motion, pose, gesture, timing, composition and framing from it; ignore its greyscale and its ' +
-  'blur. @Image1 and @Image2 are the appearance references (the first and last frame of the finished ' +
-  'look): repaint the character in their EXACT style — character design, colour palette, line weight, ' +
-  'shading and texture — restoring full colour and crisp finished hand-drawn 2D rendering. Keep ' +
-  "@Video1's body motion, pose, gesture and timing completely unchanged and apply the reference look " +
-  'identically on every frame so the whole clip reads as one continuous, uniformly-styled 2D cartoon ' +
-  'shot. FRAMING — CRITICAL, match the reference images exactly: this is a FULL-BODY WIDE shot. The ' +
-  'ENTIRE character is visible at all times, from the very top of the hair down to the bottom of BOTH ' +
-  'feet, with a generous margin of empty background ABOVE the head and BELOW the feet. NEVER crop, cut ' +
-  'off or push the character out of frame below the knees, shins, ankles or feet; the feet stay fully ' +
-  'inside the frame on every frame. Do NOT zoom in, do NOT scale the character up, do NOT pan, tilt or ' +
-  "reframe, and do NOT let the character drift toward the camera — the character's size and position " +
-  'stay exactly as in @Video1 and the reference images. Background: the same plain flat colour as the ' +
-  'reference image; add no scenery, props or set.';
+  'blur. @Image1 and @Image2 are the appearance references: repaint the character in their EXACT ' +
+  'style — character design, colour palette, line weight, shading and texture — restoring full ' +
+  'colour and crisp finished hand-drawn 2D rendering. The reference images control appearance ' +
+  'only and must not change the crop or the character\'s size. Keep @Video1\'s body motion, pose, ' +
+  'gesture and timing completely unchanged and apply the reference look identically on every frame ' +
+  'so the whole clip reads as one continuous, uniformly-styled 2D cartoon shot. FRAMING — CRITICAL: ' +
+  '@Video1 is the camera. Copy its framing exactly on every frame — the same character scale, the ' +
+  'same position, the same headroom and the same empty margins on all sides. Do NOT zoom in or out, ' +
+  'do NOT scale the character larger or smaller, do NOT pan, tilt or reframe, and do NOT let the ' +
+  'character drift toward or away from the camera. Keep every body part that is inside @Video1\'s ' +
+  'frame inside the frame, including the feet and anything that reaches the top of the head. ' +
+  'Background: the same plain flat colour as the reference image; add no scenery, props or set.';
+
+export const HARMONIZE_PAD_MARGIN = 0.12; // fraction of width/height added on each side before the restyle
+
+// Shrink the picture to (1-2*margin) and pad back to the original size with `fill`. Even inner
+// dimensions so the yuv420 encode is legal. 560×752 at 0.12 → scale=426:572, pad back to 560:752.
+export function padVideoFilter(width, height, margin, fill) {
+  const m = Math.max(0, Math.min(0.4, Number(margin) || 0));
+  const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+  const sw = even(width * (1 - 2 * m));
+  const sh = even(height * (1 - 2 * m));
+  return `scale=${sw}:${sh},pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${fill}`;
+}
 
 export const HARMONIZE_DEFAULT_GUIDANCE = 'filter'; // 'filter' (non-generative b+w+blur) | 'previz' (generated grey maquette)
 export const HARMONIZE_DEFAULT_BLUR = 1.2;          // gaussian sigma for the filter guidance
@@ -253,21 +266,24 @@ function outsideSpanSelect(genSpan) {
  *     follows it closely. Restyled with FILTER_STYLE_PROMPT.
  *   - 'previz': generate a smooth grey maquette (PREVIS_PROMPT), then restyle (STYLE_PROMPT). Two
  *     Seedance gens; use when the source is too inconsistent for the filter to collapse.
- * Then restyle from the appearance refs, conform the restyle's colour onto the source — a global
- * chroma gain (unless `chroma:false`) and a robust luma-range match (unless `luma:false`) — and mux
- * the input's audio onto the result.
+ * Then restyle from the appearance refs. Before the restyle, the guidance clip and both stills are
+ * padded (`spec.padMargin`, default 0.12 per side) so a model zoom still leaves the extremities
+ * inside the frame. After the restyle, one global TRS scales that pad back off against the original
+ * input. Then conform the restyle's colour onto the source — a global chroma gain (unless
+ * `chroma:false`) and a robust luma-range match (unless `luma:false`) — and mux the input's audio on.
  *
  * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
- * Returns { outputPath, previzPath, guidance, chroma, luma, refs, jobs, model, resolution }.
+ * Returns { outputPath, previzPath, guidance, chroma, luma, refs, jobs, framing, model, resolution }.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, chroma?, luma? }
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, padMargin?, chroma?, luma? }
  * `genSpan` is `[startFrame, endFrame)` of the spliced clip to desaturate. Omit it to grey the whole clip.
  * `chroma` (default true) runs the global saturation match; `luma` (default true) runs the tonal-range match. Either false leaves that channel as-is.
- * `deps`: { runner, runBatch, downloadTo, ff, ffprobe } — injected for tests.
+ * `deps`: { runner, runBatch, downloadTo, ff, ffprobe, padFrame, alignFraming, sampleCorner } — injected for tests.
  */
 export async function harmonizeVideo(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
   ff = defaultFf, ffprobe = defaultFfprobe,
+  padFrame = defaultPadFrame, alignFraming = defaultAlignFraming, sampleCorner = sampleCornerHex,
 } = {}) {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
@@ -324,19 +340,47 @@ export async function harmonizeVideo(root, spec, {
     stylePrompt = STYLE_PROMPT;
   }
 
+  // Pad the guidance and the stills by the same margin. The model copies this looser frame;
+  // the TRS below puts the character back on the original crop. padMargin 0 skips both.
+  const margin = spec.padMargin == null ? HARMONIZE_PAD_MARGIN : Number(spec.padMargin);
+  let guidanceForModel = guidancePath;
+  let refsForModel = refs;
+  const paddedTemps = [];
+  if (margin > 0) {
+    const fill = await sampleCorner(guidancePath);
+    guidanceForModel = path.join(outDir, `.${base}.guidance.pad.${process.pid}.mp4`);
+    await ff(['-i', guidancePath, '-vf', padVideoFilter(meta.width, meta.height, margin, fill), '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidanceForModel]);
+    paddedTemps.push(guidanceForModel);
+    refsForModel = [];
+    for (const r of refs) {
+      const padded = r.replace(/(\.[^.]+)$/, '.pad$1');
+      await padFrame(r, padded, { margin });
+      refsForModel.push(padded);
+      paddedTemps.push(padded);
+    }
+  }
+
   // Stage 2: restyle (repaint) the guidance clip from the appearance refs.
-  const guidanceMedia = await runner.upload(guidancePath);
+  const guidanceMedia = await runner.upload(guidanceForModel);
   const refMedia = [];
-  for (const r of refs) refMedia.push((await runner.upload(r)).id);
+  for (const r of refsForModel) refMedia.push((await runner.upload(r)).id);
   const restyle = await seedanceEdit({
     runner, runBatch, ref: 'harmonize', videoId: guidanceMedia.id, imageIds: refMedia,
     prompt: stylePrompt, resolution, aspectRatio, duration,
   });
   await downloadTo(restyle.outputUrl, restyledTmp);
 
-  // Non-generative colour conform onto the source. The restyle drives off a desaturated guidance
-  // pass, so its colour and tone drift from the source. Measure the source (frames outside any gen
-  // span — the look to match) and the restyle with one signalstats pass each, then:
+  // Scale the pad back off: one global TRS aligns the restyle onto the original input's crop.
+  const alignedTmp = path.join(outDir, `.${base}.aligned.${process.pid}.mp4`);
+  const framing = await alignFraming(input, restyledTmp, alignedTmp, {
+    seedScale: margin > 0 ? 1 / (1 - 2 * margin) : 1,
+  });
+  const videoForMux = framing.applied ? alignedTmp : restyledTmp;
+
+  // Non-generative colour conform onto the source, on the framing-aligned restyle. The restyle
+  // drives off a desaturated guidance pass, so its colour and tone drift from the source. Measure
+  // the source (frames outside any gen span — the look to match) and the aligned restyle with one
+  // signalstats pass each, then:
   //   - CHROMA: lift saturation by one global gain with `hue=s=`. The restyle comes out uniformly
   //     washed, so a single gain is right; hue scales chroma about its own centroid, restoring the
   //     magnitude without shifting white balance, and the near-neutral backdrop is not over-saturated.
@@ -350,7 +394,7 @@ export async function harmonizeVideo(root, spec, {
   let lumaInfo = { a: 1, b: 0, source: null, harmonized: null };
   if (chroma || luma) {
     const src = await measureSignal(ff, input, outsideSpanSelect(genSpan));
-    const harm = await measureSignal(ff, restyledTmp);
+    const harm = await measureSignal(ff, videoForMux);
     if (chroma) chromaInfo = { gain: chromaGain(src.sat, harm.sat), sourceSat: src.sat, harmonizedSat: harm.sat };
     if (luma) { const m = lumaMap(src, harm); lumaInfo = { ...m, source: src, harmonized: harm }; }
   }
@@ -361,20 +405,24 @@ export async function harmonizeVideo(root, spec, {
   if (chromaInfo.gain !== 1) filters.push(`hue=s=${chromaInfo.gain.toFixed(4)}`);
   if (lumaInfo.a !== 1 || lumaInfo.b !== 0) filters.push(`lutyuv='y=clip(${lumaInfo.a.toFixed(4)}*val+${lumaInfo.b.toFixed(2)}\\,0\\,255)'`);
 
+  // Carry the input's audio onto the restyled clip, applying the conform in the same pass when there
+  // is one (otherwise copy the video stream through untouched).
   if (filters.length) {
-    await ff(['-i', restyledTmp, '-i', input, '-vf', filters.join(','),
+    await ff(['-i', videoForMux, '-i', input, '-vf', filters.join(','),
       '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]);
   } else {
-    await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
+    await ff(['-i', videoForMux, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
   }
   await rm(restyledTmp, { force: true });
+  if (framing.applied) await rm(alignedTmp, { force: true });
+  for (const p of paddedTemps) await rm(p, { force: true });
   if (!keepPreviz) await rm(guidancePath, { force: true });
 
   return {
     outputPath, previzPath: keepPreviz ? guidancePath : null,
-    guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null },
+    guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null, padMargin: margin },
     chroma: chromaInfo, luma: lumaInfo,
-    refs, jobs: { previz: previzJob, restyle: restyle.id },
+    refs, jobs: { previz: previzJob, restyle: restyle.id }, framing,
     model: HARMONIZE_MODEL, resolution, aspectRatio, duration,
   };
 }

@@ -1,7 +1,7 @@
 // test/edit-ui-splice.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs, flowModeForSeam, resolveMorphEngine, seamWindows } from '../src/edit-ui/splice.js';
+import { mad, warp, findPairs, buildSpliceFilter, spliceClip, segmentPlan, morphJoinFilter, segmentRenderArgs, flowModeForSeam, resolveMorphEngine, seamWindows, fitGlobalTransform, framingAlignFilter, cornersFlat, revealsFill, alignFraming, IDENT } from '../src/edit-ui/splice.js';
 
 const PP = { inPt: { i: 24, j: 20 }, outPt: { i: 72, j: 60 }, origLen: 96, genLen: 96 };
 
@@ -226,6 +226,76 @@ test('flowModeForSeam warps whichever side is the source; resolveMorphEngine def
     assert.equal(resolveMorphEngine(), 'minterpolate');          // env fallback
   } finally { if (saved === undefined) delete process.env.EDIT_UI_MORPH; else process.env.EDIT_UI_MORPH = saved; }
   assert.throws(() => resolveMorphEngine('bogus'), /unknown morphEngine/);
+});
+
+function blob(W, H) {
+  const g = new Float32Array(W * H);
+  g.fill(40);
+  for (let y = 10; y < H - 10; y++) for (let x = 12; x < W - 12; x++) g[y * W + x] = 200;
+  return g;
+}
+
+test('fitGlobalTransform recovers a scale-up that undoes a shrink', () => {
+  const W = 40, H = 48;
+  const src = blob(W, H);
+  const shrunk = warp(src, { tx: 0, ty: 0, s: 0.76, rot: 0 }, { W, H });
+  const P = fitGlobalTransform([src, src, src], [shrunk, shrunk, shrunk], { W, H, seed: { s: 1.2 } });
+  assert.ok(Math.abs(P.s - 1 / 0.76) < 0.04, `s=${P.s}`);
+});
+
+test('fitGlobalTransform stays at identity for identical frames', () => {
+  const W = 40, H = 48;
+  const src = blob(W, H);
+  const P = fitGlobalTransform([src, src], [src, src], { W, H });
+  assert.ok(Math.abs(P.s - 1) < 0.02);
+  assert.ok(Math.abs(P.tx) < 1 && Math.abs(P.ty) < 1);
+});
+
+test('framingAlignFilter scales to an explicit even size and fills from the corner', () => {
+  const filter = framingAlignFilter({ P: { tx: 3, ty: 2.625, s: 1.3308, rot: 0 }, W0: 560, H0: 752, fitW: 140, fitH: 188 });
+  assert.match(filter, /format=gbrap/);
+  assert.match(filter, /crop=12:12:6:6/);
+  assert.match(filter, /scale=746:1000/);
+  assert.doesNotMatch(filter, /yuva420p/);
+  assert.doesNotMatch(filter, /color=c=/);
+});
+
+test('cornersFlat accepts a flat field and rejects a busy corner; revealsFill ignores a pure scale-up', () => {
+  const W = 20, H = 20;
+  const flat = new Float32Array(W * H);
+  flat.fill(90);
+  assert.equal(cornersFlat(flat, W, H), true);
+  flat[0] = 0; flat[1] = 255;
+  assert.equal(cornersFlat(flat, W, H), false);
+  assert.equal(revealsFill({ ...IDENT, s: 1.33 }), false);
+  assert.equal(revealsFill({ ...IDENT, s: 0.94 }), true);
+  assert.equal(revealsFill({ ...IDENT, tx: 3 }), true);
+});
+
+test('alignFraming applies a flat-background scale-up and refuses a scenic frame', async () => {
+  const W = 40, H = 48;
+  const src = blob(W, H);
+  const shrunk = warp(src, { tx: 0, ty: 0, s: 0.76, rot: 0 }, { W, H });
+  const renders = [];
+  const applied = await alignFraming('ref.mp4', 'gen.mp4', 'out.mp4', {
+    size: { w: W, h: H }, fitMaxEdge: H, fitFps: 8,
+    decode: async (file) => (file === 'ref.mp4' ? [src, src, src] : [shrunk, shrunk, shrunk]),
+    ffmpeg: async (args) => { renders.push(args); },
+  });
+  assert.equal(applied.applied, true);
+  assert.ok(Math.abs(applied.transform.s - 1 / 0.76) < 0.04);
+  assert.match(renders[0].join(' '), /format=gbrap/);
+
+  const grown = warp(src, { tx: 0, ty: 0, s: 1.1, rot: 0 }, { W, H });
+  const scenic = Float32Array.from(grown);
+  for (let i = 0; i < 36; i++) scenic[i] = (i * 37) % 255;
+  const skipped = await alignFraming('ref.mp4', 'gen.mp4', 'out.mp4', {
+    size: { w: W, h: H }, fitMaxEdge: H,
+    decode: async (file) => (file === 'ref.mp4' ? [src, src] : [scenic, scenic]),
+    ffmpeg: async () => { throw new Error('should not render'); },
+  });
+  assert.equal(skipped.applied, false);
+  assert.equal(skipped.reason, 'background-not-flat');
 });
 
 test('spliceClip throws when no valid in/out points (out not after in)', async () => {

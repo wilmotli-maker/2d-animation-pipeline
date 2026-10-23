@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT, padVideoFilter } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -15,7 +15,7 @@ async function project() {
 }
 
 function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSource = null, satHarm = null, lumaSource = null, lumaHarm = null } = {}) {
-  const calls = { uploads: [], batches: [], downloads: [], ff: [] };
+  const calls = { uploads: [], batches: [], downloads: [], ff: [], pads: [], aligns: [], corners: [] };
   let n = 0;
   const runner = { async upload(file) { calls.uploads.push(file); return { id: `media-${++n}`, type: 'video', url: `https://x/${n}` }; } };
   const runBatch = async (_runner, jobs) => {
@@ -28,11 +28,11 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSou
   const ffprobe = async () => JSON.stringify({ streams: [{ width, height }], format: { duration } });
   const ff = async (args) => {
     calls.ff.push(args);
-    // A signalstats measurement pass ends in `-f null -`; return canned SATAVG for the source
-    // (plain input) or the restyle (the `.restyled.` temp), so chromaGain can be exercised.
+    // A signalstats measurement pass ends in `-f null -`; return canned SATAVG + YLOW/YHIGH for the
+    // source (plain input) or the restyle (the `.restyled.`/`.aligned.` temp), so the conform runs.
     if (args.includes('-f') && args[args.indexOf('-f') + 1] === 'null') {
       const file = args[args.indexOf('-i') + 1];
-      const isHarm = file.includes('.restyled.');
+      const isHarm = file.includes('.restyled.') || file.includes('.aligned.');
       const v = isHarm ? satHarm : satSource;
       const lo = isHarm ? lumaHarm : lumaSource; // [ylow, yhigh] | null
       let s = 'frame\n';
@@ -41,10 +41,16 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSou
       return s;
     }
     const out = args[args.length - 1];
-    if (out.endsWith('.png') || out.endsWith('.mp4')) await writeFile(out, 'ff');
+    if (typeof out === 'string' && (out.endsWith('.png') || out.endsWith('.mp4'))) await writeFile(out, 'ff');
     return '';
   };
-  return { runner, runBatch, downloadTo, ffprobe, ff, calls };
+  const padFrame = async (src, out, opts) => { calls.pads.push({ src, out, opts }); await writeFile(out, 'pad'); return { out, margin: opts.margin, width, height }; };
+  const alignFraming = async (reference, generated, out, opts) => {
+    calls.aligns.push({ reference, generated, out, opts });
+    return { applied: false, reason: 'identity', transform: { tx: 0, ty: 0, rot: 0, s: 1 } };
+  };
+  const sampleCorner = async (file) => { calls.corners.push(file); return '0x9d9d9d'; };
+  return { runner, runBatch, downloadTo, ffprobe, ff, padFrame, alignFraming, sampleCorner, calls };
 }
 const mux = (calls) => calls.ff.find((a) => a.includes('-map') && a.includes('0:v'));
 const exists = async (p) => { try { await access(p, constants.F_OK); return true; } catch { return false; } };
@@ -306,6 +312,61 @@ test('the chroma gain lifts a washed clip onto the source saturation', { skip: !
   const fixedSat = meanSat(fixed);
   assert.ok(Math.abs(fixedSat - srcSat) / srcSat < 0.05, `fixed (${fixedSat}) lands within 5% of source (${srcSat})`);
   assert.ok(Math.abs(fixedSat - washedSat) / washedSat > 0.3, 'and it meaningfully moved from the washed value');
+});
+
+test('the restyle prompt copies the guidance camera and does not ask for a different margin', () => {
+  assert.match(FILTER_STYLE_PROMPT, /@Video1 is the camera/);
+  assert.match(FILTER_STYLE_PROMPT, /scale the character larger or smaller/);
+  assert.doesNotMatch(FILTER_STYLE_PROMPT, /generous margin/i);
+  assert.match(STYLE_PROMPT, /scale the character up or down/);
+  assert.match(PREVIS_PROMPT, /exact camera framing/);
+});
+
+test('pads the guidance video and both stills, then seeds the undo at the pad inverse', async () => {
+  const { root, input } = await project();
+  const d = fakes({ width: 560, height: 752 });
+  const res = await harmonizeVideo(root, { input }, d);
+  const pad = d.calls.ff.find((a) => a.some((x) => typeof x === 'string' && x.includes('pad=560:752')));
+  assert.ok(pad, 'guidance video was padded');
+  assert.match(pad.join(' '), /scale=426:572/);
+  assert.match(pad.join(' '), /color=0x9d9d9d/);
+  assert.equal(d.calls.pads.length, 2);
+  assert.equal(d.calls.pads[0].opts.margin, 0.12);
+  const uploaded = d.calls.uploads.map((f) => path.basename(f));
+  assert.ok(uploaded.some((n) => n.includes('.guidance.pad.')));
+  assert.ok(uploaded.filter((n) => n.endsWith('.pad.png')).length === 2);
+  assert.equal(d.calls.aligns[0].reference, input);
+  assert.ok(Math.abs(d.calls.aligns[0].opts.seedScale - (1 / 0.76)) < 1e-9);
+  assert.equal(res.framing.reason, 'identity');
+  const mux = d.calls.ff.find((a) => a.includes('-c:a'));
+  assert.match(String(mux[1]), /\.restyled\./);
+});
+
+test('muxes the aligned file when the pad undo applies', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  d.alignFraming = async (reference, generated, out, opts) => {
+    d.calls.aligns.push({ reference, generated, out, opts });
+    await writeFile(out, 'aligned');
+    return { applied: true, reason: 'aligned', transform: { tx: 3, ty: 2.625, rot: 0, s: 1.3308 } };
+  };
+  const res = await harmonizeVideo(root, { input }, d);
+  const mux = d.calls.ff.find((a) => a.includes('-c:a'));
+  assert.match(String(mux[1]), /\.aligned\./);
+  assert.equal(res.framing.transform.s, 1.3308);
+});
+
+test('padMargin 0 skips the pad and seeds the align at identity', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input, padMargin: 0 }, d);
+  assert.equal(d.calls.pads.length, 0);
+  assert.equal(d.calls.aligns[0].opts.seedScale, 1);
+  assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.includes('pad='))));
+});
+
+test('padVideoFilter keeps even inner dimensions', () => {
+  assert.equal(padVideoFilter(560, 752, 0.12, '0x9d9d9d'), 'scale=426:572,pad=560:752:(ow-iw)/2:(oh-ih)/2:color=0x9d9d9d');
 });
 
 test('nearestAspect picks the closest allowed ratio', () => {

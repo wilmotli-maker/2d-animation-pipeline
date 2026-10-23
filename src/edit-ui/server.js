@@ -162,8 +162,10 @@ function startHarmonize(ctx, runDir, splicedRel) {
   Promise.resolve(ctx.harmonize({ workspace, runDir, splicedAbs, splicedRel }))
     .then(async (hr) => {
       const output = (hr && hr.output) || null;
-      await updateRun(runDir, { harmonize: { status: 'done', output, previz: (hr && hr.previz) || null, at: new Date().toISOString() } }).catch(() => {});
-      Object.assign(job, { status: 'done', output, previz: (hr && hr.previz) || null });
+      const done = { status: 'done', output, previz: (hr && hr.previz) || null, at: new Date().toISOString() };
+      if (hr && hr.framing) done.framing = hr.framing;
+      await updateRun(runDir, { harmonize: done }).catch(() => {});
+      Object.assign(job, { status: 'done', output, previz: done.previz, ...(done.framing ? { framing: done.framing } : {}) });
     })
     .catch(async (err) => {
       await updateRun(runDir, { harmonize: { status: 'error', error: err.message, at: new Date().toISOString() } }).catch(() => {});
@@ -181,7 +183,7 @@ export function createDefaultHarmonizer() {
     const { createFalRunner } = await import('../fal.js');
     const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir }, { runner: createFalRunner() });
     const rel = (p) => (p ? path.relative(workspace, p).split(path.sep).join('/') : null);
-    return { output: rel(res.outputPath), previz: rel(res.previzPath) };
+    return { output: rel(res.outputPath), previz: rel(res.previzPath), framing: res.framing || null };
   };
 }
 
