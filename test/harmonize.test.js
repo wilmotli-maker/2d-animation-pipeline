@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, chromaGain, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -14,7 +14,7 @@ async function project() {
   return { root, input };
 }
 
-function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSource = null, satHarm = null } = {}) {
+function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSource = null, satHarm = null, lumaSource = null, lumaHarm = null } = {}) {
   const calls = { uploads: [], batches: [], downloads: [], ff: [] };
   let n = 0;
   const runner = { async upload(file) { calls.uploads.push(file); return { id: `media-${++n}`, type: 'video', url: `https://x/${n}` }; } };
@@ -32,8 +32,13 @@ function fakes({ width = 560, height = 752, duration = 6.98, fail = null, satSou
     // (plain input) or the restyle (the `.restyled.` temp), so chromaGain can be exercised.
     if (args.includes('-f') && args[args.indexOf('-f') + 1] === 'null') {
       const file = args[args.indexOf('-i') + 1];
-      const v = file.includes('.restyled.') ? satHarm : satSource;
-      return v == null ? '' : `frame\nlavfi.signalstats.SATAVG=${v}\n`;
+      const isHarm = file.includes('.restyled.');
+      const v = isHarm ? satHarm : satSource;
+      const lo = isHarm ? lumaHarm : lumaSource; // [ylow, yhigh] | null
+      let s = 'frame\n';
+      if (v != null) s += `lavfi.signalstats.SATAVG=${v}\n`;
+      if (lo) s += `lavfi.signalstats.YLOW=${lo[0]}\nlavfi.signalstats.YHIGH=${lo[1]}\n`;
+      return s;
     }
     const out = args[args.length - 1];
     if (out.endsWith('.png') || out.endsWith('.mp4')) await writeFile(out, 'ff');
@@ -159,6 +164,25 @@ test('chromaGain lifts harmonized onto source, clamped, with a deadband and grey
   assert.equal(chromaGain(null, 7), 1, 'missing measurement -> no change');
 });
 
+test('parseMeanStat averages an arbitrary signalstats key', () => {
+  assert.equal(parseMeanStat('lavfi.signalstats.YLOW=60\nlavfi.signalstats.YLOW=70\n', 'YLOW'), 65);
+  assert.equal(parseMeanStat('lavfi.signalstats.YHIGH=150\n', 'YHIGH'), 150);
+  assert.equal(parseMeanStat('nope', 'YLOW'), null);
+});
+
+test('lumaMap fits the source tonal range, identity when untrustworthy', () => {
+  // v013 numbers: harm (61.47,150.17) onto src (66.02,141.20) -> contrast-reducing map.
+  const m = lumaMap({ ylow: 66.02, yhigh: 141.20 }, { ylow: 61.47, yhigh: 150.17 });
+  assert.ok(Math.abs(m.a - 75.18 / 88.70) < 1e-3, `slope ${m.a}`);
+  assert.ok(Math.abs((m.a * 61.47 + m.b) - 66.02) < 1e-6, 'lands YLOW on source');
+  assert.ok(Math.abs((m.a * 150.17 + m.b) - 141.20) < 1e-6, 'lands YHIGH on source');
+  // identities
+  assert.deepEqual(lumaMap({ ylow: 66, yhigh: 141 }, { ylow: 66, yhigh: 141 }), { a: 1, b: 0 }, 'already matched');
+  assert.deepEqual(lumaMap(null, { ylow: 61, yhigh: 150 }), { a: 1, b: 0 }, 'missing source');
+  assert.deepEqual(lumaMap({ ylow: 120, yhigh: 125 }, { ylow: 120, yhigh: 125 }), { a: 1, b: 0 }, 'near-flat clip');
+  assert.equal(lumaMap({ ylow: 10, yhigh: 240 }, { ylow: 120, yhigh: 135 }).a, 2.0, 'slope clamps to max');
+});
+
 test('chroma match measures source vs restyle and applies one hue=s gain', async () => {
   const { root, input } = await project();
   const d = fakes({ satSource: 8, satHarm: 7 });
@@ -172,21 +196,45 @@ test('chroma match measures source vs restyle and applies one hue=s gain', async
   assert.ok(m.includes('libx264'), 're-encodes video to apply the filter');
 });
 
+test('chroma + luma apply together in one conform pass', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 7, lumaSource: [66.02, 141.20], lumaHarm: [61.47, 150.17] });
+  const res = await harmonizeVideo(root, { input }, d);
+  assert.ok(Math.abs(res.chroma.gain - 8 / 7) < 1e-4);
+  assert.ok(res.luma.a < 1, 'contrast-reducing luma map');
+  const vf = mux(d.calls)[mux(d.calls).indexOf('-vf') + 1];
+  assert.match(vf, /hue=s=/);
+  assert.match(vf, /lutyuv='y=clip\(0\.8\d+\*val/);
+});
+
 test('a matched clip keeps the stream-copy path (no re-encode)', async () => {
   const { root, input } = await project();
-  const d = fakes({ satSource: 7, satHarm: 7 });
+  const d = fakes({ satSource: 7, satHarm: 7, lumaSource: [66, 141], lumaHarm: [66, 141] });
   const res = await harmonizeVideo(root, { input }, d);
   assert.equal(res.chroma.gain, 1);
+  assert.equal(res.luma.a, 1);
   const m = mux(d.calls);
   assert.ok(!m.includes('-vf'), 'no filter');
   assert.ok(m.includes('copy'), 'stream-copies the video');
 });
 
-test('chroma:false skips measurement and the gain', async () => {
+test('chroma:false skips the gain but luma still conforms', async () => {
   const { root, input } = await project();
-  const d = fakes({ satSource: 8, satHarm: 7 });
+  const d = fakes({ satSource: 8, satHarm: 7, lumaSource: [66, 141], lumaHarm: [61, 150] });
   const res = await harmonizeVideo(root, { input, chroma: false }, d);
+  assert.equal(res.chroma.gain, 1, 'no chroma gain');
+  assert.ok(res.luma.a !== 1, 'luma still conformed');
+  const vf = mux(d.calls)[mux(d.calls).indexOf('-vf') + 1];
+  assert.doesNotMatch(vf, /hue=s=/);
+  assert.match(vf, /lutyuv/);
+});
+
+test('chroma:false + luma:false skips every measurement', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 7, lumaSource: [66, 141], lumaHarm: [61, 150] });
+  const res = await harmonizeVideo(root, { input, chroma: false, luma: false }, d);
   assert.equal(res.chroma.gain, 1);
+  assert.equal(res.luma.a, 1);
   assert.ok(!d.calls.ff.some((a) => a.includes('-f') && a[a.indexOf('-f') + 1] === 'null'), 'no signalstats pass');
   assert.ok(mux(d.calls).includes('copy'));
 });

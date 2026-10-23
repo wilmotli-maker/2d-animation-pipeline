@@ -72,6 +72,19 @@ export const CHROMA_GAIN_DEADBAND = 0.03;
 // Below this average saturation the clip is effectively greyscale; a ratio off it is unreliable.
 const CHROMA_MIN_SAT = 0.5;
 
+// Luma-match bounds. Unlike chroma (a uniform wash), the restyle's brightness error is NOT global:
+// measured on v013, the CHARACTER luma already matches the source and only the flat BACKGROUND is
+// too bright, so a naive mean offset would darken the already-correct character. Instead fit a
+// robust linear map y=a*val+b that lands the restyle's YLOW/YHIGH (signalstats' low/high luma, a
+// percentile spread that ignores outliers) onto the source's — this corrects the tonal range
+// (pulling the bright backdrop down) while barely moving the midtone character. Clamp the slope and
+// treat a near-identity map as a no-op.
+export const LUMA_SLOPE_MIN = 0.5;
+export const LUMA_SLOPE_MAX = 2.0;
+export const LUMA_SLOPE_DEADBAND = 0.02;
+export const LUMA_OFFSET_DEADBAND = 1.5; // luma levels; below this the shift is imperceptible
+const LUMA_MIN_SPREAD = 8;               // YHIGH-YLOW below this is a near-flat clip; don't fit
+
 // Seedance 2.5 aspect ratios (see src/validate.js). Pick the closest to the source.
 const ASPECTS = [['3:4', 3 / 4], ['16:9', 16 / 9], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3], ['21:9', 21 / 9]];
 export function nearestAspect(width, height) {
@@ -167,24 +180,27 @@ export function selectiveFilterPrompt(startFrame, endFrame, fps) {
     'images. Background: the same plain flat colour as the reference image; add no scenery, props or set.';
 }
 
-// Mean of the per-frame SATAVG values in an ffmpeg `signalstats,metadata=print` dump.
-// SATAVG is the average chroma magnitude sqrt((U-128)^2+(V-128)^2) of a frame, so its
-// clip mean is a single global saturation level. Returns null when nothing parsed.
-export function parseSatAvg(text) {
+// Clip mean of one `lavfi.signalstats.<KEY>` across an ffmpeg `metadata=print` dump. Returns
+// null when the key never appears.
+export function parseMeanStat(text, key) {
   if (!text) return null;
   let sum = 0, n = 0;
-  const re = /lavfi\.signalstats\.SATAVG=([\d.]+)/g;
+  const re = new RegExp(`lavfi\\.signalstats\\.${key}=([\\d.]+)`, 'g');
   let m;
   while ((m = re.exec(String(text)))) { sum += Number(m[1]); n += 1; }
   return n ? sum / n : null;
 }
 
-// Average SATAVG over `file`, optionally only the frames kept by `selectExpr` (an ffmpeg
-// select expression, e.g. to skip a gen span). ff must return the command's stdout.
-async function measureSaturation(ff, file, selectExpr) {
+// SATAVG is the average chroma magnitude sqrt((U-128)^2+(V-128)^2) of a frame; its clip mean is a
+// single global saturation level.
+export function parseSatAvg(text) { return parseMeanStat(text, 'SATAVG'); }
+
+// Clip-mean signalstats for `file` (SATAVG for chroma, YLOW/YHIGH for luma), optionally over only
+// the frames kept by `selectExpr` (e.g. to skip a gen span). ff must return the command's stdout.
+async function measureSignal(ff, file, selectExpr) {
   const chain = (selectExpr ? `select='${selectExpr}',` : '') + 'signalstats,metadata=print:file=-';
   const out = await ff(['-i', file, '-vf', chain, '-an', '-f', 'null', '-']);
-  return parseSatAvg(out);
+  return { sat: parseMeanStat(out, 'SATAVG'), ylow: parseMeanStat(out, 'YLOW'), yhigh: parseMeanStat(out, 'YHIGH') };
 }
 
 // Single global saturation gain that lifts `harmSat` onto `srcSat`. Returns 1 (no change) when
@@ -198,6 +214,28 @@ export function chromaGain(srcSat, harmSat, {
   let g = srcSat / harmSat;
   g = Math.min(max, Math.max(min, g));
   return Math.abs(g - 1) <= deadband ? 1 : g;
+}
+
+// Robust linear luma map y=a*val+b that lands the restyle's (YLOW,YHIGH) onto the source's, so the
+// restyle's tonal range matches the source. Returns {a:1,b:0} (identity) when a side is missing, the
+// clip is near-flat, the slope clamps past its bounds' intent, or the map sits in the deadband.
+export function lumaMap(src, harm, {
+  slopeMin = LUMA_SLOPE_MIN, slopeMax = LUMA_SLOPE_MAX,
+  slopeDeadband = LUMA_SLOPE_DEADBAND, offsetDeadband = LUMA_OFFSET_DEADBAND, minSpread = LUMA_MIN_SPREAD,
+} = {}) {
+  const identity = { a: 1, b: 0 };
+  if (!src || !harm) return identity;
+  const { ylow: sl, yhigh: sh } = src, { ylow: hl, yhigh: hh } = harm;
+  if (![sl, sh, hl, hh].every((v) => Number.isFinite(v))) return identity;
+  const srcSpread = sh - sl, harmSpread = hh - hl;
+  if (srcSpread < minSpread || harmSpread < minSpread) return identity;
+  let a = srcSpread / harmSpread;
+  a = Math.min(slopeMax, Math.max(slopeMin, a));
+  const b = sl - a * hl;
+  // Identity test at the two anchor points: if neither endpoint moves meaningfully, skip.
+  const moveLo = Math.abs((a * hl + b) - hl), moveHi = Math.abs((a * hh + b) - hh);
+  if (Math.abs(a - 1) <= slopeDeadband && moveLo <= offsetDeadband && moveHi <= offsetDeadband) return identity;
+  return { a, b };
 }
 
 // Frames OUTSIDE the gen span are the source look to match ("the regions outside the generated
@@ -215,15 +253,16 @@ function outsideSpanSelect(genSpan) {
  *     follows it closely. Restyled with FILTER_STYLE_PROMPT.
  *   - 'previz': generate a smooth grey maquette (PREVIS_PROMPT), then restyle (STYLE_PROMPT). Two
  *     Seedance gens; use when the source is too inconsistent for the filter to collapse.
- * Then restyle from the appearance refs, lift the restyle's chroma onto the source with one global
- * gain (unless `chroma:false`), and mux the input's audio onto the result.
+ * Then restyle from the appearance refs, conform the restyle's colour onto the source — a global
+ * chroma gain (unless `chroma:false`) and a robust luma-range match (unless `luma:false`) — and mux
+ * the input's audio onto the result.
  *
  * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
- * Returns { outputPath, previzPath, guidance, chroma, refs, jobs, model, resolution }.
+ * Returns { outputPath, previzPath, guidance, chroma, luma, refs, jobs, model, resolution }.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, chroma? }
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, chroma?, luma? }
  * `genSpan` is `[startFrame, endFrame)` of the spliced clip to desaturate. Omit it to grey the whole clip.
- * `chroma` (default true) runs the global saturation match against the source; false leaves the restyle's colour as-is.
+ * `chroma` (default true) runs the global saturation match; `luma` (default true) runs the tonal-range match. Either false leaves that channel as-is.
  * `deps`: { runner, runBatch, downloadTo, ff, ffprobe } — injected for tests.
  */
 export async function harmonizeVideo(root, spec, {
@@ -233,7 +272,7 @@ export async function harmonizeVideo(root, spec, {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
     guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR, genSpan = null,
-    chroma = true,
+    chroma = true, luma = true,
   } = spec;
   if (genSpan && (!Number.isInteger(genSpan[0]) || !Number.isInteger(genSpan[1]) || genSpan[1] <= genSpan[0])) {
     throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
@@ -295,24 +334,35 @@ export async function harmonizeVideo(root, spec, {
   });
   await downloadTo(restyle.outputUrl, restyledTmp);
 
-  // Global chroma match: the restyle drives off a desaturated guidance pass, so its colour lands
-  // a touch washed out vs the source. Measure the average saturation of the source (the frames
-  // outside any gen span — the look to match) and of the restyle, and lift the restyle's chroma
-  // by one global gain with `hue=s=`. hue scales chroma about its own centroid, so it restores the
-  // magnitude without shifting white balance. gain==1 (match, or untrustworthy measurement) keeps
-  // the fast stream-copy path. The flat backdrop is near-neutral, so a global gain does not visibly
-  // over-saturate it.
+  // Non-generative colour conform onto the source. The restyle drives off a desaturated guidance
+  // pass, so its colour and tone drift from the source. Measure the source (frames outside any gen
+  // span — the look to match) and the restyle with one signalstats pass each, then:
+  //   - CHROMA: lift saturation by one global gain with `hue=s=`. The restyle comes out uniformly
+  //     washed, so a single gain is right; hue scales chroma about its own centroid, restoring the
+  //     magnitude without shifting white balance, and the near-neutral backdrop is not over-saturated.
+  //   - LUMA: match the tonal range with a robust `lutyuv` linear map (YLOW/YHIGH onto the source).
+  //     Brightness error is NOT uniform — the character already matches, only the flat backdrop is
+  //     too bright — so a mean offset would darken the character; the range map corrects the backdrop
+  //     while barely moving the midtones.
+  // An identity transform (a match, or an untrustworthy grey/flat measurement) is skipped, and when
+  // both are identity the fast stream-copy path is kept.
   let chromaInfo = { gain: 1, sourceSat: null, harmonizedSat: null };
-  if (chroma) {
-    const sourceSat = await measureSaturation(ff, input, outsideSpanSelect(genSpan));
-    const harmonizedSat = await measureSaturation(ff, restyledTmp);
-    chromaInfo = { gain: chromaGain(sourceSat, harmonizedSat), sourceSat, harmonizedSat };
+  let lumaInfo = { a: 1, b: 0, source: null, harmonized: null };
+  if (chroma || luma) {
+    const src = await measureSignal(ff, input, outsideSpanSelect(genSpan));
+    const harm = await measureSignal(ff, restyledTmp);
+    if (chroma) chromaInfo = { gain: chromaGain(src.sat, harm.sat), sourceSat: src.sat, harmonizedSat: harm.sat };
+    if (luma) { const m = lumaMap(src, harm); lumaInfo = { ...m, source: src, harmonized: harm }; }
   }
 
-  // Carry the input's audio onto the restyled clip, applying the chroma gain in the same pass when
-  // there is one to apply (otherwise copy the video stream through untouched).
-  if (chromaInfo.gain !== 1) {
-    await ff(['-i', restyledTmp, '-i', input, '-vf', `hue=s=${chromaInfo.gain.toFixed(4)}`,
+  // Build the conform filter chain (chroma + luma are independent — one touches chroma planes, the
+  // other the luma plane — so order is immaterial), applying it during the audio mux.
+  const filters = [];
+  if (chromaInfo.gain !== 1) filters.push(`hue=s=${chromaInfo.gain.toFixed(4)}`);
+  if (lumaInfo.a !== 1 || lumaInfo.b !== 0) filters.push(`lutyuv='y=clip(${lumaInfo.a.toFixed(4)}*val+${lumaInfo.b.toFixed(2)}\\,0\\,255)'`);
+
+  if (filters.length) {
+    await ff(['-i', restyledTmp, '-i', input, '-vf', filters.join(','),
       '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]);
   } else {
     await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
@@ -323,7 +373,7 @@ export async function harmonizeVideo(root, spec, {
   return {
     outputPath, previzPath: keepPreviz ? guidancePath : null,
     guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null },
-    chroma: chromaInfo,
+    chroma: chromaInfo, luma: lumaInfo,
     refs, jobs: { previz: previzJob, restyle: restyle.id },
     model: HARMONIZE_MODEL, resolution, aspectRatio, duration,
   };
