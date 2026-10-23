@@ -67,8 +67,8 @@ main { min-width:0; }
     <div class="toolbar">
       <div class="toolbar-head">
         <h1>EP2 Textpose — FAL Roll 1 (first/last-kf, padded)</h1>
-        <p class="sub">13 shot(s) · generated 2026-10-23T18:13:31.293Z</p>
-        <div class="note">fal.ai Seedance 2.5 runner (replaces HF), first/last-keyframe timing, 12% reference-frame padding, default splice (TRS + flow morph). 13 edits. v01 source · v02 raw fal gen · v03 spliced. ai-4 (real hands) replaced by ai-2 tail. Changed gestures: ai-7 head, ai-3 mid, art-8 mid, monster-4 head. Note: text-pose gesture injection is weak where the source window is already expressive (see ai-2).</div>
+        <p class="sub">13 shot(s) · generated 2026-10-23T21:48:05.935Z</p>
+        <div class="note">fal.ai Seedance 2.5, first/last-kf timing, 12% padded refs, BLANK speechref (makeBlankSpeechVideo — mid-gray frame + window audio, NOT the moving source). Default splice (TRS + flow morph). 13 edits. v01 source · v02 raw fal gen · v03 spliced. Using the blank speechref (vs the source window) both lets the text gesture land and holds the reference-frame framing (fixed the crop on ai-3 mid / art-1 tail / art-4 head / monster-4 head).</div>
         <div class="toolbar-actions" id="toolbar"></div>
       </div>
     </div>
@@ -77,7 +77,7 @@ main { min-width:0; }
 </div>
 <script type="application/json" id="review-data">{
   "model": {
-    "generatedAt": "2026-10-23T18:13:31.293Z",
+    "generatedAt": "2026-10-23T21:48:05.935Z",
     "type": "shots",
     "shots": [
       {
