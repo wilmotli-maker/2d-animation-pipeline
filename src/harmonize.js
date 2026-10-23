@@ -62,6 +62,16 @@ export const FILTER_STYLE_PROMPT =
 export const HARMONIZE_DEFAULT_GUIDANCE = 'filter'; // 'filter' (non-generative b+w+blur) | 'previz' (generated grey maquette)
 export const HARMONIZE_DEFAULT_BLUR = 1.2;          // gaussian sigma for the filter guidance
 
+// Chroma-match bounds. The restyle drives off a desaturated guidance pass, so its colour comes
+// out a touch washed vs the source. A single global saturation gain lifts it back. Guard rails:
+// skip when the gain is within the deadband of 1 (no visible change, avoids a needless re-encode)
+// and clamp so a degenerate measurement (near-grey restyle, a grey source span) cannot blow up.
+export const CHROMA_GAIN_MIN = 0.5;
+export const CHROMA_GAIN_MAX = 2.0;
+export const CHROMA_GAIN_DEADBAND = 0.03;
+// Below this average saturation the clip is effectively greyscale; a ratio off it is unreliable.
+const CHROMA_MIN_SAT = 0.5;
+
 // Seedance 2.5 aspect ratios (see src/validate.js). Pick the closest to the source.
 const ASPECTS = [['3:4', 3 / 4], ['16:9', 16 / 9], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3], ['21:9', 21 / 9]];
 export function nearestAspect(width, height) {
@@ -157,6 +167,46 @@ export function selectiveFilterPrompt(startFrame, endFrame, fps) {
     'images. Background: the same plain flat colour as the reference image; add no scenery, props or set.';
 }
 
+// Mean of the per-frame SATAVG values in an ffmpeg `signalstats,metadata=print` dump.
+// SATAVG is the average chroma magnitude sqrt((U-128)^2+(V-128)^2) of a frame, so its
+// clip mean is a single global saturation level. Returns null when nothing parsed.
+export function parseSatAvg(text) {
+  if (!text) return null;
+  let sum = 0, n = 0;
+  const re = /lavfi\.signalstats\.SATAVG=([\d.]+)/g;
+  let m;
+  while ((m = re.exec(String(text)))) { sum += Number(m[1]); n += 1; }
+  return n ? sum / n : null;
+}
+
+// Average SATAVG over `file`, optionally only the frames kept by `selectExpr` (an ffmpeg
+// select expression, e.g. to skip a gen span). ff must return the command's stdout.
+async function measureSaturation(ff, file, selectExpr) {
+  const chain = (selectExpr ? `select='${selectExpr}',` : '') + 'signalstats,metadata=print:file=-';
+  const out = await ff(['-i', file, '-vf', chain, '-an', '-f', 'null', '-']);
+  return parseSatAvg(out);
+}
+
+// Single global saturation gain that lifts `harmSat` onto `srcSat`. Returns 1 (no change) when
+// either side is missing or too grey to trust, or when the gain sits inside the deadband; otherwise
+// the clamped ratio. The hue filter scales chroma about its own centroid, so this preserves the
+// source's white balance and only restores the magnitude the guidance pass washed out.
+export function chromaGain(srcSat, harmSat, {
+  min = CHROMA_GAIN_MIN, max = CHROMA_GAIN_MAX, deadband = CHROMA_GAIN_DEADBAND, minSat = CHROMA_MIN_SAT,
+} = {}) {
+  if (!(srcSat > minSat) || !(harmSat > minSat)) return 1;
+  let g = srcSat / harmSat;
+  g = Math.min(max, Math.max(min, g));
+  return Math.abs(g - 1) <= deadband ? 1 : g;
+}
+
+// Frames OUTSIDE the gen span are the source look to match ("the regions outside the generated
+// clip"). With no span, the whole source clip is the target.
+function outsideSpanSelect(genSpan) {
+  if (!genSpan) return null;
+  return `not(between(n\\,${genSpan[0]}\\,${genSpan[1] - 1}))`;
+}
+
 /**
  * Harmonize a video so one continuous Seedance pass replaces the whole clip (removing splice
  * seams). Two guidance modes build the stage-1 driving clip:
@@ -165,13 +215,15 @@ export function selectiveFilterPrompt(startFrame, endFrame, fps) {
  *     follows it closely. Restyled with FILTER_STYLE_PROMPT.
  *   - 'previz': generate a smooth grey maquette (PREVIS_PROMPT), then restyle (STYLE_PROMPT). Two
  *     Seedance gens; use when the source is too inconsistent for the filter to collapse.
- * Then restyle from the appearance refs and mux the input's audio onto the result.
+ * Then restyle from the appearance refs, lift the restyle's chroma onto the source with one global
+ * gain (unless `chroma:false`), and mux the input's audio onto the result.
  *
  * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
- * Returns { outputPath, previzPath, guidance, refs, jobs, model, resolution }.
+ * Returns { outputPath, previzPath, guidance, chroma, refs, jobs, model, resolution }.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan? }
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, chroma? }
  * `genSpan` is `[startFrame, endFrame)` of the spliced clip to desaturate. Omit it to grey the whole clip.
+ * `chroma` (default true) runs the global saturation match against the source; false leaves the restyle's colour as-is.
  * `deps`: { runner, runBatch, downloadTo, ff, ffprobe } — injected for tests.
  */
 export async function harmonizeVideo(root, spec, {
@@ -181,6 +233,7 @@ export async function harmonizeVideo(root, spec, {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
     guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR, genSpan = null,
+    chroma = true,
   } = spec;
   if (genSpan && (!Number.isInteger(genSpan[0]) || !Number.isInteger(genSpan[1]) || genSpan[1] <= genSpan[0])) {
     throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
@@ -242,14 +295,35 @@ export async function harmonizeVideo(root, spec, {
   });
   await downloadTo(restyle.outputUrl, restyledTmp);
 
-  // Carry the input's audio onto the silent restyled clip.
-  await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
+  // Global chroma match: the restyle drives off a desaturated guidance pass, so its colour lands
+  // a touch washed out vs the source. Measure the average saturation of the source (the frames
+  // outside any gen span — the look to match) and of the restyle, and lift the restyle's chroma
+  // by one global gain with `hue=s=`. hue scales chroma about its own centroid, so it restores the
+  // magnitude without shifting white balance. gain==1 (match, or untrustworthy measurement) keeps
+  // the fast stream-copy path. The flat backdrop is near-neutral, so a global gain does not visibly
+  // over-saturate it.
+  let chromaInfo = { gain: 1, sourceSat: null, harmonizedSat: null };
+  if (chroma) {
+    const sourceSat = await measureSaturation(ff, input, outsideSpanSelect(genSpan));
+    const harmonizedSat = await measureSaturation(ff, restyledTmp);
+    chromaInfo = { gain: chromaGain(sourceSat, harmonizedSat), sourceSat, harmonizedSat };
+  }
+
+  // Carry the input's audio onto the restyled clip, applying the chroma gain in the same pass when
+  // there is one to apply (otherwise copy the video stream through untouched).
+  if (chromaInfo.gain !== 1) {
+    await ff(['-i', restyledTmp, '-i', input, '-vf', `hue=s=${chromaInfo.gain.toFixed(4)}`,
+      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]);
+  } else {
+    await ff(['-i', restyledTmp, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
+  }
   await rm(restyledTmp, { force: true });
   if (!keepPreviz) await rm(guidancePath, { force: true });
 
   return {
     outputPath, previzPath: keepPreviz ? guidancePath : null,
     guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null },
+    chroma: chromaInfo,
     refs, jobs: { previz: previzJob, restyle: restyle.id },
     model: HARMONIZE_MODEL, resolution, aspectRatio, duration,
   };
