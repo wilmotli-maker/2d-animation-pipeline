@@ -84,7 +84,9 @@ Five paragraphs (see `scaffold-muapi-tc.js` / `scaffold-muapi-trim.js` for the e
    while the body reaches the keyframe pose. Take ONLY audio + timing from `@Video1`; take body
    pose, framing and appearance from `@Image1…@Image3`." Quote the dialogue **verbatim** (transcribe
    with `pipeline voice transcribe`).
-3. **Framing** — full-body WIDE 3:4, head-to-feet always visible, locked camera, mid-gray bg.
+3. **Framing** — full-body WIDE 3:4, head-to-feet always visible, locked camera, mid-gray bg. Demand a
+   generous margin of empty space on ALL sides (above the head/antennae/hair, below the feet, and left/
+   right) so nothing touches a frame edge — if anything would reach an edge, leave more space, never crop.
 4. **Keyframes** — "pass smoothly THROUGH each at its timestamp, no held freezes: `@Image1` at 0.0s;
    `@Image2` at D/2 s — at this instant the BODY reaches the pose (<poseDesc>). **This keyframe sets
    the BODY and EYES only; the MOUTH ignores the reference image's mouth and keeps lip-syncing to

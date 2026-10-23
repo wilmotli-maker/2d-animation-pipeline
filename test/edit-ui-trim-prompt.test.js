@@ -32,6 +32,8 @@ test('the framing paragraph preserves the source shot, locks the camera, and kee
   assert.match(p, /must NOT zoom, push in, pan/i);
   assert.match(p, /BOTH feet/);                        // enumerated full figure
   assert.match(p, /never crop or cut off the legs or feet/i);
+  assert.match(p, /margin of empty space/i);           // breathing room on all sides
+  assert.match(p, /antenn/i);                          // top edge: antennae/hair/hat not clipped
 });
 
 test('a style lock is folded into the opening paragraph when provided', () => {
