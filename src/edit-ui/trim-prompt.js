@@ -30,17 +30,23 @@ const animationBlock =
   'The whole clip is ONE continuous, FULLY animated take with constant natural in-between motion, ' +
   'NOT limited or pose-to-pose — the body eases smoothly between beats with no held static poses and no abrupt snaps.';
 
-// Generic full-body framing block (character-neutral: the shot-author version names a specific
-// character's parts; this one enumerates head→feet so any subject stays fully in frame).
-const framingBlock =
-  'Portrait 3:4 vertical frame, WIDE full-length shot. Frame the character in COMPLETE FULL BODY — ' +
-  'the entire figure from the top of the head down through the torso, hips, knees and BOTH feet is ' +
-  'fully visible at all times, with a clear gap of background beneath the feet and above the head. ' +
-  'Pull the camera back far enough for a generous buffer on all four sides. NEVER crop, cut off, or ' +
-  'push in so that the knees, legs, feet, waist or head leave the frame — no waist-up, no medium ' +
-  'shot, no knee-up framing at any moment. The character does not step or drift toward the camera; ' +
-  'the wide full-length framing is held for the entire clip. Minimal camera movement, locked frame. ' +
-  'Even mid-gray seamless background matching the reference frames.';
+// Framing block — DERIVED, not fixed. An edit must match its source shot, so the aspect ratio,
+// shot size and viewpoint all come from the reference frames (or an explicit caller hint), never a
+// baked-in "3:4 full-body". `aspect` (e.g. '16:9', '3:4') states the ratio when known; `framing` is
+// an optional shot-size hint ('full-length', 'waist-up', 'close-up on the face', …) — when it reads
+// as full-length the enumerated head→feet anti-crop language is added, otherwise it is quoted as-is.
+function framingBlock(aspect = '', framing = '') {
+  const asp = aspect ? `Keep a ${aspect} frame` : 'Keep the same aspect ratio as the reference frames';
+  const parts = [
+    `${asp}. Reproduce the EXACT framing shown in the reference frames and hold it locked for the whole clip — the same shot size and crop, the same subject scale and position, the same camera angle, orientation and viewpoint, the same headroom and side margins, and the same background. The camera is locked: it does not zoom, push in, pan, tilt or drift, and the subject does not move toward or away from the camera or change its facing. Whatever the reference frames show — full-length, three-quarter, medium or close — keep exactly that; never tighten, widen, re-crop, or change the angle.`,
+  ];
+  if (/full|length|\bbody\b|head.?to.?feet|wide/i.test(framing)) {
+    parts.push('The reference frames show the COMPLETE FULL BODY — the entire figure from the top of the head down through the torso, hips, knees and BOTH feet stays fully inside the frame at all times, with a clear margin of background on every side; NEVER crop, cut off, or push in past the knees, legs, feet or head.');
+  } else if (framing.trim()) {
+    parts.push(`Framing: ${framing.trim()}.`);
+  }
+  return parts.join(' ');
+}
 
 // Audio rule (shot-author): only the attached speech, never music or effects.
 const audioBlock =
@@ -64,7 +70,7 @@ function editBlock({ poses, gesture, gestureOffset, end }) {
   return `The attached reference frames are keyframes pinned to specific times — pass smoothly THROUGH each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
 }
 
-export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '' } = {}) {
+export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '', aspect = '', framing = '' } = {}) {
   const end = s1(clipDuration);
 
   const styleMood = 'Style & Mood: a single continuous, fully-animated talking performance edited from an existing shot — preserve the source shot’s established look, register and staging.';
@@ -76,12 +82,15 @@ export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gestu
     'Keep the hands/claws empty — nothing is held, picked up, or conjured, and no prop ever appears in frame.',
   ].join(' ');
 
-  // Static: carry the exact design from the attached reference frames (NOT a single turnaround still
-  // — an edit has a first AND a last frame), fold in the caller's style lock, then the framing block.
+  // Static: carry the exact design from the attached reference frames — plural: the first and last
+  // frames and any middle keyframe, NOT a single turnaround still — including whatever orientation /
+  // viewpoint they show (not assumed to be three-quarter). Fold in the caller's style lock, then the
+  // derived framing block.
+  const refs = 'the attached reference frames (the first and last frames, and any middle pose keyframe)';
   const design = styleLock.trim()
-    ? `The character carries its exact design, line weight, coloring, proportions and art style from the attached reference frames: ${styleLock.trim()}`
-    : 'The character carries its exact design, line weight, coloring, proportions and art style from the attached reference frames — match them precisely and do not redesign or re-style.';
-  const stat = `Static Description: ${design} ${framingBlock} Total runtime: ${end}s. ${audioBlock}`;
+    ? `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs}: ${styleLock.trim()}`
+    : `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs} — match them precisely and do not redesign, re-style, or re-orient.`;
+  const stat = `Static Description: ${design} ${framingBlock(aspect, framing)} Total runtime: ${end}s. ${audioBlock}`;
 
   return [styleMood, dynamic, stat].join('\n\n');
 }

@@ -99,11 +99,20 @@ edit-ui generator and the eval scripts; it emits:
      smoothly THROUGH `@Image1` @0s; each pose `@Image{k}` @ its offset (**BODY + EYES only, mouth
      keeps lip-syncing**); last `@Image{n}` @Ns.
    - **No props** — hands/claws stay empty, nothing held or conjured.
-3. **Static Description** — the character **carries its exact design from the attached reference
-   frames** (first AND last — *not* a single turnaround still), with the caller's **style lock**
-   folded in for the design/art-style, then the full-body **framing** block (3:4 WIDE, head→feet
-   always in frame, locked camera, mid-gray bg), then **Total runtime: Ns** and the **Audio** rule
-   (only the speech ref; no music/SFX).
+3. **Static Description** — the character **carries its exact design, art style AND orientation from
+   the attached reference frames** (the first and last frames, and any middle keyframe — *plural*,
+   *not* a single turnaround still, and *not* assumed three-quarter: whatever viewpoint the frames
+   show), with the caller's **style lock** folded in, then the **framing** block, then
+   **Total runtime: Ns** and the **Audio** rule (only the speech ref; no music/SFX).
+
+   **Framing is DERIVED, never fixed.** An edit must match its source shot, so aspect, shot size and
+   viewpoint come from the reference frames, not a baked-in portrait/full-body default.
+   `buildTrimPrompt` takes `aspect` (e.g. `'16:9'`, `'3:4'` — the edit-ui derives it from the source
+   dimensions via `nearestAspect`) and an optional `framing` shot-size hint (`'full-length'`,
+   `'waist-up'`, `'close-up on the face'`, …). With no hint it says "reproduce the exact framing shown
+   in the reference frames, locked"; a full-length hint adds the head→feet anti-crop enumeration; any
+   other hint is quoted as-is. So the same builder handles a 16:9 waist-up talking shot and a 3:4
+   full-length shot.
 
 **Style lock, not the source prompt.** The caller passes `styleLock` (the element's
 `style-lock.yaml` `style_stack`, or the shot's known design line) — use the **correct per-character**

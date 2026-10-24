@@ -137,7 +137,7 @@ export function createTrimGenerator(deps = {}) {
           }
 
           const gestureOffset = w.editCenters.length ? w.editCenters[0] - w.window[0] : undefined;
-          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: windowPrompt(w), gestureOffset, styleLock });
+          const prompt = buildTrimPrompt({ dialogue, clipDuration: w.clipDuration, poses, gesture: windowPrompt(w), gestureOffset, styleLock, aspect });
           const promptFile = path.join(wDir, 'prompt.md');
           await writeFile(promptFile, prompt + '\n');
 

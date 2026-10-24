@@ -52,13 +52,29 @@ test('reuses the shot-author three-part structure with an audio rule and a runti
   assert.match(p, /NO music/i);
 });
 
-test('the framing paragraph keeps the full figure, locks the camera, and uses a 3:4 frame', () => {
+test('framing is DERIVED from the reference frames by default — no baked-in aspect or shot size', () => {
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves' });
-  assert.match(p, /3:4/);
+  assert.match(p, /same aspect ratio as the reference frames/i);     // not a hardcoded 3:4
+  assert.match(p, /Reproduce the EXACT framing shown in the reference frames/i);
+  assert.match(p, /orientation and viewpoint/i);                     // viewpoint-agnostic, from frames
+  assert.doesNotMatch(p, /3:4/);                                     // no fixed aspect
+  assert.doesNotMatch(p, /COMPLETE FULL BODY/i);                     // no fixed shot size
+  assert.doesNotMatch(p, /three-quarter-front/i);                    // no assumed viewpoint
+});
+
+test('explicit aspect + full-length framing hint state the ratio and the head→feet anti-crop language', () => {
+  const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves', aspect: '3:4', framing: 'full-length' });
+  assert.match(p, /Keep a 3:4 frame/);
   assert.match(p, /COMPLETE FULL BODY/i);
-  assert.match(p, /locked frame/i);
-  assert.match(p, /BOTH feet/);                        // enumerated full figure
+  assert.match(p, /BOTH feet/);
   assert.match(p, /NEVER crop/i);
+});
+
+test('a non-portrait aspect and a non-full-body framing hint pass through (not forced to 3:4 full-body)', () => {
+  const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves', aspect: '16:9', framing: 'waist-up medium shot' });
+  assert.match(p, /Keep a 16:9 frame/);
+  assert.match(p, /Framing: waist-up medium shot/);
+  assert.doesNotMatch(p, /COMPLETE FULL BODY/i);       // did not force full-body
 });
 
 test('a style lock carries the character design into the Static Description', () => {
