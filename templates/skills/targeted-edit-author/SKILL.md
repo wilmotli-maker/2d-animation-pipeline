@@ -73,23 +73,52 @@ mapping). **Pin every keyframe to a specific time in seconds** and the model hit
   source motion** or it won't read as an edit. `scaffold-muapi-trim.js` builds the keyframe 3kfA;
   the text-pose prompt is the same minus the pose image (see `hf-textpose.js`).
 
-## Prompt structure
+## Prompt structure — rebuild a SHOT-AUTHOR prompt, don't invent an "edit" format
 
-Five paragraphs (see `scaffold-muapi-tc.js` / `scaffold-muapi-trim.js` for the exact builder):
+A targeted edit is just a **regular shot generation** whose only differences are (a) **two or more
+reference frames** — a first and a last, optionally a middle pose keyframe — and (b) an **injected
+pose** (a text gesture, or a pose keyframe) in the middle. So build the prompt with the **same
+shot-author structure and components** (see `shot-author` → *Prompt structure* and the lip-sync
+recipe), **rebuilt from the style lock + edit inputs** — never by reading or pasting the source
+shot's own prompt (it isn't always available, and the shot-author Static carries a single-turnaround
+clause that is wrong for an edit). The code builder is
+[`src/edit-ui/trim-prompt.js`](../../../src/edit-ui/trim-prompt.js) (`buildTrimPrompt`), reused by the
+edit-ui generator and the eval scripts; it emits:
 
-1. **Style + design lock** — flat cartoon illustration, the character's design-lock line, "stays
-   turned three-quarter-left, matching the reference images".
-2. **Speech / lip-sync** — "`@Video1` is the speech/lip-sync source. … saying, "<exact words>"
-   Full lip-sync REQUIRED for the ENTIRE N seconds … NEVER stops, holds, or freezes — not even
-   while the body reaches the keyframe pose. Take ONLY audio + timing from `@Video1`; take body
-   pose, framing and appearance from `@Image1…@Image3`." Quote the dialogue **verbatim** (transcribe
-   with `pipeline voice transcribe`).
-3. **Framing** — full-body WIDE 3:4, head-to-feet always visible, locked camera, mid-gray bg.
-4. **Keyframes** — "pass smoothly THROUGH each at its timestamp, no held freezes: `@Image1` at 0.0s;
-   `@Image2` at D/2 s — at this instant the BODY reaches the pose (<poseDesc>). **This keyframe sets
-   the BODY and EYES only; the MOUTH ignores the reference image's mouth and keeps lip-syncing to
-   `@Video1` without pause**; `@Image3` at D s."
-5. **Render style** — bold dark outlines, flat fills, no gradients/3D.
+1. **Style & Mood** — a continuous fully-animated talking performance edited from an existing shot;
+   preserve the source look/register/staging.
+2. **Dynamic Description** — reuses the shot-author components:
+   - **Speech / lip-sync** — `@Video1` is the voice+timing source; quote the dialogue **verbatim**
+     (`pipeline voice transcribe`); *"each word once — no repeats / doubles / stutter"*; the mouth
+     **NEVER freezes — keep lip-syncing even while the body reaches the pose or the hands pass near
+     the face"*.
+   - **Animation** — ONE continuous FULLY animated take, **not pose-to-pose, no abrupt snaps** (so
+     the injected gesture flows in and out).
+   - **The edit** — *text pose*: `@Image1` at 0.0s → gesture peaking at the offset (a distinct new
+     gesture not in the start/end frames) → eases back to `@Image2` at Ns. *Keyframe pose*: pass
+     smoothly THROUGH `@Image1` @0s; each pose `@Image{k}` @ its offset (**BODY + EYES only, mouth
+     keeps lip-syncing**); last `@Image{n}` @Ns.
+   - **No props** — hands/claws stay empty, nothing held or conjured.
+3. **Static Description** — the character **carries its exact design, art style AND orientation from
+   the attached reference frames** (the first and last frames, and any middle keyframe — *plural*,
+   *not* a single turnaround still, and *not* assumed three-quarter: whatever viewpoint the frames
+   show), with the caller's **style lock** folded in, then the **framing** block, then
+   **Total runtime: Ns** and the **Audio** rule (only the speech ref; no music/SFX).
+
+   **Framing is DERIVED, never fixed.** An edit must match its source shot, so aspect, shot size and
+   viewpoint come from the reference frames, not a baked-in portrait/full-body default.
+   `buildTrimPrompt` takes `aspect` (e.g. `'16:9'`, `'3:4'` — the edit-ui derives it from the source
+   dimensions via `nearestAspect`) and an optional `framing` shot-size hint (`'full-length'`,
+   `'waist-up'`, `'close-up on the face'`, …). With no hint it says "reproduce the exact framing shown
+   in the reference frames, locked"; a full-length hint adds the head→feet anti-crop enumeration; any
+   other hint is quoted as-is. So the same builder handles a 16:9 waist-up talking shot and a 3:4
+   full-length shot.
+
+**Style lock, not the source prompt.** The caller passes `styleLock` (the element's
+`style-lock.yaml` `style_stack`, or the shot's known design line) — use the **correct per-character**
+lock (e.g. the painterly-watercolor AI vs the flat children's-book artist are different styles). The
+builder composes everything from `styleLock` + the frames + the pose, so it works even when the
+original shot prompt is gone.
 
 ### Mouth vs. pose (measured — don't over-correct)
 

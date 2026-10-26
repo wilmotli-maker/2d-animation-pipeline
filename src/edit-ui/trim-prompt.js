@@ -1,54 +1,96 @@
 // src/edit-ui/trim-prompt.js
-// Compose the targeted-edit prompt for one window, following the five-paragraph structure of
-// the `targeted-edit-author` skill (style/design lock, speech+lip-sync, framing, the edit,
-// render style). Unlike the shot-author flow, the edit-ui case EDITS an existing performance,
-// so the style/orientation/framing/render locks are worded to PRESERVE what the reference
-// frames already show (an optional `styleLock` string is folded into the opening paragraph);
-// only the marked beat changes. Keyframe windows pin stills to timestamps; text-pose windows
-// describe a mid-clip gesture instead of a middle keyframe.
+// Compose the targeted-edit prompt for one window by REBUILDING a shot-author-style prompt from
+// its components, rather than the old bespoke "edit" five-paragraph format. A targeted edit is just
+// a regular shot generation whose only differences are: (a) two or more reference frames — a first
+// and a last, optionally a middle pose keyframe — and (b) an injected pose (a text gesture, or a
+// pose keyframe) in the middle. So the prompt reuses the shot-generation components — the speech /
+// no-repeat / lip-sync guard, the fully-animated / no-snap rule, the full-body framing block, and
+// the audio rule — and carries the character design from the caller-supplied `styleLock` (the
+// element's style lock). It never reads the source shot's own prompt, so it works even when that
+// prompt is unavailable. See templates/skills/targeted-edit-author/SKILL.md.
 const s1 = (n) => Number(n).toFixed(1);
 
-export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '' } = {}) {
-  const end = s1(clipDuration);
-  const textPose = poses.length === 0;
-  const n = poses.length + 2;                       // first + poses + last
-  const imageTags = Array.from({ length: n }, (_, i) => `@Image${i + 1}`).join(', ');
-  const lines = [];
+// --- Reusable shot-generation components (shared language, parameterised by duration) -----------
 
-  // 1. Style + design / orientation lock (preservation-worded; optional style lock folded in).
-  const p1 = ['A single continuous, fully-animated performance edited from an existing shot.'];
-  if (styleLock.trim()) p1.push(styleLock.trim());
-  p1.push('Preserve the subject’s exact appearance, costume, proportions and orientation as shown in the reference frames throughout — do not redesign or re-style them.');
-  lines.push(p1.join(' '));
+// Speech + lip-sync: exact words, each once (no repeats/doubles/stutter), and a mouth that never
+// freezes — not even while the body reaches the injected pose or the hands pass near the face.
+function speechBlock(dialogue, end) {
+  const parts = ['The attached speech reference (@Video1) is the voice and timing source.'];
+  if (dialogue.trim()) parts.push(`The character speaks directly to camera, saying, "${dialogue.trim()}"`);
+  parts.push(
+    `Say exactly and only this line, speaking each word once — no repeats, no doubled or echoed syllables, no stutter, and no re-articulating the final word; after the last word the mouth closes cleanly and holds still.`,
+    `Full lip-sync is required for the entire ${end} seconds: drive the mouth continuously so it opens and closes on every syllable and matches each spoken word, and NEVER hold the mouth static or freeze it — keep lip-syncing even while the body reaches the new pose or the hands move up near the face.`,
+    `Take the voice and its exact timing ONLY from @Video1; take appearance, body and framing from the still reference frames.`,
+  );
+  return parts.join(' ');
+}
 
-  // 2. Speech / lip-sync.
-  const sp = ['@Video1 is the speech/lip-sync source.'];
-  if (dialogue.trim()) sp.push(`The subject speaks directly to camera, saying, "${dialogue.trim()}"`);
-  sp.push(`Full lip-sync is REQUIRED for the ENTIRE ${end} seconds: the mouth moves continuously to match @Video1’s audio from the first frame to the last and NEVER stops, holds, or freezes. Take ONLY the audio and speech timing from @Video1; take appearance, framing and body from the still reference frames ${imageTags}.`);
-  lines.push(sp.join(' '));
+// Fully-animated, no pose-to-pose snapping (the edit's gesture must flow, not pop in/out).
+const animationBlock =
+  'The whole clip is ONE continuous, FULLY animated take with constant natural in-between motion, ' +
+  'NOT limited or pose-to-pose — the body eases smoothly between beats with no held static poses and no abrupt snaps.';
 
-  // 3. Framing — preserve the source shot. Enumerate the body and pin "at all times": an abstract
-  // "keep the subject in frame" lets the model tighten the shot and crop legs/feet (measured).
-  lines.push('Match the reference frames’ framing EXACTLY and hold it on every single frame: the same shot size, the same subject scale and position, the same headroom and side margins, the same locked camera and the same background. The subject must NOT move toward the camera and the camera must NOT zoom, push in, pan, or drift. If the reference frames show the full figure, the ENTIRE figure — the top of the head down through the torso, hips, knees and BOTH feet — stays fully inside the frame for the whole clip: never crop or cut off the legs or feet, and never tighten the shot.');
-
-  // 4. The edit.
-  if (textPose) {
-    const mid = s1(gestureOffset != null ? gestureOffset : clipDuration / 2);
-    const act = gesture.trim().replace(/[.\s]+$/, '') || 'makes a distinct new gesture';
-    // Pin @Image1/@Image2 to the exact start/end instants (and reproduce their full-body framing).
-    // Backends that address references by prompt tag (MuAPI, fal) otherwise treat the start/end
-    // frames as loose style refs and tighten the shot — cropping legs/feet (observed on MuAPI art-1).
-    lines.push(`The still reference frames are keyframes pinned to SPECIFIC times: the clip STARTS exactly on @Image1 at 0.0s and ENDS exactly on @Image2 at ${end}s — reproduce each precisely, INCLUDING its full-body framing, subject scale and position. In between, peaking at about ${mid}s, the subject ${act} — a distinct new gesture not present in @Image1 or @Image2 — then eases back to the @Image2 pose by ${end}s. Move continuously and naturally with no held freezes; the mouth keeps lip-syncing to @Video1 the whole time.`);
-  } else {
-    const pins = ['@Image1 at 0.0s'];
-    poses.forEach((p, i) => pins.push(`@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY reaches the keyframe pose; this keyframe sets the BODY and EYES only, the MOUTH ignores the reference image’s mouth and keeps lip-syncing to @Video1`));
-    pins.push(`@Image${n} at ${end}s`);
-    let para = `The clip is exactly ${end} seconds long. The still reference images are keyframes pinned to SPECIFIC times — pass smoothly THROUGH each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
-    if (gesture.trim()) para += ` The injected pose: ${gesture.trim()}.`;
-    lines.push(para);
+// Framing block — DERIVED, not fixed. An edit must match its source shot, so the aspect ratio,
+// shot size and viewpoint all come from the reference frames (or an explicit caller hint), never a
+// baked-in "3:4 full-body". `aspect` (e.g. '16:9', '3:4') states the ratio when known; `framing` is
+// an optional shot-size hint ('full-length', 'waist-up', 'close-up on the face', …) — when it reads
+// as full-length the enumerated head→feet anti-crop language is added, otherwise it is quoted as-is.
+function framingBlock(aspect = '', framing = '') {
+  const asp = aspect ? `Keep a ${aspect} frame` : 'Keep the same aspect ratio as the reference frames';
+  const parts = [
+    `${asp}. Reproduce the EXACT framing shown in the reference frames and hold it locked for the whole clip — the same shot size and crop, the same subject scale and position, the same camera angle, orientation and viewpoint, the same headroom and side margins, and the same background. The camera is locked: it does not zoom, push in, pan, tilt or drift, and the subject does not move toward or away from the camera or change its facing. Whatever the reference frames show — full-length, three-quarter, medium or close — keep exactly that; never tighten, widen, re-crop, or change the angle.`,
+  ];
+  if (/full|length|\bbody\b|head.?to.?feet|wide/i.test(framing)) {
+    parts.push('The reference frames show the COMPLETE FULL BODY — the entire figure from the top of the head down through the torso, hips, knees and BOTH feet stays fully inside the frame at all times, with a clear margin of background on every side; NEVER crop, cut off, or push in past the knees, legs, feet or head.');
+  } else if (framing.trim()) {
+    parts.push(`Framing: ${framing.trim()}.`);
   }
+  return parts.join(' ');
+}
 
-  // 5. Render style — preserve the reference look.
-  lines.push('Match the exact art style of the reference frames — the same line work, color, shading and level of detail. Do not introduce gradients, 3D, or photorealism that are not already present in the references.');
-  return lines.join('\n\n');
+// Audio rule (shot-author): only the attached speech, never music or effects.
+const audioBlock =
+  'Audio: use ONLY the exact voice from the attached speech reference — reproduce that recording and ' +
+  'nothing else. ABSOLUTELY NO music, no sound effects, no foley, no room tone, no ambient noise, and ' +
+  'no extra vocalizations at any point; any silence stays completely silent.';
+
+// The edit itself: how the first/last frames (and any middle pose keyframes) are placed in time, and
+// how the injected pose is expressed — a text gesture (two stills) or pose keyframes (three+ stills).
+function editBlock({ poses, gesture, gestureOffset, end }) {
+  const act = gesture.trim().replace(/[.\s]+$/, '') || 'makes a distinct new gesture';
+  if (poses.length === 0) {
+    const mid = s1(gestureOffset != null ? gestureOffset : Number(end) / 2);
+    return `The clip STARTS exactly on the attached first reference frame (@Image1) at 0.0s and ENDS exactly on the attached last reference frame (@Image2) at ${end}s — reproduce each reference frame precisely, including its exact full-body framing, subject scale and position. In between, peaking at about ${mid}s, the character ${act} — a distinct new gesture not present in @Image1 or @Image2 — then eases naturally all the way back to the @Image2 pose and framing by ${end}s, flowing with continuous in-between motion and no snaps.`;
+  }
+  const n = poses.length + 2;
+  const pins = ['@Image1 at 0.0s'];
+  poses.forEach((p, i) => pins.push(
+    `@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY reaches the keyframe pose (${act}); this keyframe sets the BODY and EYES only, the MOUTH ignores the reference image's mouth and keeps lip-syncing to @Video1 without pause`));
+  pins.push(`@Image${n} at ${end}s`);
+  return `The attached reference frames are keyframes pinned to specific times — pass smoothly THROUGH each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
+}
+
+export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '', aspect = '', framing = '' } = {}) {
+  const end = s1(clipDuration);
+
+  const styleMood = 'Style & Mood: a single continuous, fully-animated talking performance edited from an existing shot — preserve the source shot’s established look, register and staging.';
+
+  const dynamic = 'Dynamic Description: ' + [
+    speechBlock(dialogue, end),
+    animationBlock,
+    editBlock({ poses, gesture, gestureOffset, end }),
+    'Keep the hands/claws empty — nothing is held, picked up, or conjured, and no prop ever appears in frame.',
+  ].join(' ');
+
+  // Static: carry the exact design from the attached reference frames — plural: the first and last
+  // frames and any middle keyframe, NOT a single turnaround still — including whatever orientation /
+  // viewpoint they show (not assumed to be three-quarter). Fold in the caller's style lock, then the
+  // derived framing block.
+  const refs = 'the attached reference frames (the first and last frames, and any middle pose keyframe)';
+  const design = styleLock.trim()
+    ? `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs}: ${styleLock.trim()}`
+    : `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs} — match them precisely and do not redesign, re-style, or re-orient.`;
+  const stat = `Static Description: ${design} ${framingBlock(aspect, framing)} Total runtime: ${end}s. ${audioBlock}`;
+
+  return [styleMood, dynamic, stat].join('\n\n');
 }

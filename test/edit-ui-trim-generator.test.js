@@ -156,7 +156,7 @@ test('the gesture uses the raw per-mark prompt, not the composed prompt.text (no
     job.run.prompts = [{ markId: 'm1', text: 'raises one fist proudly.' }];
     await gen.run(job);
     const prompt = deps.submissions[0].opts.prompt;
-    assert.match(prompt, /peaking at about 2\.0s, the subject raises one fist proudly/);
+    assert.match(prompt, /peaking at about 2\.0s, the character raises one fist proudly/);
     assert.doesNotMatch(prompt, /\[frame 48/);
     assert.doesNotMatch(prompt, /Dialogue \(spoken word/);
   }, { inputs: baseInputs, marks: [{ id: 'm1', kind: 'frame', start: 48, end: 48 }], duration: 10 });
