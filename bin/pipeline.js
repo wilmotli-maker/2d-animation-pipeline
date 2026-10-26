@@ -5,7 +5,7 @@ import { createElement } from '../src/element.js';
 import { createShot, newDraft, promoteDraft } from '../src/shot.js';
 import { createRunner, inheritStderrExec } from '../src/cli.js';
 import { createMuapiRunner } from '../src/muapi.js';
-import { createFalRunner } from '../src/fal.js';
+import { createFalRunner, createFalImageRunner } from '../src/fal.js';
 import { resolveWavespeedKey, wavespeedKeyStatus } from '../src/wavespeed.js';
 import { generateElementSheet, generateShotDraft, generateElementSheetsBatch, generateShotDraftsBatch } from '../src/generate.js';
 import { readFile } from 'node:fs/promises';
@@ -55,6 +55,16 @@ function pickGenerationRunner(f) {
     return createMuapiRunner({ spicy: f.spicy === true || f.spicy === 'true', resolution: res });
   }
   fail(`--runner must be one of: fal, higgsfield, muapi (got "${r}")`);
+}
+
+// Pick the IMAGE backend for element sheet / sheet-batch. Defaults to higgsfield (unchanged behavior);
+//   --runner fal -> fal.ai Nano Banana (createFalImageRunner), using the same default model family
+//                   we use via HF (nano_banana_2_lite -> fal Nano Banana 2). FAL_KEY from the env.
+function pickImageRunner(f) {
+  const r = (f.runner && f.runner !== true) ? String(f.runner).toLowerCase() : 'higgsfield';
+  if (r === 'fal') return createFalImageRunner();
+  if (r === 'higgsfield' || r === 'hf') return createRunner();
+  fail(`element sheet --runner must be one of: higgsfield, fal (got "${r}")`);
 }
 
 // Print a ✓/⚠/✗ checklist and return true if there are no failures.
@@ -135,18 +145,18 @@ async function main() {
   } else if (cmd === 'element' && sub === 'sheet') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id || !f.model) {
-      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--root <dir>]');
+      fail('usage: pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--runner higgsfield|fal] [--root <dir>]');
     }
     const res = await generateElementSheet(projectRoot(f.root), {
       type: f.type, name: f.name, sheet: f.sheet, id: f.id, model: f.model,
       prompt: f.prompt, promptFile: f['prompt-file'], images: collectFlag(rest, 'image'),
       task: f.task,
-    }, { runner: createRunner() });
+    }, { runner: pickImageRunner(f) });
     console.log(`saved ${res.version}: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
   } else if (cmd === 'element' && sub === 'sheet-batch') {
     const f = parseFlags(rest);
     if (!f.manifest) {
-      fail('usage: pipeline element sheet-batch --manifest <file.json> [--concurrency <n>] [--root <dir>]\n' +
+      fail('usage: pipeline element sheet-batch --manifest <file.json> [--concurrency <n>] [--runner higgsfield|fal] [--root <dir>]\n' +
         '  manifest: JSON array of { type, name, sheet, id, model, prompt|prompt-file|promptFile, images?, task? }');
     }
     const { items, concurrency: manifestConc } = await loadManifest(f.manifest);
@@ -159,7 +169,7 @@ async function main() {
       task: it.task,
     }));
     const results = await generateElementSheetsBatch(projectRoot(f.root), specs, {
-      runner: createRunner(), concurrency,
+      runner: pickImageRunner(f), concurrency,
     });
     reportBatch('element sheet-batch', results);
   } else if (cmd === 'element' && sub === 'split-panels') {
