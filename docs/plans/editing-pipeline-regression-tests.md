@@ -24,7 +24,7 @@ Final human-approval comparisons stay manual (visual judgement of style/gesture 
 
 Produce and commit (or store under a tracked artifact path) these five sets. Each is keyed by shot id so the scripts can line them up.
 
-1. **Shots** — 15–20 shots for edit testing. Start from the 13 in the textpose-editing experiment; add 2–7 more to cover the spread of characters/edit types.
+1. **Shots** — start with the 13 shots already in the textpose-editing experiment (`evaluation/video-editing-eval/keyframe-edit/`). Expand later if coverage gaps show up; no new shots needed to stand the suite up.
 2. **`gt-prompts`** — groundtruth text-pose prompts, one per shot. Saved and frozen.
 3. **`gt-keyposes`** — groundtruth keyframes, one per shot, human-approved.
 4. **`gt-spliced`** — groundtruth spliced results with human-approved edits.
@@ -67,8 +67,22 @@ Each test regenerates one stage from frozen upstream groundtruth and compares ag
 
 ---
 
+## 6. Storing the groundtruth corpus
+
+The corpus has two very different parts, and they want different homes:
+
+- **`gt-prompts`** is text and small. Commit it directly in-repo (e.g. `evaluation/video-editing-eval/keyframe-edit/gt/prompts/`, versioned). This is the most important reproducibility anchor — the prompts must be identical everywhere the suite runs, and git diffs make prompt drift obvious. Cheap to version, high value.
+- **`gt-keyposes` / `gt-spliced` / `gt-harmonized`** are binary clips/images. The repo's standing convention (`.gitignore`: `evaluation/`, `web/*/assets/`) is that binaries are **never** committed and there is no Git LFS; only text metadata is versioned.
+
+Because these gt binaries are a *durable baseline* (unlike the gitignored `evaluation/` scratch), the key requirement is that every machine running the suite sees byte-identical references. Options, weakest to strongest:
+
+1. **Local + gitignored, manifest in git (start here).** Keep the gt binaries under a gitignored `gt/` dir; commit a `manifest.json` listing each shot id, its prompt, stage, filename, and **sha256**. The runner verifies hashes before comparing, so drift or a missing file fails loudly even though the bytes live locally. Pro: zero new infra, matches existing convention, ships now. Con: the binaries themselves aren't shared/reproducible across machines — fine while this is single-operator.
+2. **Git LFS.** Track the gt binaries in LFS so they version with the repo. Pro: reproducible, lives with the code. Con: new infra + quota/cost, and reverses the repo's deliberate no-binaries stance. Reasonable if the corpus stays small (13 shots × a few stages ≈ tens of MB).
+3. **External object store (S3 / R2 / GCS) + manifest in git.** Commit the manifest (ids, prompts, URLs, sha256); a `gt sync` script pulls/pushes clips. Pro: durable, shareable, scales, keeps git clean. Con: most setup — a bucket + credentials, which the repo has none of today.
+
+**Recommendation:** commit `gt-prompts` as text now; store the gt binaries via **option 1 (local + sha256 manifest)** to stand the suite up without new infra, and keep the manifest the single source of truth so promoting to LFS or a bucket later is just changing where the bytes are fetched from — no test changes.
+
 ## Open questions
 
-- Where the `gt-*` corpus lives (in-repo vs. tracked artifact store) given clip sizes.
 - Exact seam-discontinuity metric/thresholds — reuse the existing seam-analysis work (part-aware seam / colour-conform findings) rather than inventing new thresholds.
-- Which 2–7 shots to add to reach 15–20 and what edit types they should cover.
+- When (and whether) to promote the gt binaries from local+manifest to Git LFS or an object store — decide once the corpus stabilizes and if a second operator/machine needs it.
