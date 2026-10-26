@@ -61,8 +61,11 @@ mapping). **Pin every keyframe to a specific time in seconds** and the model hit
 
 ## Two variants: keyframe pose vs text-described pose
 
-- **Keyframe pose (precise):** inject a matted pose STILL as the middle keyframe (`@Image2`). Lands
-  the exact pose; needs pose-asset prep (matte + register). Use 3 keyframes (first / pose / last).
+- **Keyframe pose (precise):** inject a pose STILL as the middle keyframe (`@Image2`). Lands
+  the exact pose; use 3 keyframes (first / pose / last). Get the pose still one of two ways: matte +
+  register an existing pose (see *Pose prep*), **or generate one with the `pose-keyframe-author`
+  skill** — pass a reference frame + a text pose and it returns the character re-posed in the same
+  framing (no matting needed).
 - **Text pose (no asset):** NO pose keyframe — just the first & last frames (`start_image`/
   `end_image`, or `@Image1`/`@Image2`) + a prose description of the new gesture at the midpoint
   ("…peaking at about 2.0s, the character <pose> — a distinct new gesture not present in the start

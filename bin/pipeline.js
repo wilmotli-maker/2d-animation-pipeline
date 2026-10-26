@@ -24,6 +24,7 @@ import {
 } from '../src/matte.js';
 import { upscaleShot, UPSCALE_MODELS, UPSCALE_DEFAULT_MODEL } from '../src/upscale.js';
 import { upscaleImage, UPSCALE_IMAGE_MODELS, UPSCALE_IMAGE_DEFAULT_MODEL } from '../src/upscale-image.js';
+import { editImage } from '../src/image-edit.js';
 import { harmonizeVideo, HARMONIZE_DEFAULT_RESOLUTION, HARMONIZE_DEFAULT_GUIDANCE } from '../src/harmonize.js';
 import { reportFromLogs, formatReportTable, reconcile, formatReconcileTable, tagCredits, backfillCredits, setTaskState, clearTaskState, readTaskState } from '../src/credits.js';
 import { buildReviewPage, parseReviewArgs } from '../src/review-page.js';
@@ -457,6 +458,16 @@ async function main() {
     }, { runner: createRunner({ exec: inheritStderrExec }) });
     console.log(`upscaled ${res.source}${res.task ? `  [task: ${res.task}]` : ''}`);
     console.log(`  -> ${res.outputPath} (${res.model}, ${res.scale}x, job ${res.jobId})`);
+  } else if (cmd === 'image' && sub === 'edit') {
+    const f = parseFlags(rest);
+    const images = collectFlag(rest, 'image');
+    if (!images.length || (!f.prompt && !f['prompt-file'])) {
+      fail('usage: pipeline image edit --image <ref> [--image <ref> ...] (--prompt <p> | --prompt-file <f>) [--out <dir>] [--model nano_banana_2_lite] [--runner fal|higgsfield] [--root <dir>]');
+    }
+    const res = await editImage(projectRoot(f.root), {
+      images, prompt: f.prompt, promptFile: f['prompt-file'], out: f.out, model: f.model,
+    }, { runner: pickImageRunner({ ...f, runner: f.runner || 'fal' }) });
+    console.log(`edited -> ${res.outputPath}${res.jobId ? ` (job ${res.jobId})` : ''}`);
   } else if (cmd === 'video' && sub === 'harmonize') {
     const f = parseFlags(rest);
     if (!f.input) {
@@ -658,6 +669,7 @@ async function main() {
       '  pipeline shot upscale --id <shotId> [--version <n|final>] [--model topaz_video|bytedance_video_upscale] [--resolution <r>] [--aspect-ratio <a>] [--input <file>]  # enlarge a finalized clip to 1080p+',
       '  pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]  # enlarge a sheet (panel-aware for turnaround/pose)',
       '  pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]  # enlarge any single image',
+      '  pipeline image edit --image <ref> [--image <ref> ...] (--prompt <p> | --prompt-file <f>) [--out <dir>] [--model nano_banana_2_lite] [--runner fal|higgsfield]  # edit a reference image into a new one (fal Nano Banana /edit; needs FAL_KEY)',
       '  pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--resolution 480p|720p] [--out <dir>] [--drop-previz]  # restyle a clip into one uniform look (removes splice seams). guidance filter (default) = b+w+blur source, 1 Seedance gen; previz = generated grey maquette, 2 gens',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
