@@ -130,3 +130,98 @@ export function createFalRunner({
     async upload(filePath) { const url = await toUrl(String(filePath)); return { id: url, type: null, url }; },
   };
 }
+
+// --- fal.ai IMAGE runner (Nano Banana) ------------------------------------------------------------
+// A fourth runner, for element-sheet / image generation — the image counterpart of createFalRunner.
+// Same duck-typed interface the batch engine + generate.js use (generate/get/waitFor/estimateCost/
+// upload), but it hits fal's Nano Banana image endpoints and returns an image URL.
+//
+// Model slugs mirror the higgsfield image models so the SAME default we use via HF (nano_banana_2_lite)
+// maps to the equivalent fal model. The `/edit` endpoint is used when reference images are present
+// (image-to-image, how element sheets carry the character design); plain text-to-image otherwise.
+// NOTE: fal's Nano Banana endpoint IDs are version-sensitive — adjust FAL_IMAGE_ENDPOINTS if fal
+// renames them (e.g. google/nano-banana-2.1). Verified family as of 2026-10.
+const FAL_QUEUE_BASE = 'https://queue.fal.run';
+export const FAL_IMAGE_ENDPOINTS = {
+  nano_banana: 'fal-ai/nano-banana',
+  nano_banana_2: 'fal-ai/nano-banana-2',
+  nano_banana_2_lite: 'fal-ai/nano-banana-2',   // HF default tier -> fal Nano Banana 2
+  nano_banana_pro: 'fal-ai/nano-banana-pro',
+};
+export const FAL_IMAGE_DEFAULT_MODEL = 'nano_banana_2_lite';
+// Flat per-image USD estimate by model (fal list prices, 1K output; adjust if fal changes pricing).
+const IMAGE_PRICE_USD = { nano_banana: 0.02, nano_banana_2: 0.04, nano_banana_2_lite: 0.04, nano_banana_pro: 0.10 };
+
+function extractImageUrl(j) {
+  return j?.images?.[0]?.url || j?.image?.url || j?.output?.images?.[0]?.url
+    || (Array.isArray(j?.images) ? j.images[0] : null) || null;
+}
+
+export function createFalImageRunner({
+  falKey = process.env.FAL_KEY,
+  model: defaultModel = FAL_IMAGE_DEFAULT_MODEL,
+  fetchImpl = globalThis.fetch,
+  uploadFile,
+} = {}) {
+  if (!fetchImpl) throw new FalError('global fetch unavailable and no fetchImpl provided');
+  const upload = uploadFile || makeFalUploader(falKey, fetchImpl);
+  const toUrl = async (ref) => (isUrl(ref) ? ref : upload(ref));
+  const auth = () => ({ Authorization: `Key ${falKey}` });
+  const urls = new Map(); // request_id -> { statusUrl, responseUrl }
+
+  function endpointFor(model, hasRefs) {
+    const base = FAL_IMAGE_ENDPOINTS[model] || FAL_IMAGE_ENDPOINTS[defaultModel] || 'fal-ai/nano-banana-2';
+    return hasRefs ? `${base}/edit` : base;
+  }
+
+  return {
+    async generate(model, opts = {}) {
+      if (!falKey) throw new FalError('FAL_KEY is not set');
+      const image_urls = [];
+      for (const r of (opts.imageReferences || [])) image_urls.push(await toUrl(r));
+      const body = { prompt: opts.prompt, num_images: opts.numImages || 1 };
+      if (opts.aspectRatio != null) body.aspect_ratio = opts.aspectRatio;
+      if (opts.outputFormat != null) body.output_format = opts.outputFormat;
+      if (image_urls.length) body.image_urls = image_urls;
+      const endpoint = `${FAL_QUEUE_BASE}/${endpointFor(model || defaultModel, image_urls.length > 0)}`;
+      const res = await fetchImpl(endpoint, { method: 'POST', headers: { ...auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const text = await res.text();
+      if (!res.ok) throw new FalError(`fal image submit failed (HTTP ${res.status}): ${text.slice(0, 300)}`, { status: res.status, body: text });
+      let j; try { j = JSON.parse(text); } catch { throw new FalError(`fal image submit: response not JSON: ${text.slice(0, 200)}`); }
+      const id = j.request_id;
+      if (!id) throw new FalError(`fal image submit: no request_id: ${text.slice(0, 200)}`);
+      urls.set(id, { statusUrl: j.status_url || `${endpoint}/requests/${id}/status`, responseUrl: j.response_url || `${endpoint}/requests/${id}` });
+      return { id, status: 'submitted' };
+    },
+
+    async get(jobId) {
+      const u = urls.get(jobId);
+      if (!u) throw new FalError(`fal image get: unknown request_id ${jobId} (submit it with this runner first)`);
+      const st = await fetchImpl(u.statusUrl, { headers: auth() });
+      const stText = await st.text();
+      if (!st.ok) throw new FalError(`fal image status ${jobId} (HTTP ${st.status}): ${stText.slice(0, 200)}`, { status: st.status });
+      const stj = stText ? JSON.parse(stText) : {};
+      const status = mapStatus(stj.status);
+      if (status !== 'completed') return { id: jobId, status, outputUrl: null, error: stj.error ?? null };
+      const rr = await fetchImpl(u.responseUrl, { headers: auth() });
+      const j = JSON.parse(await rr.text());
+      return { id: jobId, status: 'completed', outputUrl: extractImageUrl(j), error: null };
+    },
+
+    async waitFor(jobId, { intervalMs = 3000, maxMs = 10 * 60 * 1000 } = {}) {
+      const start = Date.now();
+      for (;;) {
+        const r = await this.get(jobId);
+        if (r.status !== 'processing') return r;
+        if (Date.now() - start > maxMs) return { id: jobId, status: 'error', outputUrl: null, error: 'fal image wait timed out' };
+        await new Promise((r2) => setTimeout(r2, intervalMs));
+      }
+    },
+
+    async estimateCost(model, _opts = {}) {
+      return IMAGE_PRICE_USD[model] ?? IMAGE_PRICE_USD[defaultModel] ?? 0.04;
+    },
+
+    async upload(filePath) { const url = await toUrl(String(filePath)); return { id: url, type: null, url }; },
+  };
+}
