@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EP2 Textpose — v1 vs v2 (shot-gen prompt refactor)</title>
+<style>
+:root { --bg:#14151a; --panel:#1c1e25; --line:#2c2f39; --fg:#e8e9ee;
+  --dim:#9aa0b0; --accent:#7cc4ff; --warn:#ffcc66; --good:#7ddba0; }
+* { box-sizing:border-box; }
+body { margin:0; padding:1.25rem 1.25rem 5rem; background:var(--bg); color:var(--fg);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
+.wrap { max-width:1400px; margin:0 auto; display:grid; grid-template-columns:220px minmax(0,1fr); gap:1.5rem; align-items:start; }
+main { min-width:0; }
+.rail { position:sticky; top:0; align-self:start; max-height:100vh; overflow-x:hidden; overflow-y:auto; min-width:0; }
+.rail h3 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 .4rem; }
+.rail h3:not(:first-child) { margin-top:1.2rem; }
+.rail label { display:block; font-size:.9rem; padding:.15rem 0; cursor:pointer; }
+.rail input { margin-right:.5rem; max-width:100%; }
+.rail #txt { width:100%; box-sizing:border-box; }
+.toolbar { position:sticky; top:0; z-index:10; display:flex; flex-direction:column; align-items:stretch; gap:0;
+  margin:0 0 1rem; padding:.55rem 0 1rem; background:rgba(20,21,26,.96); backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line); }
+.toolbar-head { min-width:0; }
+.toolbar-head h1 { font-size:1.25rem; margin:0; letter-spacing:-.01em; line-height:1.2; }
+.toolbar-head .sub { color:var(--dim); margin:.15rem 0 0; font-size:.85rem; line-height:1.3; }
+.toolbar-head .note { margin:.5rem 0 0; padding:.5rem .7rem; background:var(--panel,#f4f4f5); border:1px solid var(--line,#e4e4e7); border-radius:7px; font-size:.82rem; line-height:1.45; white-space:pre-wrap; }
+.toolbar-actions { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-top:.55rem; }
+.toolbar button, .toolbar label.btn { color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.8rem; padding:.3rem .6rem; }
+.toolbar button:hover, .toolbar label.btn:hover { border-color:var(--accent); }
+.toolbar button.on { background:var(--accent); color:#0b0d10; border-color:var(--accent); }
+.toolbar .count { color:var(--dim); font-size:.8rem; }
+.toolbar .err { color:var(--warn); font-size:.8rem; }
+.row { padding:1.2rem 0; }
+.row + .row { border-top:1px solid var(--line); }
+.rowhead { display:flex; align-items:center; gap:.6rem; margin:0 0 .1rem; }
+.row h2 { font-size:1rem; margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--accent); }
+.row .tags { color:var(--dim); font-size:.82rem; margin:0 0 .7rem; }
+.cols { display:flex; gap:1rem; overflow-x:auto; padding-bottom:.6rem; align-items:flex-start; }
+.cols.stacked { flex-direction:column; }
+.cols.selected-only .hide { display:none; }
+.col { flex:0 0 320px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem; }
+.cols.stacked .col { flex-basis:auto; width:100%; max-width:640px; }
+.col.selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+.col .vrow { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.4rem; }
+.col .ctl { display:flex; align-items:center; gap:.4rem; }
+.col .v { font-family:ui-monospace,Menlo,monospace; color:var(--good); font-size:.85rem; }
+.col .select { display:flex; align-items:center; gap:.25rem; font-size:.72rem; color:var(--dim); cursor:pointer; }
+.col .select input { margin:0; }
+.col .badge { background:var(--good); color:#0b0d10; font-size:.68rem; font-weight:600; padding:.05rem .35rem; border-radius:4px; margin-left:.4rem; text-transform:uppercase; letter-spacing:.03em; }
+.col .hide { background:none; border:1px solid var(--line); color:var(--dim); border-radius:4px; cursor:pointer; font-size:.72rem; line-height:1; padding:.15rem .4rem; }
+.col .hide:hover { color:var(--fg); border-color:var(--dim); }
+.hmark { flex:0 0 auto; align-self:stretch; width:26px; background:none; border:none; padding:.2rem 0 0; margin:0; cursor:pointer; display:flex; flex-direction:column; align-items:center; }
+.hmark .lbl { font:.6rem/1 ui-monospace,Menlo,monospace; color:var(--dim); margin-bottom:.3rem; white-space:nowrap; }
+.hmark .bar { flex:1; width:2px; background:var(--line); border-radius:2px; }
+.hmark:hover .bar { background:var(--accent); }
+.hmark:hover .lbl { color:var(--accent); }
+.col video, .col img { width:100%; border-radius:6px; display:block; background:#000; }
+.col .m { color:var(--dim); font-size:.78rem; margin-top:.4rem; }
+.missing { color:var(--warn); font-size:.85rem; padding:2rem 0; text-align:center; }
+.links a { color:var(--accent); font-size:.78rem; margin-right:.6rem; }
+.reset { color:var(--accent); background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.72rem; padding:.15rem .45rem; }
+.reset:hover { border-color:var(--accent); }
+</style></head>
+<body>
+<div class="wrap">
+  <aside class="rail" id="rail"></aside>
+  <main>
+    <div class="toolbar">
+      <div class="toolbar-head">
+        <h1>EP2 Textpose — v1 vs v2 (shot-gen prompt refactor)</h1>
+        <p class="sub">13 shot(s) · generated 2026-10-25T00:36:05.938Z</p>
+        <div class="note">v01 source · v02 v1 raw gen (old edit prompt, 12% padded) · v03 v1 spliced · v04 v2 raw gen (NEW shot-gen-component prompt, per-char style, unpadded) · v05 v2 spliced. v2 rebuilds the edit prompt from the shot-gen components (framing/no-repeat/no-freeze/no-snap) via the shared buildTrimPrompt (PR #167).</div>
+        <div class="toolbar-actions" id="toolbar"></div>
+      </div>
+    </div>
+    <div id="grid"></div>
+  </main>
+</div>
+<script type="application/json" id="review-data">{
+  "model": {
+    "generatedAt": "2026-10-25T00:36:05.938Z",
+    "type": "shots",
+    "shots": [
+      {
+        "shotId": "ai-2-v006__tail-raises-both-claws",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-2-v006__tail-raises-both-claws-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-2-v006__tail-raises-both-claws-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-2-v006__tail-raises-both-claws-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-2-v006__tail-raises-both-claws-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-2-v006__tail-raises-both-claws-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-3-v002__head-rests-one-claw",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__head-rests-one-claw-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__head-rests-one-claw-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__head-rests-one-claw-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__head-rests-one-claw-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__head-rests-one-claw-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-3-v002__mid-puts-both-claws",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__mid-puts-both-claws-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__mid-puts-both-claws-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__mid-puts-both-claws-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__mid-puts-both-claws-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-3-v002__mid-puts-both-claws-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-7-v002__head-raises-both-arms",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__head-raises-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__head-raises-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__head-raises-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__head-raises-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__head-raises-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-7-v002__mid-crosses-both-arms",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__mid-crosses-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__mid-crosses-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__mid-crosses-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__mid-crosses-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/ai-7-v002__mid-crosses-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-1-v010__mid-strokes-its-chin",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__mid-strokes-its-chin-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__mid-strokes-its-chin-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__mid-strokes-its-chin-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__mid-strokes-its-chin-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__mid-strokes-its-chin-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-1-v010__tail-gives-a-casual",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__tail-gives-a-casual-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__tail-gives-a-casual-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__tail-gives-a-casual-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__tail-gives-a-casual-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-1-v010__tail-gives-a-casual-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-4-v002__head-puts-both-hands",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__head-puts-both-hands-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__head-puts-both-hands-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__head-puts-both-hands-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__head-puts-both-hands-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__head-puts-both-hands-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-4-v002__tail-facepalms-one-hand",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__tail-facepalms-one-hand-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__tail-facepalms-one-hand-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__tail-facepalms-one-hand-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__tail-facepalms-one-hand-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-4-v002__tail-facepalms-one-hand-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-8-v002__mid-raises-both-hands",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-8-v002__mid-raises-both-hands-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-8-v002__mid-raises-both-hands-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-8-v002__mid-raises-both-hands-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-8-v002__mid-raises-both-hands-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/art-8-v002__mid-raises-both-hands-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-3-v003__mid-raises-one-clawed",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__mid-raises-one-clawed-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__mid-raises-one-clawed-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__mid-raises-one-clawed-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__mid-raises-one-clawed-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__mid-raises-one-clawed-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-3-v003__tail-crosses-both-short",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__tail-crosses-both-short-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__tail-crosses-both-short-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__tail-crosses-both-short-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__tail-crosses-both-short-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-3-v003__tail-crosses-both-short-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-4-v002__head-raises-both-arms",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-4-v002__head-raises-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-4-v002__head-raises-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-4-v002__head-raises-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-4-v002__head-raises-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "assets/evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-v1v2/monster-4-v002__head-raises-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      }
+    ]
+  },
+  "selection": {
+    "layout": "side-by-side",
+    "versions": {
+      "ai-2-v006__tail-raises-both-claws": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-3-v002__head-rests-one-claw": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-3-v002__mid-puts-both-claws": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-7-v002__head-raises-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-7-v002__mid-crosses-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-1-v010__mid-strokes-its-chin": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-1-v010__tail-gives-a-casual": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-4-v002__head-puts-both-hands": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-4-v002__tail-facepalms-one-hand": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-8-v002__mid-raises-both-hands": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-3-v003__mid-raises-one-clawed": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-3-v003__tail-crosses-both-short": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-4-v002__head-raises-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ]
+    }
+  },
+  "slug": "v2-compare",
+  "type": "shots",
+  "title": "EP2 Textpose — v1 vs v2 (shot-gen prompt refactor)"
+}</script>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+const DATA = JSON.parse(document.getElementById('review-data').textContent);
+const rail = document.getElementById('rail'), grid = document.getElementById('grid');
+const state = { text: '', hidden: new Set(), selected: new Set(), showSelectedOnly: false };
+const VALID = new Set();
+for (const key in DATA.selection.versions) for (const v of DATA.selection.versions[key]) VALID.add(key + '::' + v);
+const LSKEY = 'review:selected:' + (DATA.slug || '');
+function loadSelected(){ try { const raw = localStorage.getItem(LSKEY); if (raw) for (const k of JSON.parse(raw)) if (VALID.has(k)) state.selected.add(k); } catch (e) {} }
+function saveSelected(){ try { localStorage.setItem(LSKEY, JSON.stringify([...state.selected])); } catch (e) {} }
+function selectedObject(){
+  const out = {};
+  for (const k of state.selected){ const i = k.lastIndexOf('::'); const key = k.slice(0, i), v = k.slice(i + 2); (out[key] = out[key] || []).push(v); }
+  for (const key in out) out[key].sort(function(a, b){ return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); });
+  return out;
+}
+function toggle(set, el){ el.checked ? set.add(el.value) : set.delete(el.value); }
+function unhideRow(key){ const p = key + '::'; for (const k of [...state.hidden]) if (k.slice(0, p.length) === p) state.hidden.delete(k); }
+function hmark(key, version){
+  return '<button class="hmark" data-key="' + esc(key) + '" data-v="' + esc(version) + '" title="Show ' + esc(version) + '">'
+    + '<span class="lbl">' + esc(version) + '</span><span class="bar"></span></button>';
+}
+function selectbox(key, version){
+  const on = state.selected.has(key + '::' + version) ? ' checked' : '';
+  return '<label class="select"><input type="checkbox" class="selectbox" data-key="' + esc(key) + '" data-v="' + esc(version) + '"' + on + '>select</label>';
+}
+function downloadSelected(){
+  const obj = { page: DATA.slug || '', type: DATA.type || '', title: DATA.title || '', exportedAt: new Date().toISOString(), selected: selectedObject() };
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = (DATA.slug || 'review') + '-selection.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+function importSelected(file){
+  const errEl = document.getElementById('impErr'); errEl.textContent = '';
+  const reader = new FileReader();
+  reader.onerror = function(){ errEl.textContent = 'could not read selection file'; };
+  reader.onload = function(){
+    try {
+      const obj = JSON.parse(reader.result);
+      if (!obj || typeof obj !== 'object' || !obj.selected || typeof obj.selected !== 'object') throw new Error('bad');
+      let n = 0;
+      for (const key in obj.selected){ const arr = obj.selected[key]; if (!Array.isArray(arr)) continue;
+        for (const v of arr){ const k = key + '::' + v; if (VALID.has(k) && !state.selected.has(k)){ state.selected.add(k); n++; } } }
+      saveSelected(); fullRender();
+      errEl.textContent = 'imported ' + n + ' selection' + (n === 1 ? '' : 's');
+    } catch (e) { errEl.textContent = 'could not read selection file'; }
+  };
+  reader.readAsText(file);
+}
+function updateCount(){ document.getElementById('selectCount').textContent = state.selected.size + ' selected'; }
+// Re-rendering replaces grid.innerHTML, which resets each row's horizontal scroll.
+// Snapshot scrollLeft per row (keyed by data-row) before the rebuild and restore
+// after, so a select/hide click doesn't yank the row back to the left.
+function snapshotScroll(){ const m = {}; grid.querySelectorAll('.cols[data-row]').forEach(function(c){ m[c.dataset.row] = c.scrollLeft; }); return m; }
+function restoreScroll(m){ grid.querySelectorAll('.cols[data-row]').forEach(function(c){ if (m[c.dataset.row] != null) c.scrollLeft = m[c.dataset.row]; }); }
+// A select/hide click only affects one row. Re-render just that row's <section>
+// (via the page-specific rowHTML/ITEMS) instead of the whole grid, so the other
+// rows' loaded <video>/<img> elements are left intact — a full grid rebuild
+// momentarily collapses every media element, shrinking the page and yanking the
+// vertical scroll upward. rowSection finds a row by its data-row key.
+function rowSection(key){ let sec = null; grid.querySelectorAll('.cols[data-row]').forEach(function(c){ if (c.dataset.row === key) sec = c.closest('section'); }); return sec; }
+function rerenderRow(key){ const sec = rowSection(key), item = ITEMS[key]; if (sec && item) { const hs = snapshotScroll(); sec.outerHTML = rowHTML(item); restoreScroll(hs); } updateCount(); }
+// Full rebuilds (show-only toggle, import) change every row; keep the page from
+// jumping by restoring the window's vertical scroll after the rebuild.
+function fullRender(){ const y = window.scrollY; render(); window.scrollTo(0, y); }
+document.getElementById('toolbar').innerHTML =
+  '<button id="onlySelected">Show only selected</button><span class="count" id="selectCount"></span>'
+  + '<button id="dl">Download selection</button>'
+  + '<label class="btn" for="imp">Import selection</label>'
+  + '<input id="imp" type="file" accept="application/json" style="display:none">'
+  + '<span class="err" id="impErr"></span>';
+document.getElementById('onlySelected').addEventListener('click', function(e){ state.showSelectedOnly = !state.showSelectedOnly; e.currentTarget.classList.toggle('on', state.showSelectedOnly); fullRender(); });
+document.getElementById('dl').addEventListener('click', downloadSelected);
+document.getElementById('imp').addEventListener('change', function(e){ const f = e.target.files[0]; if (f) importSelected(f); e.target.value = ''; });
+grid.addEventListener('click', function(e){
+  const t = e.target, mk = t.closest ? t.closest('.hmark') : null;
+  if (t.classList.contains('hide')) { state.hidden.add(t.dataset.key + '::' + t.dataset.v); rerenderRow(t.dataset.key); }
+  else if (mk) { state.hidden.delete(mk.dataset.key + '::' + mk.dataset.v); rerenderRow(mk.dataset.key); }
+  else if (t.classList.contains('reset')) { unhideRow(t.dataset.key); rerenderRow(t.dataset.key); }
+});
+grid.addEventListener('change', function(e){
+  if (e.target.classList.contains('selectbox')) {
+    const key = e.target.dataset.key, k = key + '::' + e.target.dataset.v;
+    e.target.checked ? state.selected.add(k) : state.selected.delete(k);
+    saveSelected();
+    if (state.showSelectedOnly) { rerenderRow(key); }         // column set changes — rebuild the row
+    else { const c = e.target.closest('.col'); if (c) c.classList.toggle('selected', e.target.checked); updateCount(); }
+  }
+});
+loadSelected();
+
+state.characters = new Set(); state.episodes = new Set();
+const allChars = [...new Set(DATA.model.shots.flatMap(s => s.characters))].sort();
+const allEps = [...new Set(DATA.model.shots.map(s => s.episode).filter(Boolean))].sort();
+function facet(title, values){
+  if (!values.length) return '';
+  return '<h3>' + title + '</h3>' + values.map(v =>
+    '<label><input type="checkbox" data-set="' + title + '" value="' + esc(v) + '">' + esc(v) + '</label>').join('');
+}
+rail.innerHTML = '<h3>Filter</h3><label><input id="txt" placeholder="regex" style="width:100%"></label>'
+  + facet('Characters', allChars) + facet('Episodes', allEps);
+rail.addEventListener('input', function(e){
+  if (e.target.id === 'txt') state.text = e.target.value;
+  else if (e.target.dataset.set === 'Characters') toggle(state.characters, e.target);
+  else if (e.target.dataset.set === 'Episodes') toggle(state.episodes, e.target);
+  render();
+});
+function visible(s){
+  if (state.text) { try { if (!new RegExp(state.text).test(s.shotId)) return false; } catch (e) {} }
+  if (state.characters.size && !s.characters.some(c => state.characters.has(c))) return false;
+  if (state.episodes.size && !state.episodes.has(s.episode)) return false;
+  return true;
+}
+function col(v, key){
+  const media = v.video
+    ? '<video src="' + esc(v.video) + '" controls preload="metadata"></video>'
+    : '<div class="missing">missing artifact</div>';
+  const links = (v.variants.upscaled || []).map(u => '<a href="' + esc(u) + '">upscaled</a>').join('')
+    + (v.variants.alpha ? '<a href="' + esc(v.variants.alpha) + '">alpha</a>' : '');
+  const m = [v.meta.model, v.meta.resolution, v.meta.ts].filter(Boolean).join(' · ');
+  const badge = v.promoted ? '<span class="badge">final</span>' : '';
+  const hide = '<button class="hide" data-key="' + esc(key) + '" data-v="' + esc(v.version) + '">hide</button>';
+  const on = state.selected.has(key + '::' + v.version) ? ' selected' : '';
+  return '<div class="col' + on + '"><div class="vrow"><span class="v">' + esc(v.version) + badge + '</span>'
+    + '<span class="ctl">' + selectbox(key, v.version) + hide + '</span></div>' + media
+    + '<div class="m">' + esc(m) + '</div><div class="links">' + links + '</div></div>';
+}
+function tags(s){
+  return [s.episode && 'ep ' + esc(s.episode), s.promotedVersion && 'final: ' + esc(s.promotedVersion), esc(s.characters.join(', ')), esc(s.description)].filter(Boolean).join(' — ');
+}
+const ITEMS = {};
+for (const s of DATA.model.shots) ITEMS[s.shotId] = s;
+function rowHTML(s){
+  const picks = new Set(DATA.selection.versions[s.shotId] || []);
+  const sel = s.versions.filter(v => picks.has(v.version));
+  if (state.showSelectedOnly) {
+    const cols = sel.filter(v => state.selected.has(s.shotId + '::' + v.version)).map(v => col(v, s.shotId)).join('');
+    return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2></div><div class="tags">' + tags(s)
+      + '</div><div class="cols selected-only ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no selected versions</span>') + '</div></section>';
+  }
+  const hiddenN = sel.filter(v => state.hidden.has(s.shotId + '::' + v.version)).length;
+  const cols = sel.map(v => state.hidden.has(s.shotId + '::' + v.version) ? hmark(s.shotId, v.version) : col(v, s.shotId)).join('');
+  const reset = hiddenN ? '<button class="reset" data-key="' + esc(s.shotId) + '">show ' + hiddenN + ' hidden</button>' : '';
+  return '<section class="row"><div class="rowhead"><h2>' + esc(s.shotId) + '</h2>' + reset + '</div><div class="tags">' + tags(s)
+    + '</div><div class="cols ' + DATA.selection.layout + '" data-row="' + esc(s.shotId) + '">' + (cols || '<span class="m">no versions</span>') + '</div></section>';
+}
+function render(){
+  updateCount();
+  const scroll = snapshotScroll();
+  grid.innerHTML = DATA.model.shots.filter(visible).map(rowHTML).join('') || '<p class="missing">No shots match.</p>';
+  restoreScroll(scroll);
+}
+render();
+</script>
+</body></html>
