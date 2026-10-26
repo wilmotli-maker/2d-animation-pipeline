@@ -78,3 +78,48 @@ test('a submit HTTP error surfaces as FalError', async () => {
   const fetchImpl = fakeFetch([['reference-to-video', { ok: false, status: 402, body: 'not_enough_credits' }]]);
   await assert.rejects(runner(fetchImpl).generate('seedance_2_5', { prompt: 'x' }), /fal submit failed \(HTTP 402\)/);
 });
+
+// --- poll resilience (no double-billing): waitFor must ride out transient network drops by
+// re-polling the SAME request_id, never giving up on a job fal already accepted + billed. ---
+
+// A stateful fake: the status endpoint rejects (network drop) `failTimes` times, then returns
+// COMPLETED; the response endpoint returns the output. Records how many submits happened.
+function flakyFetch({ failTimes }) {
+  let statusCalls = 0; const calls = { submit: 0, status: 0, response: 0 };
+  const impl = async (url, init = {}) => {
+    const u = String(url);
+    if (init.method === 'POST' && u.includes('reference-to-video')) {
+      calls.submit++;
+      return { ok: true, status: 200, text: async () => JSON.stringify({ request_id: 'req_flaky', status_url: 'https://q/req_flaky/status', response_url: 'https://q/req_flaky' }) };
+    }
+    if (u.includes('/status')) {
+      calls.status++; statusCalls++;
+      if (statusCalls <= failTimes) throw new TypeError('fetch failed');   // transient network drop
+      return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'COMPLETED' }) };
+    }
+    calls.response++;
+    return { ok: true, status: 200, text: async () => JSON.stringify({ video: { url: 'https://cdn/out.mp4' } }) };
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+test('waitFor rides out transient poll drops and returns the completed result without resubmitting', async () => {
+  const fetchImpl = flakyFetch({ failTimes: 3 });
+  const r = runner(fetchImpl);
+  const { id } = await r.generate('seedance_2_5', { prompt: 'x' });
+  const res = await r.waitFor(id, { intervalMs: 0, maxConsecutiveErrors: 6 });
+  assert.equal(res.status, 'completed');
+  assert.equal(res.outputUrl, 'https://cdn/out.mp4');
+  assert.equal(fetchImpl.calls.submit, 1);   // never resubmitted — the whole point
+});
+
+test('waitFor gives up (returns error, no throw) after too many consecutive poll failures', async () => {
+  const fetchImpl = flakyFetch({ failTimes: 1000 });
+  const r = runner(fetchImpl);
+  const { id } = await r.generate('seedance_2_5', { prompt: 'x' });
+  const res = await r.waitFor(id, { intervalMs: 0, maxConsecutiveErrors: 4 });
+  assert.equal(res.status, 'error');
+  assert.match(res.error, /poll/i);
+  assert.equal(fetchImpl.calls.submit, 1);
+});

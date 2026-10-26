@@ -109,10 +109,28 @@ export function createFalRunner({
       return { id: jobId, status: 'completed', outputUrl: extractOutputUrl(j), error: null };
     },
 
-    async waitFor(jobId, { intervalMs = 5000, maxMs = 15 * 60 * 1000 } = {}) {
+    // Poll the SAME request_id until terminal. A transient network drop (fal accepted the job and
+    // is billing it) must NOT abort — re-poll it, so the caller downloads the output instead of
+    // treating the job as failed and resubmitting (which double-bills). Only give up after
+    // `maxConsecutiveErrors` back-to-back poll failures; even then we return an error (never throw,
+    // never resubmit), and the request_id stays recoverable.
+    async waitFor(jobId, { intervalMs = 5000, maxMs = 15 * 60 * 1000, maxConsecutiveErrors = 8 } = {}) {
       const start = Date.now();
+      let consecutiveErrors = 0;
       for (;;) {
-        const r = await this.get(jobId);
+        let r;
+        try {
+          r = await this.get(jobId);
+          consecutiveErrors = 0;
+        } catch (err) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors > maxConsecutiveErrors) {
+            return { id: jobId, status: 'error', outputUrl: null, error: `fal poll failed ${consecutiveErrors}x (job ${jobId} may still be running): ${err.message}` };
+          }
+          if (Date.now() - start > maxMs) return { id: jobId, status: 'error', outputUrl: null, error: 'fal wait timed out' };
+          await new Promise((r2) => setTimeout(r2, intervalMs));
+          continue;
+        }
         if (r.status !== 'processing') return r;
         if (Date.now() - start > maxMs) return { id: jobId, status: 'error', outputUrl: null, error: 'fal wait timed out' };
         await new Promise((r2) => setTimeout(r2, intervalMs));
