@@ -50,7 +50,7 @@ const animationBlock =
 function framingBlock(aspect = '', framing = '') {
   const asp = aspect ? `Keep a ${aspect} frame` : 'Keep the same aspect ratio as the reference frames';
   const parts = [
-    `${asp}. Reproduce the EXACT framing shown in the reference frames and hold it locked for the whole clip — the same shot size and crop, the same subject scale and position, the same camera angle, orientation and viewpoint, the same headroom and side margins, and the same background. The camera is locked: it does not zoom, push in, pan, tilt or drift, and the subject does not move toward or away from the camera or change its facing. Whatever the reference frames show — full-length, three-quarter, medium or close — keep exactly that; never tighten, widen, re-crop, or change the angle.`,
+    `${asp}. Reproduce the EXACT framing shown in the reference frames and hold it locked for the whole clip — the same shot size and crop, the same subject scale and position, the same camera angle, orientation and viewpoint, the same headroom and side margins, and the same background. The camera is locked: it does not zoom, push in, pan, tilt or drift, and the subject does not move toward or away from the camera or change its facing. Whatever the reference frames show — full-length, three-quarter, medium or close — keep exactly that; never tighten, widen, re-crop, or change the angle. The framing never follows the action: as the body moves — arms rising, hands reaching, the pose changing — the camera does NOT push in, zoom, re-center, or re-crop toward the moving hands or the gesture, and every part of the figure the reference frames include stays fully inside the frame for the entire clip, at the same scale and position and with the same margins.`,
   ];
   if (/full|length|\bbody\b|head.?to.?feet|wide/i.test(framing)) {
     parts.push('The reference frames show the COMPLETE FULL BODY — the entire figure from the top of the head down through the torso, hips, knees and BOTH feet stays fully inside the frame at all times, with a clear margin of background on every side; NEVER crop, cut off, or push in past the knees, legs, feet or head.');
@@ -77,9 +77,9 @@ function editBlock({ poses, gesture, gestureOffset, end }) {
   const n = poses.length + 2;
   const pins = ['@Image1 at 0.0s'];
   poses.forEach((p, i) => pins.push(
-    `@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY reaches the keyframe pose (${act}); this keyframe sets the BODY and EYES only, the MOUTH ignores the reference image's mouth and keeps lip-syncing to @Video1 without pause`));
+    `@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY matches this reference frame EXACTLY (${act}): the same pose with the same configuration of every limb, reproduced exactly as shown — the same arms, hands and body parts on the same sides in the same positions — never mirrored, swapped, simplified, lowered, or replaced with a different version of the gesture; this keyframe sets the BODY and EYES only, while the MOUTH ignores the reference image's mouth and keeps lip-syncing to @Video1 without pause`));
   pins.push(`@Image${n} at ${end}s`);
-  return `The attached reference frames are keyframes pinned to specific times — move expressively through each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
+  return `The attached reference frames are keyframes pinned to specific times — move expressively through each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}. Apply the expressive, principled motion to the TRANSITIONS between these keyframes — their timing, spacing and in-between path — while reproducing each pinned keyframe pose exactly at its timestamp; the expressiveness shapes how the body travels between poses, it never alters, embellishes, or deviates from the keyframe poses themselves.`;
 }
 
 export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '', aspect = '', framing = '' } = {}) {

@@ -117,3 +117,31 @@ test('no props guard is present (edits often inject empty-handed gestures)', () 
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'shrugs', gestureOffset: 2 });
   assert.match(p, /no prop ever appears|hands.*empty|nothing is held/i);
 });
+
+test('framing forbids the camera following the action, generically (no fixed body part)', () => {
+  // Seedance reframes TOWARD the gesture (zoom to the raised hands), cropping whatever is far from
+  // the action. The guard must be generic — it keeps WHATEVER the reference frames include in frame,
+  // not a hardcoded "feet" — so it holds for tighter source crops (waist-up, close) too.
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'raises a fist', aspect: '3:4', framing: 'waist-up medium shot' });
+  assert.match(p, /framing never follows the action/i);
+  assert.match(p, /does NOT push in, zoom, re-center, or re-crop toward the moving hands or the gesture/i);
+  assert.match(p, /every part of the figure the reference frames include stays fully inside the frame/i);
+  assert.doesNotMatch(p, /COMPLETE FULL BODY/i);              // generic, not the full-length feet language
+});
+
+test('a keyframe pin demands an exact reproduction of the whole pose, derived from the image (not a named limb)', () => {
+  // The pin must force the EXACT pose shown — any gesture (one arm, both arms, crossed, a facepalm) —
+  // and forbid the model substituting a mirrored/different variant, without naming a specific arm.
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'crosses both arms' });
+  assert.match(p, /matches this reference frame EXACTLY/i);
+  assert.match(p, /same configuration of every limb/i);
+  assert.match(p, /never mirrored, swapped, simplified, lowered, or replaced/i);
+  assert.match(p, /crosses both arms/);                       // the derived gesture is still folded in
+});
+
+test('keyframe expressiveness is scoped to the transitions, never the pinned poses', () => {
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'waves' });
+  assert.match(p, /expressive, principled motion to the TRANSITIONS between these keyframes/i);
+  assert.match(p, /reproducing each pinned keyframe pose exactly at its timestamp/i);
+  assert.match(p, /never alters, embellishes, or deviates from the keyframe poses themselves/i);
+});
