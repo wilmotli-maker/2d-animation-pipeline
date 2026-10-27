@@ -40,7 +40,8 @@ async function scaffold(fn, opts) {
     marks, prompts: [{ markId: null, text: 'raise a fist' }], inputs, warnings: [],
   };
   await writeFile(path.join(runDir, 'manifest.json'), JSON.stringify(manifest));
-  const deps = Object.assign(recordingDeps(), opts.genDeps || {});
+  // Tests that aren't about padding stay off (padMargin 0). Production default is 0.1.
+  const deps = Object.assign(recordingDeps(), { padMargin: 0 }, opts.genDeps || {});
   const gen = createTrimGenerator(deps);
   const job = {
     root: ws, videoPath: path.join(ws, id, 'source.mp4'), outDir: path.join(ws, id),
