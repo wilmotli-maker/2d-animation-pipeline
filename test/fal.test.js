@@ -58,10 +58,23 @@ test('get: processing then completed, extracts the output video url', async () =
   assert.equal(done.outputUrl, 'https://out/final.mp4');
 });
 
-test('estimateCost: USD by resolution x duration', async () => {
+test('estimateCost: USD by resolution x duration (current fal rates)', async () => {
   const r = runner(fakeFetch([]));
-  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '480p', duration: 10 }), 1.7);
+  // fal Seedance 2.5 reference-to-video, ~Oct 2026: 480p ≈ $0.206/s (was a stale $0.17).
+  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '480p', duration: 10 }), 2.06);
+  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '720p', duration: 4 }), 1.89);
   assert.equal(await r.estimateCost('seedance_2_5', { duration: 0 }), null);
+});
+
+test('estimateCost: an attached video reference adds billable seconds ((out+ref)*0.6)', async () => {
+  const r = runner(fakeFetch([]));
+  // fal adds the input video's duration to the output, then bills the total * 0.6.
+  // A 4s 480p gen with a 4s speechref: 0.206 * (4+4) * 0.6 = 0.99 (matches observed ~$0.99/gen),
+  // vs 0.206 * 4 = 0.82 with no video reference.
+  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '480p', duration: 4 }), 0.82);
+  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '480p', duration: 4, videoRefSeconds: 4 }), 0.99);
+  // videoRefSeconds of 0 / absent is the plain output-only estimate.
+  assert.equal(await r.estimateCost('seedance_2_5', { resolution: '480p', duration: 4, videoRefSeconds: 0 }), 0.82);
 });
 
 test('upload returns the fal storage url', async () => {

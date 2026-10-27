@@ -11,8 +11,16 @@ import { readFile } from 'node:fs/promises';
 const QUEUE = 'https://queue.fal.run/bytedance/seedance-2.5/reference-to-video';
 const FAL_INITIATE = 'https://rest.alpha.fal.ai/storage/upload/initiate';
 
-// per-second USD pricing by resolution tier (Seedance 2.5), matching the MuAPI runner.
-const RATE_PER_SEC = { '480p': 0.17, '720p': 0.34, '1080p': 0.85, '4k': 1.70, '4K': 1.70 };
+// Per-second USD pricing by resolution tier for fal Seedance 2.5 reference-to-video (~Oct 2026).
+// 480p ≈ $0.206/s and 720p ≈ $0.473/s are fal's current published rates (image + audio refs are
+// free); 480p was validated against observed billing (see estimateCost below). 1080p/4k are scaled
+// ~5x/10x off 480p as a conservative estimate and are NOT separately verified — check fal's live
+// pricing before relying on them. fal bills by tokens, so these are approximations for budgeting.
+const RATE_PER_SEC = { '480p': 0.206, '720p': 0.473, '1080p': 1.03, '4k': 2.06, '4K': 2.06 };
+
+// When a reference VIDEO is attached (our blank speechref), fal adds the input video's duration to
+// the output duration and bills the total * this factor. Image/audio references add nothing.
+const VIDEO_REF_FACTOR = 0.6;
 
 const MIME = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -142,7 +150,13 @@ export function createFalRunner({
       const rate = RATE_PER_SEC[res] ?? RATE_PER_SEC['480p'];
       const dur = Number(opts.duration);
       if (!Number.isFinite(dur) || dur <= 0) return null;
-      return Math.round(rate * dur * 100) / 100;
+      // An attached reference video (e.g. the speechref) adds billable seconds: fal sums the input
+      // video and output durations and multiplies by VIDEO_REF_FACTOR. Without one, bill the output.
+      const videoRef = Number(opts.videoRefSeconds);
+      const billedSeconds = Number.isFinite(videoRef) && videoRef > 0
+        ? (dur + videoRef) * VIDEO_REF_FACTOR
+        : dur;
+      return Math.round(rate * billedSeconds * 100) / 100;
     },
 
     async upload(filePath) { const url = await toUrl(String(filePath)); return { id: url, type: null, url }; },
