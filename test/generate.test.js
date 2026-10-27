@@ -281,6 +281,58 @@ test('generateShotDraft reads the draft prompt.md and saves output', async () =>
   });
 });
 
+test('measures the speechref video and passes its billable seconds to the cost estimate', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'talking head prompt');
+    const pose = path.join(root, 'pose.png');
+    const wav = path.join(root, 'ART1.wav');
+    await writeFile(pose, 'x');
+    await writeFile(wav, 'RIFF');
+
+    const d = deps();
+    let captured = null;
+    // seedance isn't in the credits table, so `auto` mode calls the runner's estimate (api path).
+    d.runner = { estimateCost: async (_model, opts) => { captured = opts; return 0.99; } };
+    const makeBlankSpeechVideo = async (_wav, out) => { await writeFile(out, 'MP4'); return out; };
+    // injected probe: the blank speechref is 4s of billable video reference.
+    const probeVideoDuration = async (file) => (file.endsWith('speech-ref.mp4') ? 4 : 0);
+
+    await generateShotDraft(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5',
+      images: [pose], speechAudio: wav,
+      resolution: '480p', duration: '4', aspectRatio: '3:4', generateAudio: 'true',
+    }, { ...d, makeBlankSpeechVideo, probeVideoDuration });
+
+    assert.ok(captured, 'the runner estimate was called');
+    assert.equal(captured.videoRefSeconds, 4);           // the speechref duration fed the estimate
+  });
+});
+
+test('no video reference means no videoRefSeconds is passed (output-only estimate)', async () => {
+  await withTemp(async (root) => {
+    await createShot(root, { shotId: 's1', elements: [] });
+    const { dir } = await newDraft(root, 's1');
+    await writeFile(path.join(dir, 'prompt.md'), 'silent shot');
+    const pose = path.join(root, 'pose.png');
+    await writeFile(pose, 'x');
+
+    const d = deps();
+    let captured = null;
+    d.runner = { estimateCost: async (_model, opts) => { captured = opts; return 0.82; } };
+    const probeVideoDuration = async () => { throw new Error('should not probe when there are no video refs'); };
+
+    await generateShotDraft(root, {
+      shotId: 's1', version: 1, model: 'seedance_2_5',
+      images: [pose], resolution: '480p', duration: '4', aspectRatio: '3:4', generateAudio: 'true',
+    }, { ...d, probeVideoDuration });
+
+    assert.ok(captured);
+    assert.equal(captured.videoRefSeconds, undefined);
+  });
+});
+
 test('generateShotDraft wraps --speech-audio into a video ref and carries model params', async () => {
   await withTemp(async (root) => {
     await createShot(root, { shotId: 's1', elements: [] });

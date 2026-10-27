@@ -1,5 +1,7 @@
 import path from 'node:path';
 import { readdir, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
 import { estimateCredits, recordCreditAttempt, resolveActiveTask } from './credits.js';
@@ -18,6 +20,20 @@ async function nextVersion(dir) {
 }
 
 function formatVersion(n) { return 'v' + String(n).padStart(3, '0'); }
+
+// Probe a local video's duration in seconds (ffprobe). Used only to refine the pre-flight cost
+// estimate — fal bills attached reference videos — so it NEVER throws: a missing file or absent
+// ffprobe just yields 0, and the estimate falls back to the output-only figure.
+const execFileAsync = promisify(execFile);
+async function defaultProbeVideoDuration(file) {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file,
+    ]);
+    const d = Number(String(stdout).trim());
+    return Number.isFinite(d) && d > 0 ? d : 0;
+  } catch { return 0; }
+}
 
 function extFromUrl(url, fallback) {
   return path.extname(new URL(url).pathname) || fallback;
@@ -134,7 +150,10 @@ export async function generateElementSheet(root, spec, {
 // Shot drafts
 // ---------------------------------------------------------------------------
 
-export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defaultMakeBlankSpeechVideo } = {}) {
+export async function prepareShotDraft(root, spec, {
+  makeBlankSpeechVideo = defaultMakeBlankSpeechVideo,
+  probeVideoDuration = defaultProbeVideoDuration,
+} = {}) {
   const {
     shotId, version, model, prompt, promptFile, images = [],
     speechAudio, videos = [], audios = [],
@@ -171,11 +190,20 @@ export async function prepareShotDraft(root, spec, { makeBlankSpeechVideo = defa
   if (mode != null) opts.mode = mode;
   if (draft != null) opts.draft = draft;
 
+  // fal bills attached reference videos (the blank speechref carries the source audio). Measure
+  // their total duration so the estimate includes those billable seconds; 0 if none or unprobeable.
+  let videoRefSeconds;
+  if (videoReferences.length) {
+    const durations = await Promise.all(videoReferences.map((f) => probeVideoDuration(f)));
+    const total = durations.reduce((a, b) => a + (Number(b) || 0), 0);
+    if (total > 0) videoRefSeconds = total;
+  }
+
   const { credits, source: creditsSource } = await estimateCredits({
     runner: spec.runner, model, prompt: v.promptText, images,
     videoReferences: videoReferences.length ? videoReferences : undefined,
     audioReferences: audios.length ? audios : undefined,
-    resolution, duration, aspectRatio, generateAudio, mode,
+    resolution, duration, aspectRatio, generateAudio, mode, videoRefSeconds,
   });
 
   return {
@@ -246,8 +274,9 @@ async function finalizeShotDraft(root, prepared, result, { downloadTo }) {
 export async function generateShotDraft(root, spec, {
   runner, runBatch = defaultRunBatch, downloadTo = defaultDownloadTo,
   makeBlankSpeechVideo = defaultMakeBlankSpeechVideo,
+  probeVideoDuration = defaultProbeVideoDuration,
 } = {}) {
-  const prepared = await prepareShotDraft(root, { ...spec, runner }, { makeBlankSpeechVideo });
+  const prepared = await prepareShotDraft(root, { ...spec, runner }, { makeBlankSpeechVideo, probeVideoDuration });
   const [result] = await runBatch(runner, [prepared.request]);
   return finalizeShotDraft(root, prepared, result, { downloadTo });
 }
