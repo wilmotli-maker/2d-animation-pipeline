@@ -18,8 +18,9 @@ function speechBlock(dialogue, end) {
   const parts = ['The attached speech reference (@Video1) is the voice and timing source.'];
   if (dialogue.trim()) parts.push(`The character speaks directly to camera, saying, "${dialogue.trim()}"`);
   parts.push(
-    `Say exactly and only this line, speaking each word once — no repeats, no doubled or echoed syllables, no stutter, and no re-articulating the final word; after the last word the mouth closes cleanly and holds still.`,
-    `Full lip-sync is required for the entire ${end} seconds: drive the mouth continuously so it opens and closes on every syllable and matches each spoken word, and NEVER hold the mouth static or freeze it — keep lip-syncing even while the body reaches the new pose or the hands move up near the face.`,
+    `Say exactly and only this line, speaking each word once — no repeats, no doubled or echoed syllables, no stutter, and no re-articulating the final word.`,
+    `Drive full lip-sync on every spoken syllable so the mouth opens and closes on each word and matches the voice in @Video1, and do not let the mouth go slack or freeze WHILE a word is being spoken — keep lip-syncing even while the body reaches the new pose or the hands move up near the face.`,
+    `The spoken line may end before the ${end}-second clip does; after the last word the mouth closes cleanly and stays closed and still through any remaining silence — do NOT invent, add, mouth, loop, repeat, or continue any words to fill the rest of the clip.`,
     `Take the voice and its exact timing ONLY from @Video1; take appearance, body and framing from the still reference frames.`,
   );
   return parts.join(' ');

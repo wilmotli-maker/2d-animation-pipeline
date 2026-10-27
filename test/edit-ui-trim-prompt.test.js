@@ -36,7 +36,7 @@ test('reuses the shot-generation speech + animation components (no repeats, neve
   const p = buildTrimPrompt({ dialogue: 'One two three', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2 });
   assert.match(p, /speaking each word once/i);                 // anti-repeat guard (shot-author)
   assert.match(p, /no repeats/i);
-  assert.match(p, /NEVER hold the mouth static or freeze it/i);// mouth never freezes, even near the face
+  assert.match(p, /freeze WHILE a word is being spoken/i);     // never-freeze scoped to speech, not the whole clip
   assert.match(p, /keep lip-syncing even while/i);
   assert.match(p, /FULLY animated/i);                          // no pose-to-pose snapping
   assert.match(p, /no abrupt snaps/i);
@@ -53,6 +53,16 @@ test('the animation block invokes animation principles broadly and rejects unifo
   assert.match(p, /uniform, even, mechanically smooth rate/i);   // names the lerp as the thing to avoid
   assert.match(p, /straight, linear path/i);
   assert.doesNotMatch(p, /eases smoothly between beats/i);       // the old contradictory phrasing is gone
+});
+
+test('closes the mouth through trailing silence and invents no words to fill the clip', () => {
+  // A tail/short-line edit: the spoken line ends before the clip does. The prompt must NOT demand
+  // lip-sync "for the entire N seconds" (which made the model invent trailing words); it must say the
+  // mouth closes after the last word and stays shut through the remaining silence.
+  const p = buildTrimPrompt({ dialogue: 'One two three', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2 });
+  assert.match(p, /after the last word the mouth closes cleanly and stays closed and still through any remaining silence/i);
+  assert.match(p, /do NOT invent, add, mouth, loop, repeat, or continue any words/i);
+  assert.doesNotMatch(p, /for the entire 4\.0 seconds/i);      // the old blanket demand is gone
 });
 
 test('reuses the shot-author three-part structure with an audio rule and a runtime line', () => {
