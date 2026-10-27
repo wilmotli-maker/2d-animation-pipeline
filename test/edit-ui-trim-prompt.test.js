@@ -42,6 +42,19 @@ test('reuses the shot-generation speech + animation components (no repeats, neve
   assert.match(p, /no abrupt snaps/i);
 });
 
+test('the animation block invokes animation principles broadly and rejects uniform mechanical tweening', () => {
+  // The fix for stiff keyframe lerps: don't script a specific arc (anticipation→overshoot→settle),
+  // point at the PRINCIPLES generally and name the failure mode (even, linear, machine-smooth motion)
+  // so the model supplies expressive dynamics per shot. Character-agnostic — the styleLock carries specifics.
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2 });
+  assert.match(p, /principles of good character animation/i);
+  assert.match(p, /anticipation and follow-through/i);
+  assert.match(p, /overlapping and secondary motion/i);
+  assert.match(p, /uniform, even, mechanically smooth rate/i);   // names the lerp as the thing to avoid
+  assert.match(p, /straight, linear path/i);
+  assert.doesNotMatch(p, /eases smoothly between beats/i);       // the old contradictory phrasing is gone
+});
+
 test('reuses the shot-author three-part structure with an audio rule and a runtime line', () => {
   const p = buildTrimPrompt({ dialogue: 'x', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2 });
   assert.match(p, /Style & Mood:/);
