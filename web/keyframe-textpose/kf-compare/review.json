@@ -1,0 +1,1030 @@
+{
+  "type": "shots",
+  "filters": {},
+  "selection": {
+    "layout": "side-by-side",
+    "versions": {
+      "ai-2-v006__tail-raises-both-claws": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-3-v002__head-rests-one-claw": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-3-v002__mid-puts-both-claws": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-7-v002__head-raises-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "ai-7-v002__mid-crosses-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-1-v010__mid-strokes-its-chin": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-1-v010__tail-gives-a-casual": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-4-v002__head-puts-both-hands": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-4-v002__tail-facepalms-one-hand": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "art-8-v002__mid-raises-both-hands": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-3-v003__mid-raises-one-clawed": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-3-v003__tail-crosses-both-short": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ],
+      "monster-4-v002__head-raises-both-arms": [
+        "v01",
+        "v02",
+        "v03",
+        "v04",
+        "v05"
+      ]
+    }
+  },
+  "model": {
+    "generatedAt": "2026-10-26T17:57:57.696Z",
+    "type": "shots",
+    "shots": [
+      {
+        "shotId": "ai-2-v006__tail-raises-both-claws",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-2-v006__tail-raises-both-claws-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-2-v006__tail-raises-both-claws-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-2-v006__tail-raises-both-claws-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-2-v006__tail-raises-both-claws-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-2-v006__tail-raises-both-claws-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-3-v002__head-rests-one-claw",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__head-rests-one-claw-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__head-rests-one-claw-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__head-rests-one-claw-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__head-rests-one-claw-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__head-rests-one-claw-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-3-v002__mid-puts-both-claws",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__mid-puts-both-claws-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__mid-puts-both-claws-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__mid-puts-both-claws-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__mid-puts-both-claws-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-3-v002__mid-puts-both-claws-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-7-v002__head-raises-both-arms",
+        "episode": null,
+        "description": "v03/v05 = round-4 KEYFRAME-POSE re-roll (22% pad, pose pinned @Image2) with the #175 generic framing-guard + exact-pose pin + transition-scoped expressiveness — FIXES cropped feet and the wrong/zoomed gesture; keeps keyframe guidance",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__head-raises-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__head-raises-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__head-raises-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__head-raises-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__head-raises-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "ai-7-v002__mid-crosses-both-arms",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__mid-crosses-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__mid-crosses-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__mid-crosses-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__mid-crosses-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/ai-7-v002__mid-crosses-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-1-v010__mid-strokes-its-chin",
+        "episode": null,
+        "description": "v03/v05 = round-2 keyframe re-roll — lip-sync pacing",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__mid-strokes-its-chin-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__mid-strokes-its-chin-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__mid-strokes-its-chin-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__mid-strokes-its-chin-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__mid-strokes-its-chin-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-1-v010__tail-gives-a-casual",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__tail-gives-a-casual-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__tail-gives-a-casual-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__tail-gives-a-casual-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__tail-gives-a-casual-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-1-v010__tail-gives-a-casual-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-4-v002__head-puts-both-hands",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__head-puts-both-hands-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__head-puts-both-hands-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__head-puts-both-hands-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__head-puts-both-hands-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__head-puts-both-hands-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-4-v002__tail-facepalms-one-hand",
+        "episode": null,
+        "description": "v03/v05 = round-2 keyframe re-roll — lip-sync fidelity (prompt fix #171)",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__tail-facepalms-one-hand-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__tail-facepalms-one-hand-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__tail-facepalms-one-hand-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__tail-facepalms-one-hand-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-4-v002__tail-facepalms-one-hand-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "art-8-v002__mid-raises-both-hands",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-8-v002__mid-raises-both-hands-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-8-v002__mid-raises-both-hands-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-8-v002__mid-raises-both-hands-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-8-v002__mid-raises-both-hands-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/art-8-v002__mid-raises-both-hands-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-3-v003__mid-raises-one-clawed",
+        "episode": null,
+        "description": "v03/v05 = round-4 KEYFRAME-POSE re-roll (22% pad, pose pinned @Image2) with the #175 generic framing-guard + exact-pose pin + transition-scoped expressiveness — FIXES cropped feet and the wrong/zoomed gesture; keeps keyframe guidance",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__mid-raises-one-clawed-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__mid-raises-one-clawed-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__mid-raises-one-clawed-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__mid-raises-one-clawed-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__mid-raises-one-clawed-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-3-v003__tail-crosses-both-short",
+        "episode": null,
+        "description": "v03/v05 = round-2 keyframe re-roll — trailing-words fix (#171)",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__tail-crosses-both-short-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__tail-crosses-both-short-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__tail-crosses-both-short-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__tail-crosses-both-short-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-3-v003__tail-crosses-both-short-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      },
+      {
+        "shotId": "monster-4-v002__head-raises-both-arms",
+        "episode": null,
+        "description": "",
+        "mode": null,
+        "duration": null,
+        "promotedVersion": null,
+        "characters": [],
+        "versions": [
+          {
+            "version": "v01",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-4-v002__head-raises-both-arms-v01.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v02",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-4-v002__head-raises-both-arms-v02.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v03",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-4-v002__head-raises-both-arms-v03.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v04",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-4-v002__head-raises-both-arms-v04.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          },
+          {
+            "version": "v05",
+            "kind": "draft",
+            "promoted": false,
+            "video": "evaluation/video-editing-eval/keyframe-edit/review-ep2-textpose-kf/monster-4-v002__head-raises-both-arms-v05.mp4",
+            "variants": {
+              "alpha": null,
+              "upscaled": [],
+              "qc": []
+            },
+            "meta": {}
+          }
+        ]
+      }
+    ]
+  },
+  "generatedAt": "2026-10-26T17:57:57.805Z"
+}

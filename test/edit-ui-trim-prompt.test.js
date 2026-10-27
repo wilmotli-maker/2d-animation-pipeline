@@ -8,15 +8,15 @@ import { buildTrimPrompt } from '../src/edit-ui/trim-prompt.js';
 // components, instead of the old five-paragraph "edit" format. It composes everything from
 // the inputs (style lock + frames + pose); it never reads the source shot's own prompt.
 
-test('keyframe prompt pins first, each pose at its offset, and last, scoping mouth to lip-sync', () => {
+test('keyframe prompt pins first, each pose at its offset, and last, with the gesture folded in', () => {
   const p = buildTrimPrompt({ dialogue: 'Hello there', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'raise a fist' });
   assert.match(p, /@Video1/);
   assert.match(p, /"Hello there"/);
   assert.match(p, /@Image1 at 0\.0s/);
   assert.match(p, /@Image2 at 2\.0s/);
   assert.match(p, /@Image3 at 4\.0s/);
-  assert.match(p, /BODY and EYES only/i);       // mouth keeps lip-syncing through the keyframe
-  assert.match(p, /raise a fist/);              // injected-pose description folded in
+  assert.match(p, /raise a fist/);              // injected-pose description folded into the pin
+  assert.doesNotMatch(p, /BODY and EYES only/i); // no mouth carve-out on the pin; lip-sync is held by the speech block
 });
 
 test('text-pose prompt describes a mid-clip gesture peaking at its offset, not a middle keyframe', () => {
@@ -38,21 +38,19 @@ test('reuses the shot-generation speech + animation components (no repeats, neve
   assert.match(p, /no repeats/i);
   assert.match(p, /freeze WHILE a word is being spoken/i);     // never-freeze scoped to speech, not the whole clip
   assert.match(p, /keep lip-syncing even while/i);
-  assert.match(p, /FULLY animated/i);                          // no pose-to-pose snapping
-  assert.match(p, /no abrupt snaps/i);
+  assert.match(p, /fully-animated take/i);                     // one continuous animated take
+  assert.match(p, /no held static poses and no snaps/i);       // no pose-to-pose snapping
 });
 
-test('the animation block invokes animation principles broadly and rejects uniform mechanical tweening', () => {
-  // The fix for stiff keyframe lerps: don't script a specific arc (anticipation→overshoot→settle),
-  // point at the PRINCIPLES generally and name the failure mode (even, linear, machine-smooth motion)
-  // so the model supplies expressive dynamics per shot. Character-agnostic — the styleLock carries specifics.
+test('the animation block is concise: names lively hand-drawn performance and rejects mechanical tweening', () => {
+  // Deliberately terse — over-long prompts can degrade quality. Name the goal (lively hand-drawn
+  // performance) and the failure mode (stiff, even, mechanical in-betweening) in one line, leaving the
+  // specific dynamics to the model. Character-agnostic — the styleLock carries the specifics.
   const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2 });
-  assert.match(p, /principles of good character animation/i);
-  assert.match(p, /anticipation and follow-through/i);
-  assert.match(p, /overlapping and secondary motion/i);
-  assert.match(p, /uniform, even, mechanically smooth rate/i);   // names the lerp as the thing to avoid
-  assert.match(p, /straight, linear path/i);
-  assert.doesNotMatch(p, /eases smoothly between beats/i);       // the old contradictory phrasing is gone
+  assert.match(p, /one continuous, fully-animated take/i);
+  assert.match(p, /life of hand-drawn character performance/i);
+  assert.match(p, /not stiff, even, mechanical in-betweening/i);  // names the lerp as the thing to avoid
+  assert.doesNotMatch(p, /principles of good character animation/i); // the old long paragraph is gone
 });
 
 test('closes the mouth through trailing silence and invents no words to fill the clip', () => {
@@ -78,19 +76,18 @@ test('reuses the shot-author three-part structure with an audio rule and a runti
 test('framing is DERIVED from the reference frames by default — no baked-in aspect or shot size', () => {
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves' });
   assert.match(p, /same aspect ratio as the reference frames/i);     // not a hardcoded 3:4
-  assert.match(p, /Reproduce the EXACT framing shown in the reference frames/i);
-  assert.match(p, /orientation and viewpoint/i);                     // viewpoint-agnostic, from frames
+  assert.match(p, /Hold the exact framing of the reference frames/i);
+  assert.match(p, /camera locked/i);                                 // locked camera, derived from the frames
   assert.doesNotMatch(p, /3:4/);                                     // no fixed aspect
-  assert.doesNotMatch(p, /COMPLETE FULL BODY/i);                     // no fixed shot size
-  assert.doesNotMatch(p, /three-quarter-front/i);                    // no assumed viewpoint
+  assert.doesNotMatch(p, /entire figure/i);                          // no fixed full-body shot size
+  assert.doesNotMatch(p, /three-quarter/i);                          // no assumed viewpoint
 });
 
 test('explicit aspect + full-length framing hint state the ratio and the head→feet anti-crop language', () => {
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'waves', aspect: '3:4', framing: 'full-length' });
   assert.match(p, /Keep a 3:4 frame/);
-  assert.match(p, /COMPLETE FULL BODY/i);
-  assert.match(p, /BOTH feet/);
-  assert.match(p, /NEVER crop/i);
+  assert.match(p, /entire figure, from the top of the head through both feet/i);
+  assert.match(p, /inside the frame at all times/i);
 });
 
 test('a non-portrait aspect and a non-full-body framing hint pass through (not forced to 3:4 full-body)', () => {
@@ -116,4 +113,25 @@ test('fixes the stray turnaround-frame clause — no single-turnaround or named-
 test('no props guard is present (edits often inject empty-handed gestures)', () => {
   const p = buildTrimPrompt({ dialogue: '', clipDuration: 4, poses: [], gesture: 'shrugs', gestureOffset: 2 });
   assert.match(p, /no prop ever appears|hands.*empty|nothing is held/i);
+});
+
+test('framing locks the camera against following the action (camera-locked, even as the body moves)', () => {
+  // Seedance reframes TOWARD the gesture (zoom to the raised hands). The concise guard is a locked
+  // camera that holds even as the body moves — generic, so it holds for tighter source crops too.
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'raises a fist', aspect: '3:4', framing: 'waist-up medium shot' });
+  assert.match(p, /camera locked: no zoom, push-in, pan, tilt or re-crop, even as the body moves/i);
+  assert.match(p, /Framing: waist-up medium shot/);          // the hint passes through
+  assert.doesNotMatch(p, /entire figure/i);                  // not forced to full-body
+});
+
+test('a keyframe pin names the gesture and anchors the arm height + side from the image, with no mouth clause', () => {
+  // Finding: a keyframe image ALONE does not reliably constrain the pose (the model mirrors it and
+  // under-shoots), so the pin names the gesture and anchors the arm's height + side derived from the
+  // image. It carries NO mouth language (that froze the lips) — lip-sync is held by the speech block.
+  const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'crosses both arms' });
+  assert.match(p, /the character crosses both arms/);                 // the derived gesture is folded in
+  assert.match(p, /same raised-arm height and the same side as this keyframe/i);
+  assert.match(p, /not the opposite arm, not a smaller bent raise/i);
+  assert.doesNotMatch(p, /BODY and EYES only/i);                      // no mouth carve-out
+  assert.doesNotMatch(p, /mouth ignores the reference/i);
 });
