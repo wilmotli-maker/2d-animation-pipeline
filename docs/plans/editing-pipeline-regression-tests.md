@@ -74,9 +74,12 @@ The corpus lives **outside the repo tree**, on internal disk at `~/Projects/anim
 ```
 ~/Projects/animation-test-corpus/
   shots/        # pipeline inputs: the 8 source clips
+  style-locks/  # per-character style locks (ai/art/monster) the edit-prompt gen reads
   gt/
     prompts/    keyposes/    spliced/    harmonized/
 ```
+
+`style-locks/` holds the three per-character locks the edit-prompt generation composes from (`buildTrimPrompt` reads each character's `styleLock`): `art.yaml` (from `art`), `ai.yaml` (from `AI_ALT2`), `monster.yaml` (from `MonsterA`), sourced from `ArtAI/elements/characters/`. Shots key to a lock by id prefix (`ai-*`, `art-*`, `monster-*`).
 
 The test runner resolves this via a configurable base path (env var `GT_CORPUS_DIR`, defaulting to the location above), so the paths below hold wherever the bytes sit — and promoting to LFS/a bucket later is just changing where they're fetched from.
 
