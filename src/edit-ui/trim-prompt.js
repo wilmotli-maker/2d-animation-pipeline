@@ -26,9 +26,20 @@ function speechBlock(dialogue, end) {
 }
 
 // Fully-animated, no pose-to-pose snapping (the edit's gesture must flow, not pop in/out).
+// Fully-animated, no pose-to-pose snapping — and expressive, principled motion rather than a dead
+// linear tween. We point at the PRINCIPLES of character animation broadly and name the failure mode
+// (uniform, machine-smooth, straight-line interpolation) instead of scripting a specific arc, so the
+// model supplies the dynamics that fit each gesture. Character-agnostic: the styleLock carries specifics.
+// (Future: this could itself be driven by a per-character MOTION style lock, parallel to the render styleLock.)
 const animationBlock =
-  'The whole clip is ONE continuous, FULLY animated take with constant natural in-between motion, ' +
-  'NOT limited or pose-to-pose — the body eases smoothly between beats with no held static poses and no abrupt snaps.';
+  'The whole clip is ONE continuous, FULLY animated take — never limited or pose-to-pose, with no held ' +
+  'static poses and no abrupt snaps. The motion has the life and craft of hand-animated character ' +
+  'performance, not a computed in-between: the body moves with weight, intent and expression, applying ' +
+  'the principles of good character animation broadly — varied timing and spacing, easing rather than ' +
+  'constant speed, a sense of anticipation and follow-through, overlapping and secondary motion in the ' +
+  'lighter, looser parts. It must NOT travel at a uniform, even, mechanically smooth rate or slide in a ' +
+  'straight, linear path from one pose to the next — that dead, evenly-tweened interpolation is exactly ' +
+  'what to avoid; the pacing should breathe and vary, with the gesture reading as a deliberate, expressive action.';
 
 // Framing block — DERIVED, not fixed. An edit must match its source shot, so the aspect ratio,
 // shot size and viewpoint all come from the reference frames (or an explicit caller hint), never a
@@ -67,7 +78,7 @@ function editBlock({ poses, gesture, gestureOffset, end }) {
   poses.forEach((p, i) => pins.push(
     `@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY reaches the keyframe pose (${act}); this keyframe sets the BODY and EYES only, the MOUTH ignores the reference image's mouth and keeps lip-syncing to @Video1 without pause`));
   pins.push(`@Image${n} at ${end}s`);
-  return `The attached reference frames are keyframes pinned to specific times — pass smoothly THROUGH each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
+  return `The attached reference frames are keyframes pinned to specific times — move expressively through each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
 }
 
 export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '', aspect = '', framing = '' } = {}) {
