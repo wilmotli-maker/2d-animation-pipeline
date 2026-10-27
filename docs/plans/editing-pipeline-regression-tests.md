@@ -24,7 +24,7 @@ Final human-approval comparisons stay manual (visual judgement of style/gesture 
 
 Produce and commit (or store under a tracked artifact path) these five sets. Each is keyed by shot id so the scripts can line them up.
 
-1. **Shots** — start with the 13 shots already in the textpose-editing experiment (`evaluation/video-editing-eval/keyframe-edit/`). Expand later if coverage gaps show up; no new shots needed to stand the suite up.
+1. **Shots** — start with 8 shots chosen from the textpose-editing experiment for their slightly longer durations (5–10s): `ai-2-v006`, `ai-3-v002`, `ai-7-v002`, `art-1-v010`, `art-4-v002`, `art-8-v002`, `monster-3-v003`, `monster-4-v002`. Source originals come from `Seedance Animation/ArtAI/episodes/2/shots/candidates/`. Expand later if coverage gaps show up.
 2. **`gt-prompts`** — groundtruth text-pose prompts, one per shot. Saved and frozen.
 3. **`gt-keyposes`** — groundtruth keyframes, one per shot, human-approved.
 4. **`gt-spliced`** — groundtruth spliced results with human-approved edits.
@@ -68,6 +68,17 @@ Each test regenerates one stage from frozen upstream groundtruth and compares ag
 ---
 
 ## 6. Storing the groundtruth corpus
+
+The corpus lives **outside the repo tree**, on internal disk at `~/Projects/animation-test-corpus/` (keeping 5 GB+ of eval video out of the repo root, its worktrees, and editor indexing). Layout:
+
+```
+~/Projects/animation-test-corpus/
+  shots/        # pipeline inputs: the 8 source clips
+  gt/
+    prompts/    keyposes/    spliced/    harmonized/
+```
+
+The test runner resolves this via a configurable base path (env var `GT_CORPUS_DIR`, defaulting to the location above), so the paths below hold wherever the bytes sit — and promoting to LFS/a bucket later is just changing where they're fetched from.
 
 The corpus has two very different parts, and they want different homes:
 
