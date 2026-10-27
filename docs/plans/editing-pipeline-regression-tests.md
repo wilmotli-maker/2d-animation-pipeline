@@ -24,7 +24,11 @@ Final human-approval comparisons stay manual (visual judgement of style/gesture 
 
 Produce and commit (or store under a tracked artifact path) these five sets. Each is keyed by shot id so the scripts can line them up.
 
-1. **Shots** — start with 8 shots chosen from the textpose-editing experiment for their slightly longer durations (5–10s): `ai-2-v006`, `ai-3-v002`, `ai-7-v002`, `art-1-v010`, `art-4-v002`, `art-8-v002`, `monster-3-v003`, `monster-4-v002`. Source originals come from `Seedance Animation/ArtAI/episodes/2/shots/candidates/`. Expand later if coverage gaps show up.
+1. **Shots** — 10 shots (5–10s each):
+   - 8 from the textpose-editing experiment: `ai-2-v006`, `ai-3-v002`, `ai-7-v002`, `art-1-v010`, `art-4-v002`, `art-8-v002`, `monster-3-v003`, `monster-4-v002` — source originals from `Seedance Animation/ArtAI/episodes/2/shots/candidates/`.
+   - 2 bruce shots (the 3D-rendered character) from `Seedance Animation/3D-Test`: `bruce-talk-01-v002`, `bruce-talk-02-v002` (each shot's `drafts/v002/output.mp4`).
+
+   Expand later if coverage gaps show up.
 2. **`gt-prompts`** — groundtruth text-pose prompts, one per shot. Saved and frozen.
 3. **`gt-keyposes`** — groundtruth keyframes, one per shot, human-approved.
 4. **`gt-spliced`** — groundtruth spliced results with human-approved edits.
@@ -79,7 +83,7 @@ The corpus lives **outside the repo tree**, on internal disk at `~/Projects/anim
     prompts/    keyposes/    spliced/    harmonized/
 ```
 
-`style-locks/` holds the three per-character locks the edit-prompt generation composes from (`buildTrimPrompt` reads each character's `styleLock`): `art.yaml` (from `art`), `ai.yaml` (from `AI_ALT2`), `monster.yaml` (from `MonsterA`), sourced from `ArtAI/elements/characters/`. Shots key to a lock by id prefix (`ai-*`, `art-*`, `monster-*`).
+`style-locks/` holds the per-character locks the edit-prompt generation composes from (`buildTrimPrompt` reads each character's `styleLock`): `art.yaml` (from `art`), `ai.yaml` (from `AI_ALT2`), `monster.yaml` (from `MonsterA`) — all from `ArtAI/elements/characters/` — and `bruce.yaml` (from `3D-Test/elements/characters/bruce`). Shots key to a lock by id prefix (`ai-*`, `art-*`, `monster-*`, `bruce-*`).
 
 The test runner resolves this via a configurable base path (env var `GT_CORPUS_DIR`, defaulting to the location above), so the paths below hold wherever the bytes sit — and promoting to LFS/a bucket later is just changing where they're fetched from.
 
