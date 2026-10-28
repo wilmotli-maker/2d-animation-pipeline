@@ -429,5 +429,25 @@ test('normalizes SAR to 1:1 on the stream-copy mux path', async () => {
   await harmonizeVideo(root, { input, chroma: false, luma: false }, d);
   const m = mux(d.calls);
   assert.ok(m.includes('copy'));
-  assert.equal(m[m.indexOf('-bsf:v') + 1], 'h264_metadata=sample_aspect_ratio=1/1');
+  assert.equal(m[m.indexOf('-bsf:v') + 1], 'h264_metadata=sample_aspect_ratio=1/1:video_full_range_flag=0');
+});
+
+test('tags the colour range limited/tv on every harmonize encode', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 4 }); // conform active -> re-encode mux + keepRaw
+  await harmonizeVideo(root, { input, keepRaw: true, padMargin: 0.2 }, d);
+  // Every libx264 encode (guidance, padded guidance, re-encode mux, raw mux) carries -color_range tv.
+  const encodes = d.calls.ff.filter((a) => a.includes('libx264'));
+  assert.ok(encodes.length >= 3, 'has libx264 encodes to check');
+  for (const a of encodes) {
+    assert.equal(a[a.indexOf('-color_range') + 1], 'tv', `encode tagged tv: ${a.join(' ')}`);
+  }
+});
+
+test('the stream-copy mux path tags the range via the bitstream filter', async () => {
+  const { root, input } = await project();
+  const d = fakes(); // no conform -> copy branch (no -color_range flag, range lives in the bsf)
+  await harmonizeVideo(root, { input, chroma: false, luma: false }, d);
+  const m = mux(d.calls);
+  assert.match(m[m.indexOf('-bsf:v') + 1], /video_full_range_flag=0/);
 });
