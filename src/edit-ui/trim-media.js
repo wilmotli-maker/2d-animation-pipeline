@@ -2,6 +2,7 @@
 // Build + run the ffmpeg commands that trim a window out of the source / speech-ref and
 // pad the edges (freeze-frame video, silent audio) so the clip reaches its full centered
 // duration. Arg building is a pure function so it can be asserted without running ffmpeg.
+import { RANGE_ARGS } from '../color-range.js';
 const t3 = (n) => Number(n).toFixed(3);
 
 // span = sourceSpan length (real footage); padStart/padEnd = synthetic seconds to add.
@@ -22,7 +23,7 @@ export function trimArgs({ input, output, start, span, padStart = 0, padEnd = 0,
     if (af.length) args.push('-af', af.join(','));
     args.push('-c:a', 'aac');
   }
-  args.push('-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', output);
+  args.push('-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, output);
   return args;
 }
 
