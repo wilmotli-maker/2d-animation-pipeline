@@ -8,6 +8,8 @@
 // the audio rule — and carries the character design from the caller-supplied `styleLock` (the
 // element's style lock). It never reads the source shot's own prompt, so it works even when that
 // prompt is unavailable. See templates/skills/targeted-edit-author/SKILL.md.
+import { styleDirective } from '../prompt-style.js';
+
 const s1 = (n) => Number(n).toFixed(1);
 
 // --- Reusable shot-generation components (shared language, parameterised by duration) -----------
@@ -97,9 +99,10 @@ export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gestu
   // viewpoint they show (not assumed to be three-quarter). Fold in the caller's style lock, then the
   // derived framing block.
   const refs = 'the attached reference frames (the first and last frames, and any middle pose keyframe)';
-  const design = styleLock.trim()
-    ? `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs}: ${styleLock.trim()}`
-    : `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs} — match them precisely and do not redesign, re-style, or re-orient.`;
+  const design = styleDirective(styleLock, {
+    locked: (lock) => `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs}: ${lock}`,
+    generic: `The character carries its exact design, line weight, coloring, proportions, art style and orientation from ${refs} — match them precisely and do not redesign, re-style, or re-orient.`,
+  });
   const stat = `Static Description: ${design} ${framingBlock(aspect, framing)} Total runtime: ${end}s. ${audioBlock}`;
 
   return [styleMood, dynamic, stat].join('\n\n');
