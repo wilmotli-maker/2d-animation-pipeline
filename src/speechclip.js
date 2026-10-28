@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { RANGE_ARGS } from './color-range.js';
 
 const execFileP = promisify(execFile);
 
@@ -76,7 +75,6 @@ export async function makeBlankSpeechVideo(wavPath, outPath, {
     '-i', wavPath,
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
-    ...RANGE_ARGS,
     '-c:a', 'aac',
     '-shortest',
     outPath,

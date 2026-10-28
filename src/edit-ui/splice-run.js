@@ -5,7 +5,6 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { updateRun } from './workspace.js';
-import { RANGE_ARGS } from '../color-range.js';
 
 function defaultFfmpeg(args) {
   return new Promise((resolve, reject) => {
@@ -43,7 +42,7 @@ export function createSpliceRunner(deps = {}) {
       // de-pad: trim [pad.start, clipDuration - pad.end] at the source fps so frame counts line up.
       const depadded = path.join(wDir, 'splice-src.mp4');
       const dur = w.clipDuration - w.pad.start - w.pad.end;
-      await ffmpeg(['-ss', t3(w.pad.start), '-t', t3(dur), '-i', abs(w.output), '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-y', depadded]);
+      await ffmpeg(['-ss', t3(w.pad.start), '-t', t3(dur), '-i', abs(w.output), '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-y', depadded]);
 
       const wholeClip = (w.pad.start > 0 && w.pad.end > 0) || (w.sourceSpan[0] <= 0 && w.sourceSpan[1] >= duration);
       const target = sorted.length === 1 ? path.join(runDir, 'spliced.mp4') : path.join(wDir, 'spliced-step.mp4');
@@ -60,9 +59,9 @@ export function createSpliceRunner(deps = {}) {
         // and let the VACE joiner find its own hand-off frames; then conform fps + mux the original
         // audio. Key comes from .env via resolveWavespeedKey() inside vaceJoin.
         const clips = [];
-        if (w.sourceSpan[0] > 0) { const h = path.join(wDir, 'ws-head.mp4'); await ffmpeg(['-t', t3(w.sourceSpan[0]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-y', h]); clips.push(h); }
+        if (w.sourceSpan[0] > 0) { const h = path.join(wDir, 'ws-head.mp4'); await ffmpeg(['-t', t3(w.sourceSpan[0]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-y', h]); clips.push(h); }
         clips.push(depadded);
-        if (w.sourceSpan[1] < duration) { const tl = path.join(wDir, 'ws-tail.mp4'); await ffmpeg(['-ss', t3(w.sourceSpan[1]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-y', tl]); clips.push(tl); }
+        if (w.sourceSpan[1] < duration) { const tl = path.join(wDir, 'ws-tail.mp4'); await ffmpeg(['-ss', t3(w.sourceSpan[1]), '-i', source, '-an', '-r', String(fps), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', '-y', tl]); clips.push(tl); }
         const { outputUrl, id } = await vaceJoin(clips, {});
         const joined = path.join(wDir, 'ws-joined.mp4');
         await download(outputUrl, joined);

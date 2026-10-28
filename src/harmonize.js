@@ -19,7 +19,6 @@ import { runBatch as defaultRunBatch } from './batch.js';
 import { downloadTo as defaultDownloadTo } from './download.js';
 import { padFrame as defaultPadFrame } from './edit-ui/pad-frame.js';
 import { alignFraming as defaultAlignFraming, sampleCornerHex } from './edit-ui/splice.js';
-import { RANGE_ARGS } from './color-range.js';
 
 export const HARMONIZE_MODEL = 'seedance_2_5';
 export const HARMONIZE_DEFAULT_RESOLUTION = '480p';
@@ -329,7 +328,7 @@ export async function harmonizeVideo(root, spec, {
     // look to copy — and greys only the generated middle, which is the part to repaint.
     const vf = genSpan ? selectiveGreyFilter(genSpan[0], genSpan[1], blur) : `hue=s=0,gblur=sigma=${blur}`;
     if (genSpan) stylePrompt = selectiveFilterPrompt(genSpan[0], genSpan[1], meta.fps);
-    await ff(['-i', input, '-vf', vf, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-an', guidancePath]);
+    await ff(['-i', input, '-vf', vf, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidancePath]);
   } else {
     // Generate a smooth grey previz maquette (no appearance ref — the point is to strip it).
     const srcMedia = await runner.upload(input);
@@ -351,7 +350,7 @@ export async function harmonizeVideo(root, spec, {
   if (margin > 0) {
     const fill = await sampleCorner(guidancePath);
     guidanceForModel = path.join(outDir, `.${base}.guidance.pad.${process.pid}.mp4`);
-    await ff(['-i', guidancePath, '-vf', padVideoFilter(meta.width, meta.height, margin, fill), '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-an', guidanceForModel]);
+    await ff(['-i', guidancePath, '-vf', padVideoFilter(meta.width, meta.height, margin, fill), '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', guidanceForModel]);
     paddedTemps.push(guidanceForModel);
     refsForModel = [];
     for (const r of refs) {
@@ -417,23 +416,21 @@ export async function harmonizeVideo(root, spec, {
   // but BEFORE the colour conform — beside the conformed output, so the two can be compared.
   if (keepRaw) {
     await ff(['-i', videoForMux, '-i', input, '-vf', 'setsar=1',
-      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-c:a', 'aac', '-shortest', rawPath]);
+      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', rawPath]);
   }
 
   // Carry the input's audio onto the restyled clip, applying the conform in the same pass when there
   // is one (otherwise copy the video stream through untouched).
-  // Normalize the pixel aspect to 1:1 and pin the colour range to limited/tv (RANGE_ARGS). The
-  // restyle download can carry a non-square SAR that the mux would otherwise inherit, making a
-  // correct WxH frame DISPLAY stretched (e.g. 560x752 tagged to show 752x752), and it arrives with
-  // no range tag at all, which leaves downstream tools to guess. On the re-encode path setsar=1 +
-  // -color_range tv do it; on the stream-copy path both live in the H.264 SPS/VUI, so rewrite them
-  // with a bitstream filter (sample_aspect_ratio + video_full_range_flag=0) without re-encoding.
+  // Normalize the pixel aspect to 1:1. The restyle download can carry a non-square SAR that the
+  // mux would otherwise inherit, making a correct WxH frame DISPLAY stretched (e.g. 560x752 tagged
+  // to show 752x752). On the re-encode path setsar=1 does it; on the stream-copy path the SAR lives
+  // in the H.264 SPS, so rewrite it with a bitstream filter without re-encoding.
   if (filters.length) {
     await ff(['-i', videoForMux, '-i', input, '-vf', [...filters, 'setsar=1'].join(','),
-      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-c:a', 'aac', '-shortest', outputPath]);
+      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]);
   } else {
     await ff(['-i', videoForMux, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy',
-      '-bsf:v', 'h264_metadata=sample_aspect_ratio=1/1:video_full_range_flag=0', '-c:a', 'aac', '-shortest', outputPath]);
+      '-bsf:v', 'h264_metadata=sample_aspect_ratio=1/1', '-c:a', 'aac', '-shortest', outputPath]);
   }
   await rm(restyledTmp, { force: true });
   if (framing.applied) await rm(alignedTmp, { force: true });
