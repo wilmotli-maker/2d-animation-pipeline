@@ -205,7 +205,7 @@ async function main() {
   } else if (cmd === 'shot' && sub === 'generate') {
     const f = parseFlags(rest);
     if (!f.id || !f.version || !f.model) {
-      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]');
+      fail('usage: pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--seed <int>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]');
     }
     const genVersion = Number(f.version);
     if (!Number.isInteger(genVersion) || genVersion < 1) {
@@ -217,6 +217,7 @@ async function main() {
       speechAudio: f['speech-audio'], videos: collectFlag(rest, 'video'), audios: collectFlag(rest, 'audio'),
       resolution: f.resolution, duration: f.duration, aspectRatio: f['aspect-ratio'],
       generateAudio: f['generate-audio'], mode: f.mode, task: f.task,
+      seed: f.seed != null ? Number(f.seed) : undefined,
       draft: f.draft === true || f.draft === 'true' ? true : undefined,
     }, { runner: pickGenerationRunner(f) });
     console.log(`saved shot draft output: ${res.outputPath}${res.task ? `  [task: ${res.task}]` : ''}`);
@@ -675,7 +676,7 @@ async function main() {
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',
-      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--task <label>]',
+      '  pipeline shot generate --id <shotId> --version <n> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--speech-audio <wav>] [--video <file> ...] [--audio <file> ...] [--resolution <r>] [--duration <s>] [--aspect-ratio <a>] [--generate-audio <true|false>] [--mode <m>] [--seed <int>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--task <label>]',
       '  pipeline shot generate-batch --manifest <file.json> [--concurrency <n=8>] [--runner fal|higgsfield|muapi] [--spicy] [--draft] [--root <dir>]   # generate many shot drafts in parallel from one JSON manifest',
       '  pipeline element sheet-batch --manifest <file.json> [--concurrency <n=8>] [--root <dir>]   # generate many element sheets in parallel from one JSON manifest',
       '  pipeline credits tag --task <label> --since <ISO> [--until <ISO>] [--sheet <slug>] [--type <t>] [--name <n>] [--root <dir>]',
