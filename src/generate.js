@@ -157,7 +157,7 @@ export async function prepareShotDraft(root, spec, {
   const {
     shotId, version, model, prompt, promptFile, images = [],
     speechAudio, videos = [], audios = [],
-    resolution, duration, aspectRatio, generateAudio, mode, draft,
+    resolution, duration, aspectRatio, generateAudio, mode, draft, seed,
   } = spec;
   const task = await resolveActiveTask(root, spec);
 
@@ -189,6 +189,7 @@ export async function prepareShotDraft(root, spec, {
   if (generateAudio != null) opts.generateAudio = generateAudio;
   if (mode != null) opts.mode = mode;
   if (draft != null) opts.draft = draft;
+  if (seed != null) opts.seed = seed;
 
   // fal bills attached reference videos (the blank speechref carries the source audio). Measure
   // their total duration so the estimate includes those billable seconds; 0 if none or unprobeable.
@@ -213,7 +214,7 @@ export async function prepareShotDraft(root, spec, {
     ctx: {
       shotId, version, model, dir, images, videoReferences, audios,
       resolution, duration, aspectRatio, generateAudio, mode, draft: draft ?? null,
-      speechAudio: speechAudio || null, promptText: v.promptText,
+      speechAudio: speechAudio || null, seed: seed ?? null, promptText: v.promptText,
       task, credits, creditsSource,
     },
   };
@@ -223,7 +224,7 @@ async function finalizeShotDraft(root, prepared, result, { downloadTo }) {
   const {
     shotId, version, model, dir, images, videoReferences, audios,
     resolution, duration, aspectRatio, generateAudio, mode, draft, speechAudio,
-    promptText, task, credits, creditsSource,
+    seed, promptText, task, credits, creditsSource,
   } = prepared.ctx;
   const location = { kind: 'shot', shotId };
   const creditFields = { credits, creditsSource, kind: 'shot', task };
@@ -247,7 +248,7 @@ async function finalizeShotDraft(root, prepared, result, { downloadTo }) {
       model, jobId: result.id, prompt: promptText,
       imageReferences: images, videoReferences, audioReferences: audios,
       resolution, duration, aspectRatio, generateAudio, mode, draft: draft ?? null,
-      speechAudio: speechAudio || null, output: outputPath,
+      speechAudio: speechAudio || null, seed: seed ?? null, output: outputPath,
       version: formatVersion(version),
       status: 'generated', ...creditFields,
     };

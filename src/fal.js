@@ -83,6 +83,7 @@ export function createFalRunner({
     if (opts.aspectRatio != null) body.aspect_ratio = opts.aspectRatio;
     if (opts.duration != null) body.duration = String(opts.duration); // fal duration is a STRING
     if (opts.generateAudio != null) body.generate_audio = !!opts.generateAudio;
+    if (opts.seed != null) body.seed = Number(opts.seed); // fixed seed → reproducible (best-effort)
     if (opts.draft) body.draft = true;
     if (image_urls.length) body.image_urls = image_urls;
     if (video_urls.length) body.video_urls = video_urls;
