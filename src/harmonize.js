@@ -20,6 +20,7 @@ import { downloadTo as defaultDownloadTo } from './download.js';
 import { padFrame as defaultPadFrame } from './edit-ui/pad-frame.js';
 import { alignFraming as defaultAlignFraming, sampleCornerHex } from './edit-ui/splice.js';
 import { RANGE_ARGS } from './color-range.js';
+import { styleDirective } from './prompt-style.js';
 
 export const HARMONIZE_MODEL = 'seedance_2_5';
 export const HARMONIZE_DEFAULT_RESOLUTION = '480p';
@@ -29,37 +30,71 @@ export const HARMONIZE_DEFAULT_RESOLUTION = '480p';
 export const PREVIS_PROMPT =
   `Re-render the exact character in this video as a smooth, untextured GREYSCALE 3D RENDER — a clean matte digital maquette of THIS specific character, like an untextured CG model lit with soft global illumination. SHAPE — keep the character's silhouette, proportions and body-part shapes from the source: the same head shape and size, the same body, torso, limbs, hands and feet, the glasses, the hair volume and shape, the apron shape and every distinctive feature it has (antennae, snout, muzzle, tail, ears, horns, spikes, fins, wings, extra or non-human limbs, block feet, etc.). You MAY slightly simplify and smooth the forms into clean, idealised geometry, but do NOT change overall proportions, do NOT humanise or regularise it, do NOT replace it with a generic humanoid figure or a wooden posing mannequin, and do NOT alter the pose. FACE & EXPRESSION — KEEP the character's facial features and current expression on every frame: eyes, eyebrows, the mouth (or beak / muzzle), nose, and any visible teeth or tongue must stay, modelled as smooth raised or recessed relief so the expression reads clearly — never leave a blank, smooth-over or featureless face, and do not drop the mouth. MATERIAL — the ENTIRE character (body, head, face, hair, fur, skin, eyes, glasses, clothing and every accessory) becomes ONE uniform smooth matte mid-grey surface. Strip ALL colour, line art, outlines, markings, patterns, logos, printed text and surface texture that came from the source: absolutely no colour survives anywhere — no coloured hair or fur, no coloured eyes, no coloured glasses lenses or frames, no wood tone, no tints from the source — every part is the same neutral grey. The surface must be SMOOTH and TEXTURELESS, shown through soft, even, gentle shading and subtle highlights like a clean untextured 3D render or smooth modelling clay — NOT rough, NOT bumpy, NOT grainy, NOT painterly, NOT hand-drawn, and NOT 2D artwork. BACKGROUND: a completely empty, featureless flat matte grey void — no environment, floor, set, walls, props or scenery of any kind; nothing but the single grey character on seamless grey. FRAMING: keep the source's exact camera framing and character scale — the whole character stays in frame from top to bottom in the same position and with the same margins as the source; never crop, zoom, pan or reframe. Preserve the body motion, performance timing, pose and gesture exactly. The result must read as a smooth, untextured greyscale 3D render of this character — never finished or coloured 2D artwork, and never a generic dummy.`;
 
-export const STYLE_PROMPT =
-  'Repaint this grey placeholder previs animation as a finished, hand-drawn 2D ' +
-  'illustrated character in the EXACT style of the reference image(s) — their character ' +
-  'design, colour palette, line weight, shading and texture. Keep the body motion, pose, ' +
-  'gesture and timing from the video completely unchanged. Apply the reference look ' +
-  'identically on every frame so the whole clip reads as one continuous, uniformly-styled ' +
-  'shot. FRAMING: the video is the camera. Copy its framing exactly — the same character ' +
-  'scale, the same position and the same margins, including the top of the head and the ' +
-  'feet. Do not zoom, do not scale the character up or down, do not pan or reframe. Keep ' +
-  'the background the same plain flat colour as the reference image; add no scenery, props ' +
-  'or set.';
+// Restyle STYLE CLAUSE — the one place render style is driven, shared by the filter and previz
+// restyle prompts. Style-lock-aware and MEDIUM-NEUTRAL: with a lock it injects it verbatim; without
+// one it defers render style entirely to the appearance references and forbids imposing a look the
+// references do not show. This is the sibling of buildTrimPrompt's design block (both go through
+// styleDirective) — previously this path hardcoded "hand-drawn 2D cartoon", which overrode a
+// 3D-rendered character's own style lock and repainted it as flat 2D.
+export function restyleStyleClause(styleLock = '') {
+  return styleDirective(styleLock, {
+    locked: (lock) => `matching the reference images' character design, colour palette, line and edge ` +
+      `treatment, shading, lighting, surface finish and overall rendering — in this exact style: ${lock} — ` +
+      `and restoring full colour and a finished render on every frame.`,
+    generic: `matching the reference images' character design, colour palette, line and edge treatment, ` +
+      `shading, lighting, surface finish and overall rendering, and restoring full colour and a finished ` +
+      `render on every frame. Do NOT impose any look the reference images do not show — no flat 2D, ` +
+      `cel-shading, ink outlines, hand-drawn or painterly treatment unless the references are themselves ` +
+      `in that style, and do not force a 3D or photoreal look onto 2D references.`,
+  });
+}
 
-// Restyle prompt for the FILTER guidance path (default). @Video1 is the camera: a prompt that
-// asked for a "generous margin" or to match the reference stills' crop did not stop the model
-// zooming. The guidance clip and the stills are padded before this prompt runs, so copying
-// @Video1's framing copies the padded frame; a later TRS removes that pad.
-export const FILTER_STYLE_PROMPT =
-  '@Video1 is a desaturated, softened black-and-white guidance pass of the animation — take ONLY ' +
-  'its motion, pose, gesture, timing, composition and framing from it; ignore its greyscale and its ' +
-  'blur. @Image1 and @Image2 are the appearance references: repaint the character in their EXACT ' +
-  'style — character design, colour palette, line weight, shading and texture — restoring full ' +
-  'colour and crisp finished hand-drawn 2D rendering. The reference images control appearance ' +
-  'only and must not change the crop or the character\'s size. Keep @Video1\'s body motion, pose, ' +
-  'gesture and timing completely unchanged and apply the reference look identically on every frame ' +
-  'so the whole clip reads as one continuous, uniformly-styled 2D cartoon shot. FRAMING — CRITICAL: ' +
-  '@Video1 is the camera. Copy its framing exactly on every frame — the same character scale, the ' +
-  'same position, the same headroom and the same empty margins on all sides. Do NOT zoom in or out, ' +
-  'do NOT scale the character larger or smaller, do NOT pan, tilt or reframe, and do NOT let the ' +
-  'character drift toward or away from the camera. Keep every body part that is inside @Video1\'s ' +
-  'frame inside the frame, including the feet and anything that reaches the top of the head. ' +
-  'Background: the same plain flat colour as the reference image; add no scenery, props or set.';
+// Previz-path restyle prompt (repaints the grey maquette). Style-lock-aware via restyleStyleClause.
+export function previzStylePrompt(styleLock = '') {
+  return 'Repaint this grey placeholder previs animation as a finished, fully-rendered character, ' +
+    restyleStyleClause(styleLock) + ' Keep the body motion, pose, gesture and timing from the video ' +
+    'completely unchanged. Apply the reference look identically on every frame so the whole clip reads ' +
+    'as one continuous, uniformly-styled shot. FRAMING: the video is the camera. Copy its framing ' +
+    'exactly — the same character scale, the same position and the same margins, including the top of ' +
+    'the head and the feet. Do not zoom, do not scale the character up or down, do not pan or reframe. ' +
+    'Keep the background the same plain flat colour as the reference image; add no scenery, props or set.';
+}
+// Backward-compatible constant: the no-lock (generic) previz restyle prompt.
+export const STYLE_PROMPT = previzStylePrompt('');
+
+// Restyle prompt for the FILTER guidance path (default). Style-lock-aware via restyleStyleClause.
+// @Video1 is the camera: a prompt that asked for a "generous margin" or to match the reference
+// stills' crop did not stop the model zooming. The guidance clip and the stills are padded or
+// border-anchored before this prompt runs, so copying @Video1's framing copies that frame.
+export function filterStylePrompt(styleLock = '') {
+  return '@Video1 is a desaturated, softened black-and-white guidance pass of the animation — take ONLY ' +
+    'its motion, pose, gesture, timing, composition and framing from it; ignore its greyscale and its ' +
+    'blur. @Image1 and @Image2 are the appearance references: repaint the character in their EXACT ' +
+    'style, ' + restyleStyleClause(styleLock) + ' The reference images control appearance only and must ' +
+    'not change the crop or the character\'s size. Keep @Video1\'s body motion, pose, gesture and timing ' +
+    'completely unchanged and apply the reference look identically on every frame so the whole clip reads ' +
+    'as one continuous, uniformly-styled shot in the references\' own style. FRAMING — CRITICAL: @Video1 ' +
+    'is the camera. Copy its framing exactly on every frame — the same character scale, the same ' +
+    'position, the same headroom and the same empty margins on all sides. Do NOT zoom in or out, do NOT ' +
+    'scale the character larger or smaller, do NOT pan, tilt or reframe, and do NOT let the character ' +
+    'drift toward or away from the camera. Keep every body part that is inside @Video1\'s frame inside ' +
+    'the frame, including the feet and anything that reaches the top of the head. Background: the same ' +
+    'plain flat colour as the reference image; add no scenery, props or set.';
+}
+// Backward-compatible constant: the no-lock (generic) filter restyle prompt.
+export const FILTER_STYLE_PROMPT = filterStylePrompt('');
+
+// Frame-anchor border whitelist clause, appended to the restyle prompt when spec.border draws a
+// border on the guidance+stills (see harmonizeVideo). Without it the prompt's "add no scenery" wins
+// and the model strips the border instead of treating it as a fixed frame to preserve.
+export const BORDER_PROMPT_CLAUSE =
+  'FRAME BORDER: there is a solid, flat, high-contrast rectangular border running around all four ' +
+  'edges of the picture. Reproduce this border EXACTLY — the same colour, thickness and position on ' +
+  'every single frame, as a crisp hard-edged rectangular frame flush to the picture edges. This border ' +
+  'is a FIXED FRAME, not scenery or a prop: do NOT remove it, do NOT treat it as background to clear, ' +
+  'do NOT restyle, recolour, thicken, thin, round, fade or move it, and never let the character cross ' +
+  'in front of or behind it. Keep the whole character inside this border at the same scale and position ' +
+  'as in @Video1.';
 
 export const HARMONIZE_PAD_MARGIN = 0.12; // fraction of width/height added on each side before the restyle
 
@@ -276,7 +311,11 @@ function outsideSpanSelect(genSpan) {
  * Writes `<base>.guidance.mp4` + `<base>.harmonized.mp4` (beside the input, or under `spec.out`).
  * Returns { outputPath, previzPath, guidance, chroma, luma, refs, jobs, framing, model, resolution }.
  *
- * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, padMargin?, chroma?, luma? }
+ * `spec`: { input, refs?[], resolution?, aspect?, out?, keepPreviz?, guidance?, blur?, genSpan?, padMargin?, chroma?, luma?, styleLock?, border?, prompt? }
+ * `styleLock` (string) is the character's style lock — folded into the restyle prompt so the repaint
+ *   matches the character's own render style; omitted, the restyle defers style to the appearance refs
+ *   (medium-neutral, imposes no 2D/3D look). `border` ({ px, guidanceColor?, refColor? }) draws an
+ *   experimental frame-anchor border; `prompt` overrides the composed restyle prompt entirely.
  * `genSpan` is `[startFrame, endFrame)` of the spliced clip to desaturate. Omit it to grey the whole clip.
  * `chroma` (default true) runs the global saturation match; `luma` (default true) runs the tonal-range match. Either false leaves that channel as-is.
  * `deps`: { runner, runBatch, downloadTo, ff, ffprobe, padFrame, alignFraming, sampleCorner } — injected for tests.
@@ -322,7 +361,7 @@ export async function harmonizeVideo(root, spec, {
 
   // Stage 1: build the neutral guidance clip.
   let previzJob = null;
-  let stylePrompt = FILTER_STYLE_PROMPT;
+  let stylePrompt = filterStylePrompt(spec.styleLock);
   if (guidance === 'filter') {
     // Full-clip grey asks the restyle to invent every frame's colour from two stills, and it only
     // does that reliably where it repaints. A gen span keeps the source head/tail in colour — the
@@ -339,7 +378,7 @@ export async function harmonizeVideo(root, spec, {
     });
     await downloadTo(previz.outputUrl, guidancePath);
     previzJob = previz.id;
-    stylePrompt = STYLE_PROMPT;
+    stylePrompt = previzStylePrompt(spec.styleLock);
   }
 
   // Pad the guidance and the stills by the same margin. The model copies this looser frame;
@@ -361,6 +400,30 @@ export async function harmonizeVideo(root, spec, {
       paddedTemps.push(padded);
     }
   }
+
+  // Experimental frame anchor: draw a high-contrast border around the guidance and the stills so the
+  // model has a salient scale reference at the frame edge instead of an anchorless subject on a flat
+  // void (the cause of its frame-filling zoom). `spec.border` = { px, guidanceColor, refColor };
+  // default off. Runs after any pad, on what is uploaded, and whitelists the border in the prompt so
+  // the restyle keeps it rather than stripping it as scenery. The border is keyed/cropped downstream.
+  if (spec.border && spec.border.px > 0) {
+    const { px, guidanceColor = 'black', refColor = 'red' } = spec.border;
+    const boxed = guidanceForModel.replace(/(\.[^.]+)$/, '.border$1');
+    await ff(['-i', guidanceForModel, '-vf', `drawbox=x=0:y=0:w=iw:h=ih:t=${px}:color=${guidanceColor}`,
+      '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-an', boxed]);
+    guidanceForModel = boxed; paddedTemps.push(boxed);
+    const bordered = [];
+    for (const r of refsForModel) {
+      const b = r.replace(/(\.[^.]+)$/, '.border$1');
+      await ff(['-i', r, '-vf', `drawbox=x=0:y=0:w=iw:h=ih:t=${px}:color=${refColor}`, b]);
+      bordered.push(b); paddedTemps.push(b);
+    }
+    refsForModel = bordered;
+    stylePrompt += ' ' + BORDER_PROMPT_CLAUSE;  // whitelist the border so the restyle keeps it
+  }
+
+  // Optional full prompt override (experiment escape hatch). Replaces the composed prompt above.
+  if (spec.prompt) stylePrompt = spec.prompt;
 
   // Stage 2: restyle (repaint) the guidance clip from the appearance refs.
   const guidanceMedia = await runner.upload(guidanceForModel);

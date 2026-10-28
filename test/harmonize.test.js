@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT, padVideoFilter } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT, filterStylePrompt, previzStylePrompt, restyleStyleClause, BORDER_PROMPT_CLAUSE, padVideoFilter } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -320,6 +320,55 @@ test('the restyle prompt copies the guidance camera and does not ask for a diffe
   assert.doesNotMatch(FILTER_STYLE_PROMPT, /generous margin/i);
   assert.match(STYLE_PROMPT, /scale the character up or down/);
   assert.match(PREVIS_PROMPT, /exact camera framing/);
+});
+
+test('the no-lock restyle prompt is medium-neutral — defers style to the refs, imposes no 2D look', () => {
+  // The old bug: the restyle hardcoded "hand-drawn 2D cartoon", overriding a 3D character's style.
+  // The generic (no style lock) prompt must NOT positively assert a 2D/cartoon target, and must say
+  // to defer render style to the references.
+  assert.doesNotMatch(FILTER_STYLE_PROMPT, /crisp finished hand-drawn 2D rendering/i);
+  assert.doesNotMatch(FILTER_STYLE_PROMPT, /uniformly-styled 2D cartoon/i);
+  assert.match(FILTER_STYLE_PROMPT, /do not force a 3D or photoreal look onto 2D references/i);
+  assert.doesNotMatch(STYLE_PROMPT, /hand-drawn 2D\b/i);
+  // Equality with the builders' no-lock output keeps the exported constants in sync.
+  assert.equal(FILTER_STYLE_PROMPT, filterStylePrompt(''));
+  assert.equal(STYLE_PROMPT, previzStylePrompt(''));
+});
+
+test('a style lock is folded verbatim into the restyle prompt (filter and previz)', () => {
+  const lock = 'Polished stylized 3D render, no flat 2D, no cel-shading.';
+  assert.match(filterStylePrompt(lock), /in this exact style: Polished stylized 3D render, no flat 2D, no cel-shading\./);
+  assert.match(previzStylePrompt(lock), /Polished stylized 3D render, no flat 2D, no cel-shading\./);
+  // With a lock present the generic anti-2D hedging is dropped (the lock is the authority).
+  assert.doesNotMatch(filterStylePrompt(lock), /unless the references are themselves in that style/i);
+  // Shared helper drives both this and buildTrimPrompt's design block.
+  assert.match(restyleStyleClause(lock), /in this exact style: /);
+});
+
+test('spec.styleLock reaches the submitted restyle prompt', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input, styleLock: 'a cobalt-blue 3D-rendered boy' }, d);
+  const restyle = d.calls.batches[0][0];
+  assert.match(restyle.opts.prompt, /a cobalt-blue 3D-rendered boy/);
+});
+
+test('spec.border draws a border on the guidance and appends the whitelist clause', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input, padMargin: 0, border: { px: 20 } }, d);
+  const boxed = d.calls.ff.find((a) => a.some((x) => typeof x === 'string' && /drawbox=.*t=20/.test(x)));
+  assert.ok(boxed, 'ffmpeg drew a 20px border');
+  const restyle = d.calls.batches[0][0];
+  assert.match(restyle.opts.prompt, /FRAME BORDER:/);
+  assert.ok(restyle.opts.prompt.includes(BORDER_PROMPT_CLAUSE));
+});
+
+test('spec.prompt overrides the composed restyle prompt entirely', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input, prompt: 'OVERRIDE PROMPT', styleLock: 'ignored lock' }, d);
+  assert.equal(d.calls.batches[0][0].opts.prompt, 'OVERRIDE PROMPT');
 });
 
 test('pads the guidance video and both stills, then seeds the undo at the pad inverse', async () => {
