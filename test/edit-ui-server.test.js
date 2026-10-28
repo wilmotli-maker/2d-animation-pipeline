@@ -167,7 +167,7 @@ test('a video generate auto-harmonizes the splice: spliced preview first, harmon
     workspace: path.join(out5, 'ws'), port: 0, generator: fakeGen, video: path.join(out5, 'clip.mp4'), reveal: () => {}, splice: stubSplice, harmonize: stubHarmonize,
   });
   try {
-    const req = { kind: 'video', id: id5, harmonize: true, fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
+    const req = { kind: 'video', id: id5, harmonize: true, styleLock: 'a 3D-rendered boy, no flat 2D', fps: 24, marks: [{ id: 'm', kind: 'range', start: 0, end: 96, anchor: 48 }], prompts: [], annotations: [], keyframes: [] };
     const { jobId } = await (await fetch(`${b5}api/generate`, json(req))).json();
     const gen = await pollAt(b5, jobId);
     assert.equal(gen.status, 'done');
@@ -180,6 +180,7 @@ test('a video generate auto-harmonizes the splice: spliced preview first, harmon
     assert.match(harm.output, /harmonized\.mp4$/);
     assert.equal(harmCalls.length, 1);
     assert.match(harmCalls[0].splicedAbs, /spliced\.mp4$/);
+    assert.equal(harmCalls[0].styleLock, 'a 3D-rendered boy, no flat 2D');  // request style lock reaches the harmonizer
 
     const runs = await pollRunHarmonize(b5, id5);
     assert.equal(runs[0].harmonize.status, 'done');       // and the manifest records it
