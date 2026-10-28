@@ -375,3 +375,38 @@ test('nearestAspect picks the closest allowed ratio', () => {
   assert.equal(nearestAspect(1080, 1080), '1:1');
   assert.equal(nearestAspect(0, 0), '3:4');
 });
+
+test('passes a margin-matched maxScale so a large pad can be undone', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input, padMargin: 0.25 }, d);
+  const { seedScale, maxScale } = d.calls.aligns[0].opts;
+  assert.ok(Math.abs(seedScale - 2) < 1e-9, 'seedScale = 1/(1-2*0.25) = 2');
+  // 2 * 1.15 = 2.3 > seedScale, so alignFraming can apply the undo instead of rejecting it.
+  assert.ok(Math.abs(maxScale - 2.3) < 1e-9);
+  assert.ok(maxScale > seedScale);
+});
+
+test('the default pad still gets a maxScale (>= the 1.6 floor)', async () => {
+  const { root, input } = await project();
+  const d = fakes();
+  await harmonizeVideo(root, { input }, d); // margin 0.12 -> seedScale 1.316, below the 1.6 floor
+  assert.equal(d.calls.aligns[0].opts.maxScale, 1.6);
+});
+
+test('normalizes SAR to 1:1 on the re-encode mux path', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 4 }); // chroma gain != 1 -> filter (re-encode) branch
+  await harmonizeVideo(root, { input }, d);
+  const vf = mux(d.calls)[mux(d.calls).indexOf('-vf') + 1];
+  assert.match(vf, /(^|,)setsar=1$/);
+});
+
+test('normalizes SAR to 1:1 on the stream-copy mux path', async () => {
+  const { root, input } = await project();
+  const d = fakes(); // no conform -> copy branch
+  await harmonizeVideo(root, { input, chroma: false, luma: false }, d);
+  const m = mux(d.calls);
+  assert.ok(m.includes('copy'));
+  assert.equal(m[m.indexOf('-bsf:v') + 1], 'h264_metadata=sample_aspect_ratio=1/1');
+});

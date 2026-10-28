@@ -371,9 +371,15 @@ export async function harmonizeVideo(root, spec, {
   await downloadTo(restyle.outputUrl, restyledTmp);
 
   // Scale the pad back off: one global TRS aligns the restyle onto the original input's crop.
+  // Cropping a `margin` pad needs a scale of 1/(1-2*margin), which for margins past ~0.18 exceeds
+  // alignFraming's default maxScale (1.6) — it would then refuse the undo and leave the pad border
+  // on (which also corrupts the colour conform's measurement below). Raise the cap to the pad's
+  // required scale, with headroom, so larger pads are undone instead of silently kept.
+  const seedScale = margin > 0 ? 1 / (1 - 2 * margin) : 1;
   const alignedTmp = path.join(outDir, `.${base}.aligned.${process.pid}.mp4`);
   const framing = await alignFraming(input, restyledTmp, alignedTmp, {
-    seedScale: margin > 0 ? 1 / (1 - 2 * margin) : 1,
+    seedScale,
+    maxScale: Math.max(1.6, seedScale * 1.15),
   });
   const videoForMux = framing.applied ? alignedTmp : restyledTmp;
 
@@ -407,11 +413,16 @@ export async function harmonizeVideo(root, spec, {
 
   // Carry the input's audio onto the restyled clip, applying the conform in the same pass when there
   // is one (otherwise copy the video stream through untouched).
+  // Normalize the pixel aspect to 1:1. The restyle download can carry a non-square SAR that the
+  // mux would otherwise inherit, making a correct WxH frame DISPLAY stretched (e.g. 560x752 tagged
+  // to show 752x752). On the re-encode path setsar=1 does it; on the stream-copy path the SAR lives
+  // in the H.264 SPS, so rewrite it with a bitstream filter without re-encoding.
   if (filters.length) {
-    await ff(['-i', videoForMux, '-i', input, '-vf', filters.join(','),
+    await ff(['-i', videoForMux, '-i', input, '-vf', [...filters, 'setsar=1'].join(','),
       '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]);
   } else {
-    await ff(['-i', videoForMux, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath]);
+    await ff(['-i', videoForMux, '-i', input, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy',
+      '-bsf:v', 'h264_metadata=sample_aspect_ratio=1/1', '-c:a', 'aac', '-shortest', outputPath]);
   }
   await rm(restyledTmp, { force: true });
   if (framing.applied) await rm(alignedTmp, { force: true });
