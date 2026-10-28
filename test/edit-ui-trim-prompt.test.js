@@ -102,6 +102,18 @@ test('a style lock carries the character design into the Static Description', ()
   assert.match(p, /a red cartoon dragon with a pale belly/);
 });
 
+test('a structured style-lock object is flattened into design prose in the Static Description', () => {
+  const p = buildTrimPrompt({
+    dialogue: '', clipDuration: 4, poses: [], gesture: 'waves',
+    styleLock: { styleRegister: 'flat-cartoon', palette: ['#1b1b1b', '#ff5a5f'], wardrobe: 'red hoodie', notes: 'hard cel shading only' },
+  });
+  assert.match(p, /flat-cartoon style/);
+  assert.match(p, /palette #1b1b1b, #ff5a5f/);
+  assert.match(p, /wardrobe: red hoodie/);
+  assert.match(p, /hard cel shading only/);
+  assert.doesNotMatch(p, /\[object Object\]/);
+});
+
 test('fixes the stray turnaround-frame clause — no single-turnaround or named-png anchor', () => {
   const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [], gesture: 'waves', gestureOffset: 2, styleLock: 'a robot (00-ai-3qfront.png is the ref)' });
   // The builder must not reintroduce the shot-author single-turnaround phrasing.
