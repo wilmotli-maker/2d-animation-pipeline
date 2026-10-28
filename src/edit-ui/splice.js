@@ -3,6 +3,7 @@
 // regenerated clip into the original at the least-visible frames around an edit, with an optional
 // global transform (translate/rotate/scale) fitted to hide the seams. The matching/transform/filter
 // helpers are pure (operate on decoded W*H gray frames); the orchestrator shells ffmpeg (injected).
+import { RANGE_ARGS } from '../color-range.js';
 export const OFFSET_PENALTY = 1.5;   // grey levels per second of orig/gen time offset
 export const NEIGHBOURS = 3;         // extra frame pairs each side used to fit the transform
 const STEP = { tx: 3, ty: 3, rot: 1.5, s: 0.02 };
@@ -208,7 +209,7 @@ export function segmentRenderArgs(seg, { orig, gen, fps, out }) {
     const k = seg.retimeTo / (seg.to - seg.from);
     vf.push(`setpts=${k.toFixed(4)}*(PTS-STARTPTS)`, `fps=${fps}`);
   }
-  return ['-y', '-i', input, '-vf', vf.join(','), '-an', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', out];
+  return ['-y', '-i', input, '-vf', vf.join(','), '-an', '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, out];
 }
 
 // filter_complex joining input 0 (left, `leftFrames` frames) and input 1 (right) with an N-frame
@@ -346,7 +347,7 @@ export async function alignFraming(reference, generated, out, opts = {}) {
   if (P.s < minScale || P.s > maxScale) return { applied: false, reason: 'scale-out-of-range', transform };
   if (nearIdentity(P)) return { applied: false, reason: 'identity', transform };
   const filter = framingAlignFilter({ P, W0, H0, fitW, fitH });
-  await ffmpeg(['-i', generated, '-filter_complex', filter, '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', out]);
+  await ffmpeg(['-i', generated, '-filter_complex', filter, '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, out]);
   return { applied: true, reason: 'aligned', transform };
 }
 
@@ -361,7 +362,7 @@ export async function spliceClip(opts, deps = {}) {
   const joinSeam = deps.joinSeam || (async ({ left, right, out: jOut, leftFrames, mode }) => {
     if (morphEngine === 'flow') return flowMorphJoin(left, right, { out: jOut, frames: morph, fps, mode });
     const { filter, map } = morphJoinFilter({ leftFrames, morph, fps });
-    await ffmpeg(['-y', '-i', left, '-i', right, '-filter_complex', filter, '-map', map, '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', jOut]);
+    await ffmpeg(['-y', '-i', left, '-i', right, '-filter_complex', filter, '-map', map, '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, jOut]);
     return { out: jOut };
   });
   const { W, H } = size;
@@ -404,7 +405,7 @@ export async function spliceClip(opts, deps = {}) {
     await ffmpeg(['-y', '-i', gen, '-filter_complex',
       `[0:v]rotate=${th}:ow=iw:oh=ih:c=${fill},scale=iw*${P.s}:ih*${P.s}:flags=bicubic[g];` +
       `color=c=${fill}:s=${W0}x${H0}:r=${fps}[cv];[cv][g]overlay=x=(W-w)/2+${(P.tx * sx).toFixed(3)}:y=(H-h)/2+${(P.ty * (H0 / H)).toFixed(3)}:shortest=1:format=auto[v]`,
-      '-map', '[v]', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', genFile]);
+      '-map', '[v]', '-c:v', 'libx264', '-crf', '12', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, genFile]);
   }
 
   const commonReport = {
@@ -445,7 +446,7 @@ export async function spliceClip(opts, deps = {}) {
   const { filter, expectedOutputFrames } = buildSpliceFilter({ seam, blend, retime: useRetime, inPt, outPt, origLen: O.length, genLen: G.length, fps });
   const renderArgs = ['-y', '-i', orig, '-i', genFile, '-filter_complex', filter, '-map', '[v]'];
   if (useAudio) renderArgs.push('-map', '0:a?');            // original source audio, whole clip
-  renderArgs.push('-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p');
+  renderArgs.push('-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...RANGE_ARGS);
   if (useAudio) renderArgs.push('-c:a', 'aac', '-shortest');
   await ffmpeg([...renderArgs, out]);
 
