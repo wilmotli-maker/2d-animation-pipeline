@@ -288,7 +288,7 @@ export async function harmonizeVideo(root, spec, {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
     guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR, genSpan = null,
-    chroma = true, luma = true,
+    chroma = true, luma = true, keepRaw = false,
   } = spec;
   if (genSpan && (!Number.isInteger(genSpan[0]) || !Number.isInteger(genSpan[1]) || genSpan[1] <= genSpan[0])) {
     throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
@@ -303,6 +303,7 @@ export async function harmonizeVideo(root, spec, {
   const guidancePath = path.join(outDir, `${base}.guidance.mp4`);
   const restyledTmp = path.join(outDir, `.${base}.restyled.${process.pid}.mp4`);
   const outputPath = path.join(outDir, `${base}.harmonized.mp4`);
+  const rawPath = path.join(outDir, `${base}.harmonized.raw.mp4`);
 
   const meta = await probe(ffprobe, input);
   const aspectRatio = spec.aspect || nearestAspect(meta.width, meta.height);
@@ -411,6 +412,13 @@ export async function harmonizeVideo(root, spec, {
   if (chromaInfo.gain !== 1) filters.push(`hue=s=${chromaInfo.gain.toFixed(4)}`);
   if (lumaInfo.a !== 1 || lumaInfo.b !== 0) filters.push(`lutyuv='y=clip(${lumaInfo.a.toFixed(4)}*val+${lumaInfo.b.toFixed(2)}\\,0\\,255)'`);
 
+  // Optionally keep the RAW harmonized result — the framing-aligned restyle with the input's audio
+  // but BEFORE the colour conform — beside the conformed output, so the two can be compared.
+  if (keepRaw) {
+    await ff(['-i', videoForMux, '-i', input, '-vf', 'setsar=1',
+      '-map', '0:v', '-map', '1:a?', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', rawPath]);
+  }
+
   // Carry the input's audio onto the restyled clip, applying the conform in the same pass when there
   // is one (otherwise copy the video stream through untouched).
   // Normalize the pixel aspect to 1:1. The restyle download can carry a non-square SAR that the
@@ -430,7 +438,7 @@ export async function harmonizeVideo(root, spec, {
   if (!keepPreviz) await rm(guidancePath, { force: true });
 
   return {
-    outputPath, previzPath: keepPreviz ? guidancePath : null,
+    outputPath, rawPath: keepRaw ? rawPath : null, previzPath: keepPreviz ? guidancePath : null,
     guidance: { mode: guidance, path: keepPreviz ? guidancePath : null, genSpan: genSpan || null, padMargin: margin },
     chroma: chromaInfo, luma: lumaInfo,
     refs, jobs: { previz: previzJob, restyle: restyle.id }, framing,

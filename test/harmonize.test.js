@@ -376,6 +376,27 @@ test('nearestAspect picks the closest allowed ratio', () => {
   assert.equal(nearestAspect(0, 0), '3:4');
 });
 
+test('keepRaw writes the pre-conform result beside the conformed output', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 4 }); // conform active, so raw != conformed
+  const res = await harmonizeVideo(root, { input, keepRaw: true }, d);
+  assert.equal(res.rawPath, path.join(root, 'clip.harmonized.raw.mp4'));
+  assert.ok(await exists(res.rawPath));
+  const rawMux = d.calls.ff.find((a) => a[a.length - 1] === res.rawPath);
+  assert.ok(rawMux, 'raw mux call present');
+  const vf = rawMux[rawMux.indexOf('-vf') + 1];
+  assert.equal(vf, 'setsar=1'); // SAR normalized, but NO hue=/lutyuv conform
+  assert.ok(!/hue=|lutyuv/.test(rawMux.join(' ')));
+});
+
+test('no raw output unless keepRaw is set', async () => {
+  const { root, input } = await project();
+  const d = fakes({ satSource: 8, satHarm: 4 });
+  const res = await harmonizeVideo(root, { input }, d);
+  assert.equal(res.rawPath, null);
+  assert.ok(!(await exists(path.join(root, 'clip.harmonized.raw.mp4'))));
+});
+
 test('passes a margin-matched maxScale so a large pad can be undone', async () => {
   const { root, input } = await project();
   const d = fakes();

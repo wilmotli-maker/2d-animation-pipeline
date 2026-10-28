@@ -471,17 +471,18 @@ async function main() {
   } else if (cmd === 'video' && sub === 'harmonize') {
     const f = parseFlags(rest);
     if (!f.input) {
-      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--runner fal|higgsfield|muapi] [--root <dir>]');
+      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--keep-raw] [--runner fal|higgsfield|muapi] [--root <dir>]');
     }
     if (f.guidance && f.guidance !== 'filter' && f.guidance !== 'previz') fail("video harmonize: --guidance must be filter or previz");
     const res = await harmonizeVideo(projectRoot(f.root), {
       input: f.input, refs: collectFlag(rest, 'ref'),
       resolution: f.resolution || HARMONIZE_DEFAULT_RESOLUTION,
       guidance: f.guidance || HARMONIZE_DEFAULT_GUIDANCE, blur: f.blur != null ? Number(f.blur) : undefined,
-      aspect: f['aspect-ratio'], out: f.out, keepPreviz: !f['drop-previz'], task: f.task,
+      aspect: f['aspect-ratio'], out: f.out, keepPreviz: !f['drop-previz'], keepRaw: !!f['keep-raw'], task: f.task,
     }, { runner: pickGenerationRunner(f) });
     console.log(`harmonized ${f.input}  (guidance: ${res.guidance.mode})`);
     console.log(`  -> ${res.outputPath} (${res.model}, ${res.resolution}, jobs${res.jobs.previz ? ` previz ${res.jobs.previz} /` : ''} restyle ${res.jobs.restyle})`);
+    if (res.rawPath) console.log(`  -> ${res.rawPath} (raw, pre-conform)`);
   } else if (cmd === 'verify' && sub === 'element') {
     const f = parseFlags(rest);
     if (!f.type || !f.name || !f.sheet || !f.id) {
