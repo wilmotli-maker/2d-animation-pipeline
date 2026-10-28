@@ -69,13 +69,15 @@ function editBlock({ poses, gesture, gestureOffset, end }) {
   }
   const n = poses.length + 2;
   const pins = ['@Image1 at 0.0s'];
-  // Light pose pin: name the gesture, then pin only the ARM (its height and side, derived from the
-  // keyframe) so a big arm raise lands and does not mirror or under-shoot — WITHOUT the heavy
-  // "reproduce every limb / BODY and EYES only / mouth ignores ref" clause that also froze the mouth.
-  // Nothing here touches the face; lip-sync is held by speechBlock.
-  poses.forEach((p, i) => pins.push(`@Image${i + 2} at ${s1(p.offset)}s — the character ${act}, reaching the same raised-arm height and the same side as this keyframe (not the opposite arm, not a smaller bent raise)`));
+  // Strong pose pin: a keyframe is a HARD constraint on the body pose — reproduce it exactly (this is
+  // what reliably lands the pose across shots). The one thing kept OUT of the pin is the mouth: the
+  // earlier "BODY and EYES only / mouth ignores the reference" framing told the model to treat the
+  // face as a held frame and froze the lips, so instead we pin the body only and tell the mouth to
+  // keep lip-syncing straight through the keyframe.
+  poses.forEach((p, i) => pins.push(
+    `@Image${i + 2} at ${s1(p.offset)}s — at this instant the BODY matches this reference frame EXACTLY (${act}): the same pose, the same configuration of every limb, reproduced as shown — the same arms, hands and body parts on the same sides in the same positions — never mirrored, swapped, simplified, lowered, or replaced with a different version of the gesture. The keyframe pins the BODY pose only; the MOUTH is NOT pinned and keeps lip-syncing to @Video1 straight through this keyframe, never pausing, holding, or freezing`));
   pins.push(`@Image${n} at ${end}s`);
-  return `The attached reference frames are keyframes pinned in time — move through each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}.`;
+  return `The attached reference frames are keyframes pinned in time — move through each at its timestamp with continuous motion and no held freezes: ${pins.join('; ')}. Keep the expressive motion in the TRANSITIONS between keyframes, and reproduce each pinned pose exactly at its timestamp.`;
 }
 
 export function buildTrimPrompt({ dialogue = '', clipDuration, poses = [], gesture = '', gestureOffset, styleLock = '', aspect = '', framing = '' } = {}) {

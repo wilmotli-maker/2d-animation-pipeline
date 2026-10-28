@@ -124,14 +124,17 @@ test('framing locks the camera against following the action (camera-locked, even
   assert.doesNotMatch(p, /entire figure/i);                  // not forced to full-body
 });
 
-test('a keyframe pin names the gesture and anchors the arm height + side from the image, with no mouth clause', () => {
-  // Finding: a keyframe image ALONE does not reliably constrain the pose (the model mirrors it and
-  // under-shoots), so the pin names the gesture and anchors the arm's height + side derived from the
-  // image. It carries NO mouth language (that froze the lips) — lip-sync is held by the speech block.
+test('a keyframe pin hard-constrains the whole body pose, but keeps the mouth OUT of the pin', () => {
+  // Finding: a keyframe image alone does not reliably constrain the pose (the model mirrors/under-
+  // shoots), so the pin reinstates the strong exact-pose body language — this reliably lands the pose
+  // across shots. The one thing kept OUT of the pin is the mouth: the earlier "BODY and EYES only /
+  // mouth ignores the reference" framing froze the lips, so instead the pin scopes to the body and
+  // tells the mouth to keep lip-syncing straight through the keyframe.
   const p = buildTrimPrompt({ dialogue: 'hi', clipDuration: 4, poses: [{ offset: 2 }], gesture: 'crosses both arms' });
-  assert.match(p, /the character crosses both arms/);                 // the derived gesture is folded in
-  assert.match(p, /same raised-arm height and the same side as this keyframe/i);
-  assert.match(p, /not the opposite arm, not a smaller bent raise/i);
-  assert.doesNotMatch(p, /BODY and EYES only/i);                      // no mouth carve-out
+  assert.match(p, /the BODY matches this reference frame EXACTLY \(crosses both arms\)/); // gesture folded in
+  assert.match(p, /the same configuration of every limb/i);
+  assert.match(p, /never mirrored, swapped, simplified, lowered, or replaced/i);
+  assert.match(p, /the MOUTH is NOT pinned and keeps lip-syncing to @Video1 straight through this keyframe/i);
+  assert.doesNotMatch(p, /BODY and EYES only/i);                      // the freeze-trigger framing is gone
   assert.doesNotMatch(p, /mouth ignores the reference/i);
 });
