@@ -142,7 +142,7 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
     // output NOW as a clearly-marked preview, and the client polls `harmonizeJobId` to swap in the
     // harmonized clip when ready. A harmonize failure never touches the spliced result.
     let harmonizeJobId = null;
-    if (spliced && ctx.harmonize && request.harmonize) harmonizeJobId = startHarmonize(ctx, run.dir, spliced);
+    if (spliced && ctx.harmonize && request.harmonize) harmonizeJobId = startHarmonize(ctx, run.dir, spliced, request.styleLock);
     return { ...result, run: run.name, warnings, spliced, harmonizeJobId, harmonizing: !!harmonizeJobId };
   } catch (err) {
     await updateRun(run.dir, { status: 'error', finishedAt: new Date().toISOString(), error: err.message });
@@ -152,14 +152,14 @@ async function runVideoJob(ctx, meta, videoPath, jobId, request, job) {
 
 // Kick off a background harmonization of a spliced run. Registers a `harmonize` job in ctx.jobs
 // (polled by the client), writes progress into the run manifest, and never throws into the caller.
-function startHarmonize(ctx, runDir, splicedRel) {
+function startHarmonize(ctx, runDir, splicedRel, styleLock) {
   const { workspace, jobs } = ctx;
   const jobId = `harmonize-${Date.now().toString(36)}-${crypto.randomBytes(2).toString('hex')}`;
   const job = { id: jobId, kind: 'harmonize', status: 'running', createdAt: new Date().toISOString() };
   jobs.set(jobId, job);
   const splicedAbs = path.join(workspace, splicedRel);
   updateRun(runDir, { harmonize: { status: 'running', at: new Date().toISOString() } }).catch(() => {});
-  Promise.resolve(ctx.harmonize({ workspace, runDir, splicedAbs, splicedRel }))
+  Promise.resolve(ctx.harmonize({ workspace, runDir, splicedAbs, splicedRel, styleLock }))
     .then(async (hr) => {
       const output = (hr && hr.output) || null;
       const done = { status: 'done', output, previz: (hr && hr.previz) || null, at: new Date().toISOString() };
@@ -178,10 +178,12 @@ function startHarmonize(ctx, runDir, splicedRel) {
 // writing the outputs into the run dir. Returns workspace-relative paths. Wired in by the CLI;
 // createEditServer leaves harmonize off by default so tests opt in with a stub.
 export function createDefaultHarmonizer() {
-  return async function harmonize({ workspace, runDir, splicedAbs }) {
+  return async function harmonize({ workspace, runDir, splicedAbs, styleLock }) {
     const { harmonizeVideo } = await import('../harmonize.js');
     const { createFalRunner } = await import('../fal.js');
-    const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir }, { runner: createFalRunner() });
+    // Carry the request's style lock so the restyle matches the character's own render style
+    // (e.g. a 3D character stays 3D) instead of the medium-neutral fallback.
+    const res = await harmonizeVideo(workspace, { input: splicedAbs, out: runDir, styleLock }, { runner: createFalRunner() });
     const rel = (p) => (p ? path.relative(workspace, p).split(path.sep).join('/') : null);
     return { output: rel(res.outputPath), previz: rel(res.previzPath), framing: res.framing || null };
   };
