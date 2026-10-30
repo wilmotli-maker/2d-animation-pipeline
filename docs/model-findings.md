@@ -66,6 +66,52 @@ Frame-adherence SSIM (generated endpoint frame vs the supplied frame):
   the model always repaints in its own render.
 - Driver: `scripts/spike-firstlast-ab.mjs`; review page `web/ai12-firstlast-ab` in ArtAI ep2.
 
+### Real-background framing still drifts (textpose edit, 2026-10-29)
+Text-pose edit of a shot with a **real background** (bruce-talk-03-v004, not a flat studio
+plate) on reference-to-video. Findings, in order of what we tried:
+- **The style lock forces a grey plate.** `bruce-style.mjs` ends with "clean light-grey
+  seamless backdrop", which flows into the Static Description and makes the gen replace the
+  real background with a flat grey studio sweep. Fix for the test: drop that clause and add an
+  explicit "preserve the full background environment exactly as seen in @Image1/@Image2; do
+  NOT replace it with a plain/grey/seamless backdrop". The prompt builder should make the
+  backdrop clause conditional (TODO — not yet wired).
+- **With the real bg preserved, the gen zooms in** — shows character + bg in a much tighter
+  shot than the refs. Dropping the pad (unpadded src frames, to keep the real bg) removed the
+  pad's anti-zoom lever, so framing drifted.
+- **The border frame-anchor helps most.** A red 20px border drawn on the (unpadded, real-bg)
+  ref stills + the border whitelist clause pulled framing much closer (splice TRS s: 1.16 →
+  0.93), keeping the character inset instead of frame-filling. **Still not perfect** — real-bg
+  shots retain some framing artifacts even with the border. Parked here.
+- **Stitching: bg morph is noticeable.** The flow-morph splice warps the background at the
+  seam, which reads badly once there's an actual scene (vs a flat plate). Likely need to
+  **separate the character and regen only that** (possibly folded into the harmonization pass)
+  rather than morphing the whole frame. (TODO — revisit stitching.)
+- Repro: `evaluation/video-editing-eval/textpose-bruce/`, edit
+  `bruce-talk-03-v004__mid-extends-both-arms` drafts v001 (grey bg) / v002 (real bg, zoomed) /
+  v003 (real bg + border, best).
+
+### Harmonize into a full background scene (spike, 2026-10-29)
+Spike to make `video harmonize` composite a matted-on-grey Bruce clip into a real scene by
+pulling the background from the appearance refs (city frames). `evaluation/video-editing-eval/
+textpose-bruce/harmonize-bgscene/`.
+- **Stock FILTER_STYLE_PROMPT forbids scenery** ("Background: the same plain flat colour as the
+  reference image; add no scenery, props or set") — it is built for flat-plate restyles, so it
+  will not paint a background in. Had to override via `spec.prompt` (the escape hatch).
+- **Custom prompt** (saved `harmonize-bgscene-prompt.txt`): take ONLY the character's motion/
+  framing from @Video1, treat its grey as a placeholder to ignore, say the @Image refs supply
+  both the character look AND the scene, and flip the Background line to "exactly the city scene
+  in the refs". This did fill the scene.
+- **Grey ring = harmonize's own internal pad**, not the refs. `padMargin` default 0.12 shrinks
+  guidance+refs onto a grey canvas, then a TRS crops it back; the model leaves the padded ring
+  grey and the TRS undo isn't exact → grey border.
+- **Pad vs border tension (unresolved):** `padMargin 0` + `border:{px:20}` removes the ring but
+  the shot zooms way in — with no outer margin the TRS realign can't scale a model zoom back
+  (and with a full bg filled in there's no outer scene to reveal). Pad gives recovery margin but
+  the ring. Likely fix (untried): **combine pad 0.12 + border** so the border keeps the character
+  inside the padded frame and the TRS crops the ring off cleanly. NOTE: `spec.prompt` overrides
+  AFTER the border clause is appended, so a custom prompt must append `BORDER_PROMPT_CLAUSE`
+  itself.
+
 ### Keyframe-pose vs text-described pose (EP2 textpose rolls)
 On talking-shot pose edits: a **keyframe pose** (inject a pose still as the middle @Image)
 hits the exact pose but lerps/snaps stiffly into/out of it; a **text-described pose** moves
