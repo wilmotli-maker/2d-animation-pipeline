@@ -342,7 +342,8 @@ function outsideSpanSelect(genSpan) {
  *   - 'passthrough': keep the source in FULL COLOUR as the guidance (no desaturate, no blur) and
  *     restyle with COMPOSITE_SCENE_PROMPT. Use to composite a plain-bg character clip INTO a scene:
  *     the appearance ref is a finished composite still, @Video1 supplies motion/colour. Defaults to
- *     no pad (padMargin 0). ONE Seedance gen.
+ *     no pad (padMargin 0) and no colour conform (conforming onto the plain-bg source would
+ *     desaturate the scene). ONE Seedance gen.
  * Then restyle from the appearance refs. Before the restyle, the guidance clip and both stills are
  * padded (`spec.padMargin`, default 0.12 per side) so a model zoom still leaves the extremities
  * inside the frame. After the restyle, one global TRS scales that pad back off against the original
@@ -369,8 +370,15 @@ export async function harmonizeVideo(root, spec, {
   const {
     input, resolution = HARMONIZE_DEFAULT_RESOLUTION, keepPreviz = true,
     guidance = HARMONIZE_DEFAULT_GUIDANCE, blur = HARMONIZE_DEFAULT_BLUR, genSpan = null,
-    chroma = true, luma = true, keepRaw = false,
+    keepRaw = false,
   } = spec;
+  // The colour conform matches the restyle's chroma/luma onto the SOURCE. That is right for a
+  // restyle (keep the clip's own look), but wrong for 'passthrough' composite-into-scene: the
+  // source is a plain-bg clip, so conforming would desaturate the vivid scene down to the backdrop.
+  // So passthrough defaults the conform OFF; the caller can still force it on explicitly.
+  const conformDefault = guidance !== 'passthrough';
+  const chroma = spec.chroma == null ? conformDefault : spec.chroma;
+  const luma = spec.luma == null ? conformDefault : spec.luma;
   if (genSpan && (!Number.isInteger(genSpan[0]) || !Number.isInteger(genSpan[1]) || genSpan[1] <= genSpan[0])) {
     throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
   }

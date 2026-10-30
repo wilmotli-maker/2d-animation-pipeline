@@ -110,6 +110,17 @@ test('passthrough guidance: one restyle gen on a full-colour guidance clip, no p
   assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.startsWith('scale=iw*'))), 'guidance not padded');
   assert.equal(res.guidance.mode, 'passthrough');
   assert.equal(res.jobs.previz, null);
+  // no colour conform by default: conforming onto the plain-bg source would desaturate the scene
+  assert.ok(!d.calls.ff.some((a) => a.includes('-f') && a[a.indexOf('-f') + 1] === 'null'), 'no signalstats measurement pass');
+});
+
+test('passthrough: caller can force the colour conform back on', async () => {
+  const { root, input } = await project();
+  const ref = path.join(root, 'still.png');
+  await writeFile(ref, 'png');
+  const d = fakes({ satSource: 11, satHarm: 24 });
+  await harmonizeVideo(root, { input, guidance: 'passthrough', refs: [ref], chroma: true }, d);
+  assert.ok(d.calls.ff.some((a) => a.includes('-f') && a[a.indexOf('-f') + 1] === 'null'), 'measurement ran when chroma forced on');
 });
 
 test('passthrough: spec.prompt overrides the composite-scene prompt', async () => {
