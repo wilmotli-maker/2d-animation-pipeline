@@ -1,5 +1,6 @@
-import { mkdir, writeFile, readFile, appendFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, appendFile, access, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import path from 'node:path';
 import YAML from 'yaml';
 import { ELEMENT_TYPES, assertSegment } from './config.js';
 import { elementDir, elementInputsDir, styleLockPath, generationsLogPath, sheetDir } from './paths.js';
@@ -39,6 +40,28 @@ export async function createElement(root, { type, name }) {
 
 export async function writeStyleLock(root, type, name, obj) {
   await writeFile(styleLockPath(root, type, name), YAML.stringify(obj));
+}
+
+export async function listElements(root) {
+  const out = [];
+  for (const type of ELEMENT_TYPES) {
+    let entries;
+    try {
+      entries = await readdir(path.join(root, 'elements', type), { withFileTypes: true });
+    } catch (err) {
+      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') continue;
+      throw err;
+    }
+    const names = entries
+      .filter((ent) => ent.isDirectory())
+      .map((ent) => ent.name)
+      .filter((name) => {
+        try { assertSegment(name, 'element name'); return true; } catch { return false; }
+      })
+      .sort((a, b) => a.localeCompare(b));
+    for (const name of names) out.push({ type, name });
+  }
+  return out;
 }
 
 export async function readStyleLock(root, type, name) {

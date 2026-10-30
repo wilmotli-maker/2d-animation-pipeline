@@ -121,7 +121,13 @@
     </section>
     <section class="panel">
       <header><h2>Style lock</h2></header>
-      <textarea id="style-lock" rows="2" placeholder="Describe the subject's locked design to preserve (e.g. 'a red cartoon dragon, pale belly, olive spines'). Optional — leave blank to preserve from the reference frames."></textarea>
+      <label class="stack" for="style-lock-element">Element
+        <select id="style-lock-element">
+          <option value="">None</option>
+        </select>
+      </label>
+      <p id="style-lock-preview" class="dim style-lock-preview" hidden></p>
+      <textarea id="style-lock" rows="2" placeholder="Optional override. Leave blank to use the selected element's style lock."></textarea>
       <header><h2>Whole-video prompts</h2><button id="add-global-prompt">+ Prompt</button></header>
       <div id="global-prompts"></div>
     </section>
