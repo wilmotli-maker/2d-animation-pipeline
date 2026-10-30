@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startEditUi, listRecent } from '../src/edit-ui/server.js';
+import { createElement, writeStyleLock } from '../src/element.js';
 
 let outer, workspace, server, base, initialId;
 const revealed = [];
@@ -301,11 +302,37 @@ test('POST /api/harmonize harmonizes an already-spliced run on demand; refuses u
     doSplice = true;
     const sp = await pollAt(bH, (await (await fetch(`${bH}api/splice`, json({ id: idH, run: gen.run }))).json()).jobId);
     assert.equal(sp.status, 'done');
-    const resp = await fetch(`${bH}api/harmonize`, json({ id: idH, run: gen.run }));
+    const lock = { styleRegister: '3d-render', wardrobe: 'blue coat' };
+    const resp = await fetch(`${bH}api/harmonize`, json({ id: idH, run: gen.run, styleLock: lock }));
     assert.equal(resp.status, 202);
     const harm = await pollAt(bH, (await resp.json()).jobId);
     assert.equal(harm.status, 'done');
     assert.match(harm.output, /harmonized\.mp4$/);
     assert.match(calls[0].splicedAbs, /spliced\.mp4$/);
+    assert.deepEqual(calls[0].styleLock, lock);
   } finally { sH.close(); await rm(outH, { recursive: true, force: true }); }
+});
+
+test('GET /api/elements and the style-lock route read the project root', async () => {
+  const out = await mkdtemp(path.join(tmpdir(), 'edit-ui-elements-http-'));
+  const root = path.join(out, 'project');
+  await createElement(root, { type: 'characters', name: 'ada' });
+  await writeStyleLock(root, 'characters', 'ada', { wardrobe: 'red hoodie' });
+  const { server: srv, url } = await startEditUi({
+    workspace: path.join(out, 'ws'), port: 0, root, generator: fakeGen, reveal: () => {},
+  });
+  try {
+    const list = await (await fetch(`${url}api/elements`)).json();
+    assert.deepEqual(list.elements, [{ type: 'characters', name: 'ada' }]);
+    const lock = await (await fetch(`${url}api/elements/characters/ada/style-lock`)).json();
+    assert.equal(lock.styleLock.wardrobe, 'red hoodie');
+    assert.match(lock.text, /red hoodie/);
+  } finally { srv.close(); await rm(out, { recursive: true, force: true }); }
+});
+
+test('omitted root lists no elements and refuses a style-lock read', async () => {
+  assert.deepEqual(await (await fetch(`${base}api/elements`)).json(), { elements: [] });
+  const lock = await fetch(`${base}api/elements/characters/ada/style-lock`);
+  assert.equal(lock.status, 404);
+  assert.equal((await lock.json()).error, 'no project root');
 });

@@ -588,7 +588,8 @@ async function main() {
     const { url } = await startStudio({ root, port });
     console.log(`studio: ${url}  (project: ${root})  — Ctrl+C to stop`);
   } else if (cmd === 'edit-ui') {
-    // Standalone (no project root): optional positional video path to open.
+    // Optional positional video path to open. Video sessions live in --workspace.
+    // Element style locks are read from the project root (--root / ANIMATION_PIPELINE_ROOT / cwd).
     const args = [sub, ...rest].filter((x) => x != null);
     const videoArg = args[0] && !args[0].startsWith('--') ? args.shift() : null;
     const f = parseFlags(args);
@@ -597,13 +598,14 @@ async function main() {
     const { startEditUi, DEFAULT_WORKSPACE, createDefaultHarmonizer } = await import('../src/edit-ui/server.js');
     const { resolveGenerator } = await import('../src/edit-ui/generators.js');
     const workspace = f.workspace ? (await import('node:path')).resolve(f.workspace) : DEFAULT_WORKSPACE;
+    const root = projectRoot(f.root);
     let generator;
     try { generator = resolveGenerator(f.generator || process.env.PIPELINE_EDIT_GENERATOR); } catch (e) { fail(`edit-ui: ${e.message}`); }
     // Harmonization (previz→restyle, removes splice seams) is available but OFF by default — the user
     // opts in per session with the UI's "Harmonize" toggle. --no-harmonize removes the capability.
     const harmonize = f['no-harmonize'] ? null : createDefaultHarmonizer();
-    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator, harmonize });
-    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, generator: ${generator.name}, harmonize: ${harmonize ? 'available (per-session toggle, default off)' : 'disabled'})  — Ctrl+C to stop`);
+    const { url, initialId } = await startEditUi({ workspace, port, video: videoArg, generator, harmonize, root });
+    console.log(`edit-ui: ${initialId ? `${url}?id=${initialId}` : url}  (workspace: ${workspace}, project: ${root}, generator: ${generator.name}, harmonize: ${harmonize ? 'available (per-session toggle, default off)' : 'disabled'})  — Ctrl+C to stop`);
   } else if (cmd === 'edit-ui-splice') {
     const f = parseFlags([sub, ...rest].filter((x) => x != null));
     if (!f.id || !f.run) fail('usage: pipeline edit-ui-splice --id <videoId> --run <vNNN> [--workspace <dir>]');

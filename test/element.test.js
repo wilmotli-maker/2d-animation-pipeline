@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, stat, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createElement, writeStyleLock, readStyleLock, appendGeneration } from '../src/element.js';
+import { createElement, writeStyleLock, readStyleLock, appendGeneration, listElements } from '../src/element.js';
 
 async function withTempRoot(fn) {
   const root = await mkdtemp(path.join(tmpdir(), 'pipeline-'));
@@ -70,6 +70,21 @@ test('appendGeneration writes one JSON line per call with a timestamp', async ()
     const first = JSON.parse(lines[0]);
     assert.equal(first.jobId, 'j1');
     assert.ok(typeof first.ts === 'string' && first.ts.length > 0);
+  });
+});
+
+test('listElements lists every element type, skips files and illegal names, and is empty when elements/ is missing', async () => {
+  await withTempRoot(async (root) => {
+    assert.deepEqual(await listElements(root), []);
+    await createElement(root, { type: 'characters', name: 'ada' });
+    await createElement(root, { type: 'props', name: 'lamp' });
+    await writeFile(path.join(root, 'elements', 'characters', 'notes.txt'), 'x');
+    await mkdir(path.join(root, 'elements', 'characters', 'undefined'));
+    const listed = await listElements(root);
+    assert.deepEqual(listed, [
+      { type: 'characters', name: 'ada' },
+      { type: 'props', name: 'lamp' },
+    ]);
   });
 });
 

@@ -1,8 +1,8 @@
 // src/edit-ui/server.js
-// Local-only server for the targeted-edit UI (`pipeline edit-ui`). Standalone —
-// not tied to a project: the user opens a video (upload from the page, or a path
-// on the command line), which is imported into a workspace dir keyed by content
-// hash, so reopening the same file resumes its session. Per video:
+// Local-only server for the targeted-edit UI (`pipeline edit-ui`).
+// Video sessions live in `workspace`, keyed by content hash, so reopening the
+// same file resumes its session. Element style locks are read from `root`
+// (the pipeline project). Per video:
 //   <workspace>/<id>/source.<ext>   meta.json   session.json   waveform.json
 //   <workspace>/<id>/keyframes/…    jobs/…      (generator outputs)
 // Generation goes through a pluggable `generator` (see generator.js).
@@ -21,6 +21,8 @@ import { videoDirs, writeJsonAtomic, ensureTranscript, createRun, updateRun, lis
 import { createSpliceRunner } from './splice-run.js';
 import { spawn } from 'node:child_process';
 import { prepareRunInputs } from './inputs.js';
+import { listElements } from '../element.js';
+import { loadElementStyleLock } from './elements-api.js';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -231,6 +233,20 @@ async function handle(ctx, req, res) {
 
   if (get && p === '/api/recent') return sendJson(res, 200, { recent: await listRecent(workspace), initial: ctx.initialId || null });
 
+  // Element style locks live in the pipeline project (`ctx.root`), not the video workspace.
+  if (get && p === '/api/elements') {
+    const elements = ctx.root ? await listElements(ctx.root) : [];
+    return sendJson(res, 200, { elements });
+  }
+  const elementLock = get && /^\/api\/elements\/([^/]+)\/([^/]+)\/style-lock$/.exec(p);
+  if (elementLock) {
+    try {
+      return sendJson(res, 200, await loadElementStyleLock(ctx.root, elementLock[1], elementLock[2]));
+    } catch (err) {
+      return sendJson(res, err.status || 500, { error: err.message });
+    }
+  }
+
   if (req.method === 'POST' && p === '/api/open') {
     const name = uploadName(req);
     if (!name) return sendJson(res, 400, { error: 'expected application/octet-stream with X-Filename' });
@@ -376,7 +392,7 @@ async function handle(ctx, req, res) {
     try { manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8')); } catch { return sendJson(res, 404, { error: 'unknown run' }); }
     const splicedRel = manifest.spliced && manifest.spliced.output;
     if (!splicedRel) return sendJson(res, 409, { error: 'splice this run before harmonizing it' });
-    return sendJson(res, 202, { jobId: startHarmonize(ctx, runDir, splicedRel) });
+    return sendJson(res, 202, { jobId: startHarmonize(ctx, runDir, splicedRel, body.styleLock) });
   }
 
   if (get && p.startsWith('/api/jobs/')) {
@@ -391,8 +407,8 @@ async function handle(ctx, req, res) {
 // `tools`: optional { speechRef, frame, annotate } media-tool overrides (tests).
 // `reveal(path)`: opens a folder in the OS file browser.
 export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = createStubGenerator(), initialId = null,
-  derivers = {}, tools = {}, reveal = defaultReveal, splice = createSpliceRunner(), harmonize = null }) {
-  const ctx = { workspace, generator, initialId, derivers, tools, reveal, splice, harmonize, jobs: new Map() };
+  derivers = {}, tools = {}, reveal = defaultReveal, splice = createSpliceRunner(), harmonize = null, root = null }) {
+  const ctx = { workspace, generator, initialId, derivers, tools, reveal, splice, harmonize, root, jobs: new Map() };
   return http.createServer((req, res) => {
     handle(ctx, req, res).catch((err) => {
       if (!res.headersSent) sendJson(res, 500, { error: err.message });
@@ -402,9 +418,9 @@ export function createEditServer({ workspace = DEFAULT_WORKSPACE, generator = cr
 }
 
 // `video`: optional path to open at startup (imported into the workspace).
-export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal, splice, harmonize }) {
+export async function startEditUi({ workspace = DEFAULT_WORKSPACE, port = 4880, host = '127.0.0.1', generator, video, derivers, tools, reveal, splice, harmonize, root = null }) {
   const initialId = video ? (await importVideoFile(workspace, path.resolve(video))).id : null;
-  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal, splice, harmonize });
+  const server = createEditServer({ workspace, generator, initialId, derivers, tools, reveal, splice, harmonize, root });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {

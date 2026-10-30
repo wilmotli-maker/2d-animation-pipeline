@@ -4,6 +4,7 @@
 // scribbled annotations, prompts and keyframes all belong to a mark (shown on
 // the Marks / Ink / Keys lanes). Unlinked prompts apply to the whole video. Session state autosaves to the server.
 import * as Regions from './regions.js';
+import { resolveStyleLock, elementOptionValue, elementSelectionAfterList } from './style-lock.js';
 const $ = (id) => document.getElementById(id);
 const video = $('video'); const video2 = $('video2'); const ink = $('ink'); const stage = $('stage'); const lanes = $('lanes');
 const COLORS = ['#ff4d6d', '#ffc43d', '#4cc38a', '#5aa9ff', '#c78bff', '#ffffff'];
@@ -20,13 +21,16 @@ const ICONS = {
 // keyframes:   { id, markId, frame, versions: [{ output, source, stub, note, at }], current, status, error }
 // renders:     { id, status, run, output, spliced, harmonized, harmonizing, harmonizeErr, stub, note, at }
 // dialogue:    null | { original, text, include }   (transcript; text is the user's edit)
-// settings:    { autoKeyframes, styleLock, harmonize }
-const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0, styleLock: '', harmonize: false } }; // persisted
+// settings:    { autoKeyframes, styleLock, harmonize, styleLockElement }
+// styleLockElement is { type, name } | null. The parsed object stays on ui.styleLockLoaded
+// so a session save does not freeze a stale copy of style-lock.yaml.
+const data = { marks: [], annotations: [], prompts: [], keyframes: [], renders: [], dialogue: null, settings: { autoKeyframes: 0, styleLock: '', harmonize: false, styleLockElement: null } }; // persisted
 const ui = {
   id: null, src: null, name: '', meta: { fps: 24, duration: 0, width: 16, height: 9, hasAudio: false }, peaks: null, resultPeaks: null,
   tool: 'none', color: COLORS[0], size: 5, loop: true,
   sel: null, selFocus: null, draftSel: null, draftSelFocus: null, pendingIn: null, view: 'source', resultSrc: null, resultKind: 'spliced', resultRaw: false, sideBySide: false, activeRenderId: null,
   undo: [], redo: [], drawing: null, kfUploadTarget: null,
+  styleLockLoaded: null, styleLockPending: null,
 };
 const uid = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
@@ -80,7 +84,7 @@ function seekFrame(f) {
 
 // ---- undo / persistence --------------------------------------------------
 const snapshot = () => JSON.stringify(data);
-function restore(s) { Object.assign(data, JSON.parse(s)); if (ui.sel && !selMark()) ui.sel = null; renderAll(); scheduleSave(); }
+function restore(s) { Object.assign(data, JSON.parse(s)); if (ui.sel && !selMark()) ui.sel = null; renderAll(); scheduleSave(); void syncStyleLockPicker(); }
 function commit() { ui.undo.push(snapshot()); if (ui.undo.length > 100) ui.undo.shift(); ui.redo = []; }
 function undo() { if (!ui.undo.length) return; ui.redo.push(snapshot()); restore(ui.undo.pop()); }
 function redo() { if (!ui.redo.length) return; ui.undo.push(snapshot()); restore(ui.redo.pop()); }
@@ -144,7 +148,7 @@ async function loadVideo(id) {
   for (const k of ['marks', 'annotations', 'prompts', 'keyframes', 'renders']) data[k] = Array.isArray(sess[k]) ? sess[k] : [];
   Regions.migrateMarks(data, rcfg()); // legacy range-mark anchors → separate frame-mark ticks
   data.dialogue = sess.dialogue && typeof sess.dialogue.text === 'string' ? sess.dialogue : null;
-  data.settings = { autoKeyframes: 0, styleLock: '', harmonize: false, ...(sess.settings || {}) };
+  data.settings = { autoKeyframes: 0, styleLock: '', harmonize: false, styleLockElement: null, ...(sess.settings || {}) };
   ui.transcribing = false;
   // Jobs don't survive a server restart; anything left "running" is stale.
   for (const kf of data.keyframes) if (kf.status === 'running') kf.status = null;
@@ -159,6 +163,7 @@ async function loadVideo(id) {
   $('auto-kf').value = data.settings.autoKeyframes;
   $('style-lock').value = data.settings.styleLock || '';
   $('opt-harmonize').checked = !!data.settings.harmonize;
+  void syncStyleLockPicker();
   $('welcome').style.display = 'none';
   $('save-state').textContent = sess.savedAt ? 'saved' : '';
   setSource(meta.src);
@@ -179,6 +184,7 @@ async function showWelcome() {
   const { recent, initial } = await (await fetch('/api/recent')).json();
   const want = new URLSearchParams(location.search).get('id') || initial;
   if (want && recent.some((r) => r.id === want)) return loadVideo(want);
+  void syncStyleLockPicker();
   $('recent').replaceChildren(...(recent.length ? [el('h3', {}, 'Recent'),
     ...recent.map((r) => el('button', { onclick: () => loadVideo(r.id) }, el('span', {}, r.name), el('span', { class: 'dim' }, new Date(r.openedAt).toLocaleString())))] : []));
 }
@@ -715,13 +721,76 @@ function ensureEditPrompts(r) {
     if (ui.activeRenderId === r.id && (ui.view === 'result' || ui.sideBySide)) renderAll();
   }).catch(() => {});
 }
+let styleLockPickerSeq = 0;
+
+function setStyleLockPreview(state) {
+  const el = $('style-lock-preview');
+  if (!state) { el.hidden = true; el.textContent = ''; return; }
+  el.hidden = false;
+  if (state.error) { el.textContent = state.error; return; }
+  el.textContent = state.missing ? 'No style-lock.yaml for this element.' : (state.text || '');
+}
+
+function currentStyleLock() {
+  const sel = data.settings.styleLockElement;
+  const got = ui.styleLockLoaded;
+  const loaded = sel && got && got.type === sel.type && got.name === sel.name ? got.styleLock : null;
+  return resolveStyleLock({ freeText: data.settings.styleLock || '', loaded });
+}
+
+async function fetchElementStyleLock(type, name) {
+  const seq = ++styleLockPickerSeq;
+  const pending = (async () => {
+    const res = await fetch(`/api/elements/${encodeURIComponent(type)}/${encodeURIComponent(name)}/style-lock`);
+    const body = await res.json().catch(() => ({}));
+    if (seq !== styleLockPickerSeq) return;
+    if (!res.ok) {
+      ui.styleLockLoaded = null;
+      setStyleLockPreview({ error: body.error || 'could not load style lock' });
+      return;
+    }
+    ui.styleLockLoaded = { type, name, styleLock: body.styleLock };
+    setStyleLockPreview(body.styleLock == null ? { missing: true } : { text: body.text });
+  })();
+  ui.styleLockPending = pending;
+  try { await pending; }
+  catch (err) {
+    if (seq !== styleLockPickerSeq) return;
+    ui.styleLockLoaded = null;
+    setStyleLockPreview({ error: err.message });
+  }
+}
+
+async function syncStyleLockPicker() {
+  const seq = ++styleLockPickerSeq;
+  const sel = $('style-lock-element');
+  let elements = [];
+  let listed = false;
+  try {
+    const res = await fetch('/api/elements');
+    if (res.ok) { elements = (await res.json()).elements || []; listed = true; }
+  } catch { /* a failed list is not an empty project */ }
+  if (seq !== styleLockPickerSeq || !listed) return;
+  const saved = elementSelectionAfterList(data.settings.styleLockElement, elements, { listed: true });
+  if (data.settings.styleLockElement && !saved) {
+    data.settings.styleLockElement = null;
+    scheduleSave();
+  }
+  sel.replaceChildren(new Option('None', ''));
+  for (const el of elements) sel.add(new Option(`${el.type} / ${el.name}`, elementOptionValue(el)));
+  sel.value = saved ? elementOptionValue(saved) : '';
+  if (saved) await fetchElementStyleLock(saved.type, saved.name);
+  else { ui.styleLockLoaded = null; ui.styleLockPending = null; setStyleLockPreview(null); }
+}
+
 async function generateVideo() {
   if (!ui.id) return;
   const r = { id: uid('r'), status: 'running', at: new Date().toISOString(), edits: snapshotEdits() };
   data.renders.unshift(r); renderAll();
   try {
+    if (ui.styleLockPending) await ui.styleLockPending;
     const res = await startJob({
-      kind: 'video', fps: fps(), autoKeyframes: data.settings.autoKeyframes, styleLock: data.settings.styleLock || '', harmonize: !!data.settings.harmonize,
+      kind: 'video', fps: fps(), autoKeyframes: data.settings.autoKeyframes, styleLock: currentStyleLock(), harmonize: !!data.settings.harmonize,
       transcript: data.dialogue ? { text: data.dialogue.text, include: data.dialogue.include !== false } : null, marks: data.marks, prompts: data.prompts.filter((p) => p.text.trim()), annotations: data.annotations,
       keyframes: data.keyframes.filter((k) => k.current >= 0).map((k) => ({ frame: k.frame, time: timeOf(k.frame), markId: k.markId, image: k.versions[k.current].output })),
     });
@@ -755,7 +824,8 @@ async function harmonizeRun(r) {
   if (r.harmonizing) return;
   r.harmonizing = true; r.harmonizeErr = null; renderAll();
   try {
-    const resp = await fetch('/api/harmonize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: ui.id, run: r.run }) });
+    if (ui.styleLockPending) await ui.styleLockPending;
+    const resp = await fetch('/api/harmonize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: ui.id, run: r.run, styleLock: currentStyleLock() }) });
     const j = await resp.json();
     if (!resp.ok) throw new Error(j.error || 'harmonize failed');
     await pollHarmonize(r, j.jobId);
@@ -1147,6 +1217,22 @@ $('mark-out').addEventListener('click', setOut);
 $('add-kf').addEventListener('click', addKeyframe);
 $('add-global-prompt').addEventListener('click', () => addPrompt(null));
 $('style-lock').addEventListener('input', (e) => { data.settings.styleLock = e.target.value; scheduleSave(); });
+$('style-lock-element').addEventListener('change', () => {
+  const value = $('style-lock-element').value;
+  if (!value) {
+    data.settings.styleLockElement = null;
+    ui.styleLockLoaded = null;
+    ui.styleLockPending = null;
+    styleLockPickerSeq++;
+    setStyleLockPreview(null);
+    scheduleSave();
+    return;
+  }
+  const slash = value.indexOf('/');
+  data.settings.styleLockElement = { type: value.slice(0, slash), name: value.slice(slash + 1) };
+  scheduleSave();
+  void fetchElementStyleLock(data.settings.styleLockElement.type, data.settings.styleLockElement.name);
+});
 $('opt-harmonize').addEventListener('change', (e) => { data.settings.harmonize = e.target.checked; scheduleSave(); });
 $('gen-video').addEventListener('click', generateVideo);
 $('transcribe-btn').addEventListener('click', transcribe);
