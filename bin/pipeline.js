@@ -472,13 +472,16 @@ async function main() {
   } else if (cmd === 'video' && sub === 'harmonize') {
     const f = parseFlags(rest);
     if (!f.input) {
-      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--blur <sigma>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--keep-raw] [--runner fal|higgsfield|muapi] [--root <dir>]');
+      fail('usage: pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz|passthrough] [--blur <sigma>] [--pad-margin <f>] [--prompt <p> | --prompt-file <f>] [--resolution 480p|720p] [--aspect-ratio <a>] [--out <dir>] [--drop-previz] [--keep-raw] [--runner fal|higgsfield|muapi] [--root <dir>]\n  --guidance passthrough composites a plain-bg character clip into a scene: keeps the source in full colour, defaults to no pad, and expects the --ref to be a finished composite still of the character in the target scene.');
     }
-    if (f.guidance && f.guidance !== 'filter' && f.guidance !== 'previz') fail("video harmonize: --guidance must be filter or previz");
+    if (f.guidance && f.guidance !== 'filter' && f.guidance !== 'previz' && f.guidance !== 'passthrough') fail("video harmonize: --guidance must be filter, previz or passthrough");
+    const harmonizePrompt = f['prompt-file'] ? (await readFile(f['prompt-file'], 'utf8')).trim() : f.prompt;
     const res = await harmonizeVideo(projectRoot(f.root), {
       input: f.input, refs: collectFlag(rest, 'ref'),
       resolution: f.resolution || HARMONIZE_DEFAULT_RESOLUTION,
       guidance: f.guidance || HARMONIZE_DEFAULT_GUIDANCE, blur: f.blur != null ? Number(f.blur) : undefined,
+      padMargin: f['pad-margin'] != null ? Number(f['pad-margin']) : undefined,
+      prompt: harmonizePrompt,
       aspect: f['aspect-ratio'], out: f.out, keepPreviz: !f['drop-previz'], keepRaw: !!f['keep-raw'], task: f.task,
     }, { runner: pickGenerationRunner(f) });
     console.log(`harmonized ${f.input}  (guidance: ${res.guidance.mode})`);
@@ -674,7 +677,7 @@ async function main() {
       '  pipeline element upscale --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> [--version <n|latest>] [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--input <file>]  # enlarge a sheet (panel-aware for turnaround/pose)',
       '  pipeline image upscale --input <file> [--model topaz_image|bytedance_image_upscale] [--scale 2|4] [--out <dir>]  # enlarge any single image',
       '  pipeline image edit --image <ref> [--image <ref> ...] (--prompt <p> | --prompt-file <f>) [--out <dir>] [--model nano_banana_2_lite] [--runner fal|higgsfield]  # edit a reference image into a new one (fal Nano Banana /edit; needs FAL_KEY)',
-      '  pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz] [--resolution 480p|720p] [--out <dir>] [--drop-previz]  # restyle a clip into one uniform look (removes splice seams). guidance filter (default) = b+w+blur source, 1 Seedance gen; previz = generated grey maquette, 2 gens',
+      '  pipeline video harmonize --input <file> [--ref <img> ...] [--guidance filter|previz|passthrough] [--pad-margin <f>] [--prompt-file <f>] [--resolution 480p|720p] [--out <dir>] [--drop-previz]  # restyle a clip into one uniform look (removes splice seams). guidance filter (default) = b+w+blur source, 1 Seedance gen; previz = generated grey maquette, 2 gens; passthrough = full-colour source composited into a scene, ref = finished composite still, 1 gen',
       '        --quality fast (default) is isnet-general-use: 7x quicker, structurally equivalent, with a slightly wider/softer edge. --quality best is BiRefNet-DIS — tighter edges, ~7x slower, and required to reproduce mattes made before fast became the default.',
       '  pipeline element sheet --type <t> --name <n> --sheet <turnaround|pose|cycles> --id <slug> --model <m> [--prompt <p> | --prompt-file <file>] [--image <file> ...] [--task <label>]',
       '  pipeline element split-panels [--type <t>] [--name <n>] [--sheet <turnaround|pose>] [--id <slug>] [--root <dir>]  # backfill panel folders for existing sheets',

@@ -84,6 +84,43 @@ export function filterStylePrompt(styleLock = '') {
 // Backward-compatible constant: the no-lock (generic) filter restyle prompt.
 export const FILTER_STYLE_PROMPT = filterStylePrompt('');
 
+// Restyle prompt for the PASSTHROUGH guidance path (composite a plain-bg character clip into a
+// scene). Unlike the filter/previz prompts, @Video1 is the FULL-COLOUR source — the model keeps
+// the character's existing colours and only adapts lighting to the scene — and the reference is a
+// finished composite still that defines the target frame (scene + character placement + grounding),
+// so this prompt ASKS for scenery instead of forbidding it. Style-lock-aware via restyleStyleClause
+// only when a lock is supplied (otherwise appearance comes from @Video1 + the reference).
+export function compositeScenePrompt(styleLock = '') {
+  const styleClause = styleLock
+    ? ` Render the character in this exact style: ${styleLock}.`
+    : '';
+  return '@Video1 is the source animation in full colour. Take from it the CHARACTER\'s performance — ' +
+    'his full body motion, pose, gesture and timing on every frame — together with his scale, position ' +
+    'and framing within the shot, AND his existing colours, materials and design as the basis for his ' +
+    'appearance. IGNORE @Video1\'s background entirely: its plain flat backdrop is a placeholder, not ' +
+    'part of the scene — do NOT reproduce any of it. @Image1 is the TARGET STILL: it shows exactly the ' +
+    'look the output must match — the desired background scene AND the desired composition of the ' +
+    'character within it (placement, scale, integration, lighting and grounding). Reproduce @Image1\'s ' +
+    'environment faithfully behind the character on every frame (the same setting, scenery, colours, ' +
+    'depth and lighting, held steady and consistent), and render the character to sit in it exactly as ' +
+    'in @Image1.' + styleClause + ' @Image1 defines the finished frame; @Video1 only drives how the ' +
+    'character moves within it. COMPOSITE THE CHARACTER INTO THE SCENE so he looks really present, not ' +
+    'a cutout: LIGHTING — relight him from the scene\'s key light as in @Image1 (the same direction, ' +
+    'colour temperature, intensity and ambient fill) on every frame as he moves, keeping his underlying ' +
+    'colours recognisable; SHADOWS — keep a believable contact shadow and cast shadow consistent with ' +
+    '@Image1\'s light direction and softness (they may shift naturally with his motion, but he must ' +
+    'always stay grounded, never floating or pasted-in); GRADE — match @Image1\'s overall exposure, ' +
+    'colour grade, atmosphere and depth of field, with clean natural edges (no halo, no hard cutout ' +
+    'fringe), so character and background read as one image throughout. FRAMING — CRITICAL: @Video1 is ' +
+    'the camera. Copy its framing exactly on every frame — the same character scale, position, headroom ' +
+    'and margins. Do NOT zoom in or out, scale the character, pan, tilt or reframe, and do NOT let him ' +
+    'drift toward or away from the camera. Keep every body part that is inside @Video1\'s frame inside ' +
+    'the frame, including the feet and the top of the head. The background scene from @Image1 stays ' +
+    'locked behind him at a constant scale and position throughout.';
+}
+// Backward-compatible constant: the no-lock (generic) composite-scene restyle prompt.
+export const COMPOSITE_SCENE_PROMPT = compositeScenePrompt('');
+
 // Frame-anchor border whitelist clause, appended to the restyle prompt when spec.border draws a
 // border on the guidance+stills (see harmonizeVideo). Without it the prompt's "add no scenery" wins
 // and the model strips the border instead of treating it as a fixed frame to preserve.
@@ -302,6 +339,10 @@ function outsideSpanSelect(genSpan) {
  *     follows it closely. Restyled with FILTER_STYLE_PROMPT.
  *   - 'previz': generate a smooth grey maquette (PREVIS_PROMPT), then restyle (STYLE_PROMPT). Two
  *     Seedance gens; use when the source is too inconsistent for the filter to collapse.
+ *   - 'passthrough': keep the source in FULL COLOUR as the guidance (no desaturate, no blur) and
+ *     restyle with COMPOSITE_SCENE_PROMPT. Use to composite a plain-bg character clip INTO a scene:
+ *     the appearance ref is a finished composite still, @Video1 supplies motion/colour. Defaults to
+ *     no pad (padMargin 0). ONE Seedance gen.
  * Then restyle from the appearance refs. Before the restyle, the guidance clip and both stills are
  * padded (`spec.padMargin`, default 0.12 per side) so a model zoom still leaves the extremities
  * inside the frame. After the restyle, one global TRS scales that pad back off against the original
@@ -334,7 +375,7 @@ export async function harmonizeVideo(root, spec, {
     throw new Error('harmonizeVideo: genSpan must be [startFrame, endFrame)');
   }
   if (!input) throw new Error('harmonizeVideo: spec.input is required');
-  if (guidance !== 'filter' && guidance !== 'previz') throw new Error(`harmonizeVideo: guidance must be 'filter' or 'previz', got "${guidance}"`);
+  if (guidance !== 'filter' && guidance !== 'previz' && guidance !== 'passthrough') throw new Error(`harmonizeVideo: guidance must be 'filter', 'previz' or 'passthrough', got "${guidance}"`);
   if (!await exists(input)) throw new Error(`no such video: ${input}`);
 
   const outDir = spec.out ? path.resolve(root, spec.out) : path.dirname(path.resolve(root, input));
@@ -359,10 +400,17 @@ export async function harmonizeVideo(root, spec, {
     refs = [first, last];
   }
 
-  // Stage 1: build the neutral guidance clip.
+  // Stage 1: build the guidance clip.
   let previzJob = null;
   let stylePrompt = filterStylePrompt(spec.styleLock);
-  if (guidance === 'filter') {
+  if (guidance === 'passthrough') {
+    // Composite-into-scene mode: keep the source in FULL COLOUR as the guidance — no desaturation,
+    // no blur — so the model matches the character's existing colours and only adapts lighting to
+    // the scene. The appearance ref (@Image1) is a finished composite still that defines the target
+    // frame. Re-encode through the `null` filter so range tagging and pix_fmt stay consistent.
+    stylePrompt = compositeScenePrompt(spec.styleLock);
+    await ff(['-i', input, '-vf', 'null', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', ...RANGE_ARGS, '-an', guidancePath]);
+  } else if (guidance === 'filter') {
     // Full-clip grey asks the restyle to invent every frame's colour from two stills, and it only
     // does that reliably where it repaints. A gen span keeps the source head/tail in colour — the
     // look to copy — and greys only the generated middle, which is the part to repaint.
@@ -383,7 +431,11 @@ export async function harmonizeVideo(root, spec, {
 
   // Pad the guidance and the stills by the same margin. The model copies this looser frame;
   // the TRS below puts the character back on the original crop. padMargin 0 skips both.
-  const margin = spec.padMargin == null ? HARMONIZE_PAD_MARGIN : Number(spec.padMargin);
+  // Passthrough (composite-into-scene) defaults to no pad: the full-colour guidance anchors
+  // structure and framing on its own, and a pad would reintroduce a grey ring the TRS can't fully
+  // crop once a real background is filled in. The other modes keep the anti-zoom pad.
+  const defaultMargin = guidance === 'passthrough' ? 0 : HARMONIZE_PAD_MARGIN;
+  const margin = spec.padMargin == null ? defaultMargin : Number(spec.padMargin);
   let guidanceForModel = guidancePath;
   let refsForModel = refs;
   const paddedTemps = [];
