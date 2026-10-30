@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT, filterStylePrompt, previzStylePrompt, restyleStyleClause, BORDER_PROMPT_CLAUSE, padVideoFilter } from '../src/harmonize.js';
+import { harmonizeVideo, nearestAspect, splicedGenSpan, selectiveGreyFilter, selectiveFilterPrompt, parseSatAvg, parseMeanStat, chromaGain, lumaMap, PREVIS_PROMPT, STYLE_PROMPT, FILTER_STYLE_PROMPT, filterStylePrompt, previzStylePrompt, restyleStyleClause, BORDER_PROMPT_CLAUSE, padVideoFilter, COMPOSITE_SCENE_PROMPT, compositeScenePrompt } from '../src/harmonize.js';
 
 async function project() {
   const root = await mkdtemp(path.join(tmpdir(), 'harmonize-'));
@@ -89,6 +89,46 @@ test('previz guidance: generates a grey maquette then restyles (two gens)', asyn
   assert.ok(res.jobs.previz);
   // no gblur filter in previz mode (guidance comes from the generation)
   assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.includes('gblur'))));
+});
+
+test('passthrough guidance: one restyle gen on a full-colour guidance clip, no pad', async () => {
+  const { root, input } = await project();
+  const ref = path.join(root, 'composite-still.png');
+  await writeFile(ref, 'png');
+  const d = fakes();
+  const res = await harmonizeVideo(root, { input, guidance: 'passthrough', refs: [ref] }, d);
+
+  assert.equal(d.calls.batches.length, 1, 'only one Seedance generation (the restyle)');
+  const restyle = d.calls.batches[0][0];
+  assert.equal(restyle.ref, 'harmonize');
+  assert.equal(restyle.opts.prompt, COMPOSITE_SCENE_PROMPT);
+  // guidance is built non-generatively but WITHOUT desaturation/blur (keeps the source colour)
+  assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.includes('hue=s=0'))), 'no desaturate');
+  assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.includes('gblur'))), 'no blur');
+  // passthrough defaults to no pad
+  assert.equal(d.calls.pads.length, 0, 'no stills padded');
+  assert.ok(!d.calls.ff.some((a) => a.some((x) => typeof x === 'string' && x.startsWith('scale=iw*'))), 'guidance not padded');
+  assert.equal(res.guidance.mode, 'passthrough');
+  assert.equal(res.jobs.previz, null);
+});
+
+test('passthrough: spec.prompt overrides the composite-scene prompt', async () => {
+  const { root, input } = await project();
+  const ref = path.join(root, 'still.png');
+  await writeFile(ref, 'png');
+  const d = fakes();
+  await harmonizeVideo(root, { input, guidance: 'passthrough', refs: [ref], prompt: 'CUSTOM PROMPT' }, d);
+  assert.equal(d.calls.batches[0][0].opts.prompt, 'CUSTOM PROMPT');
+});
+
+test('the composite-scene prompt asks for the scene instead of forbidding scenery', () => {
+  // The filter prompt forbids scenery (flat-plate restyle); the composite prompt must do the opposite.
+  assert.match(COMPOSITE_SCENE_PROMPT, /TARGET STILL/);
+  assert.match(COMPOSITE_SCENE_PROMPT, /full colour/i);
+  assert.match(COMPOSITE_SCENE_PROMPT, /contact shadow/i);
+  assert.doesNotMatch(COMPOSITE_SCENE_PROMPT, /add no scenery/i);
+  assert.equal(COMPOSITE_SCENE_PROMPT, compositeScenePrompt(''));
+  assert.match(compositeScenePrompt('crayon look'), /crayon look/);
 });
 
 test('extracts first+last frame as default refs, derives aspect + duration', async () => {
