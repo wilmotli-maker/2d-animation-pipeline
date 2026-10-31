@@ -58,6 +58,13 @@ main { min-width:0; }
 .links a { color:var(--accent); font-size:.78rem; margin-right:.6rem; }
 .reset { color:var(--accent); background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:.72rem; padding:.15rem .45rem; }
 .reset:hover { border-color:var(--accent); }
+/* compare mode: inputs (left, non-selectable) separated from results by a vertical divider */
+.col.input { border-style:dashed; }
+.col .tag { font-family:ui-monospace,Menlo,monospace; color:var(--dim); font-size:.85rem; }
+.col .tag.res { color:var(--good); }
+.divider { flex:0 0 2px; align-self:stretch; min-height:140px; background:var(--line); border-radius:2px; margin:0 .5rem; }
+.cols.stacked .divider { align-self:stretch; width:100%; height:2px; min-height:0; margin:.5rem 0; }
+.grouplabel { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 .3rem; }
 `;
 
 function esc(s) {
@@ -318,6 +325,69 @@ function render(){
 }
 render();
 `;
+
+// Compare mode: manifest-driven rows. Each row has `inputs` (rendered on the left, no
+// selection/hide controls) and `results` (rendered on the right, selectable/hideable like
+// shot versions). A vertical divider separates the two groups. Each item is a video or an
+// image, chosen by item.kind ('video' | 'image'). Selection keys use the result item's label
+// as its "version", so the shared COMMON_SCRIPT select/hide/import logic works unchanged.
+const COMPARE_SCRIPT = `
+function media(item){
+  if (!item || !item.path) return '<div class="missing">missing artifact</div>';
+  if (item.kind === 'image') return '<img src="' + esc(item.path) + '" loading="lazy">';
+  return '<video src="' + esc(item.path) + '" controls preload="metadata"></video>';
+}
+function inputCol(item){
+  return '<div class="col input"><div class="vrow"><span class="tag">' + esc(item.label) + '</span></div>' + media(item) + '</div>';
+}
+function resultCol(item, key){
+  const hide = '<button class="hide" data-key="' + esc(key) + '" data-v="' + esc(item.label) + '">hide</button>';
+  const on = state.selected.has(key + '::' + item.label) ? ' selected' : '';
+  return '<div class="col' + on + '"><div class="vrow"><span class="tag res">' + esc(item.label) + '</span>'
+    + '<span class="ctl">' + selectbox(key, item.label) + hide + '</span></div>' + media(item) + '</div>';
+}
+const rows = DATA.model.rows;
+const ITEMS = {};
+for (const r of rows) ITEMS[r.id] = r;
+state.text = '';
+rail.innerHTML = '<h3>Filter</h3><label><input id="txt" placeholder="row regex" style="width:100%"></label>';
+rail.addEventListener('input', function(e){ if (e.target.id === 'txt') { state.text = e.target.value; render(); } });
+function visible(r){
+  if (state.text) { try { if (!new RegExp(state.text).test(r.id + ' ' + (r.label || ''))) return false; } catch (e) {} }
+  return true;
+}
+function resultCols(r){
+  const hiddenN = r.results.filter(it => state.hidden.has(r.id + '::' + it.label)).length;
+  if (state.showSelectedOnly) {
+    const cols = r.results.filter(it => state.selected.has(r.id + '::' + it.label)).map(it => resultCol(it, r.id)).join('');
+    return { cols: cols || '<span class="m">no selected results</span>', reset: '' };
+  }
+  const cols = r.results.map(it => state.hidden.has(r.id + '::' + it.label) ? hmark(r.id, it.label) : resultCol(it, r.id)).join('');
+  const reset = hiddenN ? '<button class="reset" data-key="' + esc(r.id) + '">show ' + hiddenN + ' hidden</button>' : '';
+  return { cols: cols || '<span class="m">no results</span>', reset };
+}
+function rowHTML(r){
+  const inputs = (r.inputs || []).map(inputCol).join('');
+  const divider = inputs ? '<div class="divider"></div>' : '';
+  const rr = resultCols(r);
+  const head = '<div class="rowhead"><h2>' + esc(r.id) + '</h2>' + rr.reset + '</div>'
+    + (r.label ? '<div class="tags">' + esc(r.label) + '</div>' : '');
+  return '<section class="row">' + head + '<div class="cols ' + DATA.selection.layout + '" data-row="' + esc(r.id) + '">'
+    + inputs + divider + rr.cols + '</div></section>';
+}
+function render(){
+  updateCount();
+  const scroll = snapshotScroll();
+  grid.innerHTML = rows.filter(visible).map(rowHTML).join('') || '<p class="missing">No rows match.</p>';
+  restoreScroll(scroll);
+}
+render();
+`;
+
+export function renderComparePage({ model, selection, title = 'Comparison', note = '', slug = '', type = 'compare' }) {
+  return page({ title, note, subtitle: `${model.rows.length} row(s) · generated ${model.generatedAt || ''}`,
+    data: { model, selection, slug, type, title }, script: COMMON_SCRIPT + COMPARE_SCRIPT });
+}
 
 export function renderShotPage({ model, selection, title = 'Shot review', note = '', slug = '', type = 'shots' }) {
   return page({ title, note, subtitle: `${model.shots.length} shot(s) · generated ${model.generatedAt || ''}`,
