@@ -65,6 +65,7 @@ main { min-width:0; }
 .divider { flex:0 0 2px; align-self:stretch; min-height:140px; background:var(--line); border-radius:2px; margin:0 .5rem; }
 .cols.stacked .divider { align-self:stretch; width:100%; height:2px; min-height:0; margin:.5rem 0; }
 .grouplabel { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:0 0 .3rem; }
+.col .textitem { font-size:.85rem; line-height:1.5; color:var(--fg); white-space:pre-wrap; padding:.2rem .1rem; }
 `;
 
 function esc(s) {
@@ -333,6 +334,7 @@ render();
 // as its "version", so the shared COMMON_SCRIPT select/hide/import logic works unchanged.
 const COMPARE_SCRIPT = `
 function media(item){
+  if (item && item.kind === 'text') return '<div class="textitem">' + esc(item.text || '').replace(/\\n/g, '<br>') + '</div>';
   if (!item || !item.path) return '<div class="missing">missing artifact</div>';
   if (item.kind === 'image') return '<img src="' + esc(item.path) + '" loading="lazy">';
   return '<video src="' + esc(item.path) + '" controls preload="metadata"></video>';

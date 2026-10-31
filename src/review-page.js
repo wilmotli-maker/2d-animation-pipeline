@@ -130,6 +130,15 @@ function warnUnknownFilters(type, raw, filters) {
 
 function slugSafe(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'row'; }
 
+// Build one compare item. A text item ({ text } or { kind: "text" }) carries its text inline
+// and vendors nothing; otherwise the item is a media file copied into the page's assets.
+async function buildCompareItem(root, pageDir, rowId, item, seen, idx) {
+  if (item.kind === 'text' || (item.text != null && !item.path)) {
+    return { label: item.label || '', kind: 'text', text: String(item.text ?? ''), path: null };
+  }
+  return vendorCompareItem(root, pageDir, rowId, item, seen, idx);
+}
+
 // Copy one compare item into assets/<rowId>/NN-basename and return { label, kind, path }.
 async function vendorCompareItem(root, pageDir, rowId, item, seen, idx) {
   const kind = mediaKind(item.path, item.kind);
@@ -181,8 +190,8 @@ export async function buildComparePage(root, opts) {
     const id = row.id || `row-${r + 1}`;
     const inputs = [], results = [];
     const inSpec = row.inputs || [], resSpec = row.results || [];
-    for (let i = 0; i < inSpec.length; i++) inputs.push(await vendorCompareItem(root, pageDir, id, inSpec[i], seen, i));
-    for (let i = 0; i < resSpec.length; i++) results.push(await vendorCompareItem(root, pageDir, id, resSpec[i], seen, inSpec.length + i));
+    for (let i = 0; i < inSpec.length; i++) inputs.push(await buildCompareItem(root, pageDir, id, inSpec[i], seen, i));
+    for (let i = 0; i < resSpec.length; i++) results.push(await buildCompareItem(root, pageDir, id, resSpec[i], seen, inSpec.length + i));
     model.rows.push({ id, label: row.label || '', inputs, results });
     versions[id] = results.map((it) => it.label);
   }
