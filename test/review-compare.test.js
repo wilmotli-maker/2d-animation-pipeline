@@ -80,6 +80,27 @@ test('buildReviewPage routes type=compare to the compare builder', async () => {
   });
 });
 
+test('compare: a text item carries text inline, vendors nothing, and renders as a text block', async () => {
+  await withTempRoot(async (root) => {
+    await seed(root);
+    const p = path.join(root, 'm.json');
+    await writeFile(p, JSON.stringify({ rows: [{
+      id: 'r', inputs: [
+        { label: 'source', path: 'media/src.mp4' },
+        { label: 'textpose', text: 'Steeples hands at 5s.' },
+      ], results: [{ label: 'out', path: 'media/final.mp4' }],
+    }] }));
+    await buildComparePage(root, { slug: 's', manifest: p });
+    const saved = JSON.parse(await readFile(path.join(root, 'web', 's', 'review.json'), 'utf8'));
+    const txt = saved.model.rows[0].inputs.find((i) => i.label === 'textpose');
+    assert.equal(txt.kind, 'text');
+    assert.equal(txt.text, 'Steeples hands at 5s.');
+    assert.equal(txt.path, null);
+    const html = await readFile(path.join(root, 'web', 's', 'index.html'), 'utf8');
+    assert.match(html, /class="textitem"/);
+  });
+});
+
 test('compare: unknown media kind without an explicit kind errors', async () => {
   await withTempRoot(async (root) => {
     await writeFile(path.join(root, 'weird.dat'), 'x');
