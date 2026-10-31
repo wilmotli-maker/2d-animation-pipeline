@@ -5,7 +5,19 @@ import { scanShots, scanImages, scanFolder } from './review-scan.js';
 import {
   applyShotFilters, applyImageFilters, defaultShotSelection, defaultImageSelection,
 } from './review-filter.js';
-import { renderShotPage, renderImagePage } from './review-render.js';
+import { renderShotPage, renderImagePage, renderComparePage } from './review-render.js';
+
+const VIDEO_EXT = new Set(['.mp4', '.webm', '.mov', '.m4v']);
+const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg']);
+// Infer whether a compare item is a video or an image from its extension, unless the
+// manifest states `kind` explicitly.
+function mediaKind(p, explicit) {
+  if (explicit === 'video' || explicit === 'image') return explicit;
+  const ext = path.extname(String(p || '')).toLowerCase();
+  if (VIDEO_EXT.has(ext)) return 'video';
+  if (IMAGE_EXT.has(ext)) return 'image';
+  throw new Error(`review compare: cannot infer media kind for "${p}" — add "kind": "video"|"image"`);
+}
 
 async function exists(p) { try { await stat(p); return true; } catch { return false; } }
 async function readJson(p) { try { return JSON.parse(await readFile(p, 'utf8')); } catch { return null; } }
@@ -116,8 +128,81 @@ function warnUnknownFilters(type, raw, filters) {
   }
 }
 
+function slugSafe(s) { return String(s).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'row'; }
+
+// Copy one compare item into assets/<rowId>/NN-basename and return { label, kind, path }.
+async function vendorCompareItem(root, pageDir, rowId, item, seen, idx) {
+  const kind = mediaKind(item.path, item.kind);
+  const src = path.resolve(root, item.path);
+  if (!(await exists(src))) {
+    console.warn(`review compare: missing file "${src}" (${rowId} / ${item.label})`);
+    return { label: item.label, kind, path: null };
+  }
+  const destRel = path.join('assets', slugSafe(rowId), `${String(idx).padStart(2, '0')}-${path.basename(item.path)}`);
+  const destKey = destRel.split(path.sep).join('/');
+  if (seen) {
+    const previous = seen.get(destKey);
+    if (previous && previous !== src) console.warn(`review: asset path collision — "${src}" overwrites "${previous}" at ${destKey}`);
+    seen.set(destKey, src);
+  }
+  const dest = path.join(pageDir, destRel);
+  await mkdir(path.dirname(dest), { recursive: true });
+  await copyFile(src, dest);
+  return { label: item.label, kind, path: destKey };
+}
+
+// Build a manifest-driven comparison page. Each row has `inputs` (shown left, non-selectable,
+// divided from results) and `results` (selectable). Items are videos or images (kind inferred
+// from the extension unless given).
+export async function buildComparePage(root, opts) {
+  const { slug, manifest, update = false, title, note, out, layout } = opts;
+  if (!slug) throw new Error('review: --slug is required');
+  if (!manifest) throw new Error('review compare: --manifest is required');
+  const manifestPath = path.resolve(manifest);
+  let spec;
+  try { spec = JSON.parse(await readFile(manifestPath, 'utf8')); }
+  catch (e) { throw new Error(`review compare: cannot read manifest ${manifestPath}: ${e.message}`); }
+  const rows = Array.isArray(spec) ? spec : spec.rows;
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error('review compare: manifest must have a non-empty "rows" array');
+
+  const outBase = out ? path.resolve(out) : path.join(root, 'web');
+  const pageDir = path.join(outBase, slug);
+  if ((await exists(pageDir)) && !update) {
+    throw new Error(`review: ${pageDir} already exists — pass --update to refresh it or choose a new --slug/--out`);
+  }
+  await rm(path.join(pageDir, 'assets'), { recursive: true, force: true });
+  await mkdir(pageDir, { recursive: true });
+
+  const seen = new Map();
+  const model = { rows: [], generatedAt: new Date().toISOString() };
+  const versions = {};
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    const id = row.id || `row-${r + 1}`;
+    const inputs = [], results = [];
+    const inSpec = row.inputs || [], resSpec = row.results || [];
+    for (let i = 0; i < inSpec.length; i++) inputs.push(await vendorCompareItem(root, pageDir, id, inSpec[i], seen, i));
+    for (let i = 0; i < resSpec.length; i++) results.push(await vendorCompareItem(root, pageDir, id, resSpec[i], seen, inSpec.length + i));
+    model.rows.push({ id, label: row.label || '', inputs, results });
+    versions[id] = results.map((it) => it.label);
+  }
+
+  const storedSelection = update ? (await readJson(path.join(pageDir, 'review.json')))?.selection : null;
+  const selection = {
+    layout: layout || (storedSelection && storedSelection.layout) || (spec.layout) || 'side-by-side',
+    versions,
+  };
+
+  const html = renderComparePage({ model, selection, title: title || spec.title || 'Comparison', note: note || spec.note, slug, type: 'compare' });
+  await writeFile(path.join(pageDir, 'index.html'), html);
+  await writeFile(path.join(pageDir, 'review.json'),
+    JSON.stringify({ type: 'compare', selection, model, generatedAt: model.generatedAt }, null, 2) + '\n');
+  return { pageDir, count: model.rows.length };
+}
+
 export async function buildReviewPage(root, opts) {
   const { type, slug, filters = {}, selection: providedSelection, update = false, title, note, out, folder } = opts;
+  if (type === 'compare') return buildComparePage(root, opts);
   if (!slug) throw new Error('review: --slug is required');
 
   // Pages are project-specific output, not pipeline tooling. Default to a `web/`
@@ -174,8 +259,8 @@ function splitList(s) { return s ? s.split(',').map((x) => x.trim()).filter(Bool
 
 // Pure arg parser for `pipeline review <sub> ...`. `--update` is a valueless boolean.
 export function parseReviewArgs(sub, rest) {
-  if (sub !== 'shots' && sub !== 'images') {
-    throw new Error('usage: pipeline review <shots|images> --slug <name> [filters]');
+  if (sub !== 'shots' && sub !== 'images' && sub !== 'compare') {
+    throw new Error('usage: pipeline review <shots|images|compare> --slug <name> [filters]');
   }
   const argv = rest.filter((t) => t !== '--update');
   const update = argv.length !== rest.length;
@@ -190,5 +275,5 @@ export function parseReviewArgs(sub, rest) {
   if (f.characters) filters.characters = splitList(f.characters);
   if (sub === 'shots' && f.episode) filters.episodes = splitList(f.episode);
   if (sub === 'images' && f.sheets) filters.sheets = splitList(f.sheets);
-  return { type: sub, slug: f.slug, title: f.title, note: f.note, root: f.root, out: f.out, folder: f.folder, layout: f.layout, filters, update };
+  return { type: sub, slug: f.slug, title: f.title, note: f.note, root: f.root, out: f.out, folder: f.folder, layout: f.layout, manifest: f.manifest, filters, update };
 }

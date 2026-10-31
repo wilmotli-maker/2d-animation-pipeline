@@ -140,7 +140,7 @@ async function main() {
     console.log(`promoted to final: ${r.finalPath}`);
   } else if (cmd === 'review') {
     const opts = parseReviewArgs(sub, rest);
-    if (!opts.slug) fail('usage: pipeline review <shots|images> --slug <name> [--match <re>] [--exclude <re>] [--folder <dir>] [--characters a,b] [--episode N,M] [--sheets turnaround,pose] [--layout side-by-side|stacked] [--update] [--title ..] [--note ..] [--out <dir>] [--root <dir>]');
+    if (!opts.slug) fail('usage: pipeline review <shots|images|compare> --slug <name> [--match <re>] [--exclude <re>] [--folder <dir>] [--characters a,b] [--episode N,M] [--sheets turnaround,pose] [--layout side-by-side|stacked] [--update] [--title ..] [--note ..] [--out <dir>] [--root <dir>]\n  compare: pipeline review compare --slug <name> --manifest <file.json> [--layout ..] [--update] [--title ..] [--note ..] [--out <dir>] [--root <dir>]\n    manifest: { "title"?, "note"?, "layout"?, "rows": [ { "id", "label"?, "inputs": [ {"label","path","kind"?} ], "results": [ {"label","path","kind"?} ] } ] }\n    inputs render on the left (no selection) with a vertical divider before the selectable results; items are videos or images (kind inferred from extension).');
     const res = await buildReviewPage(projectRoot(opts.root), opts);
     console.log(`review page: ${res.pageDir}  (${res.count} item(s))`);
   } else if (cmd === 'element' && sub === 'sheet') {
