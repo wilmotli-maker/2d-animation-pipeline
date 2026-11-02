@@ -128,6 +128,21 @@ reliably lands a pose at its timestamp; 5 keyframes do not. (See `targeted-edit-
   billing; resubmitting re-bills (3–6× overspend observed). Persist the `request_id` and
   re-poll it; outputs are recoverable from the fal dashboard. (Fixed PR #170.)
 
+#### Cost drivers in the bg-scene composite workflow (observed 2026-11-01)
+The harmonize + composite passes are **much pricier per gen than a 4s edit**, and iteration
+multiplies them. One session's keypose pass (2 shots) ran ~9 video gens for ~$16 (~$1.8/gen):
+- **Harmonize and `--guidance passthrough` run on the WHOLE clip, not the 4s edit window.** A ~9s
+  clip is ~9s billed for the output PLUS a ~9s **video reference** (the guidance clip is a video
+  ref, which is billed) — so each harmonize/passthrough is ~18 billed seconds (~$3.7 at 480p),
+  roughly 4–5× a 4s edit gen. (The composite still, an image ref, is free.)
+- **Iteration is the real multiplier.** Fixing the v301 keypose cost ~double: a second harmonize
+  (pad 0.12 → 0.2 to stop the cropped legs) plus two extra passthrough composites to dial in the
+  reference framing. Each re-run is another full ~18s-billed gen.
+- **To keep cost down:** approve the composite still ref BEFORE running the passthrough (it is the
+  billed step; see memory `approve-ref-before-composite`); when only the composite framing needs a
+  change, re-run the passthrough alone, not the harmonize; and reserve full harmonize/passthrough
+  re-runs for changes that actually need them.
+
 ---
 
 ## Seedance via MuAPI vs Higgsfield (moderation)
