@@ -138,6 +138,10 @@ test('the composite-scene prompt asks for the scene instead of forbidding scener
   assert.match(COMPOSITE_SCENE_PROMPT, /full colour/i);
   assert.match(COMPOSITE_SCENE_PROMPT, /contact shadow/i);
   assert.doesNotMatch(COMPOSITE_SCENE_PROMPT, /add no scenery/i);
+  // Framing is anchored to @Image1's composition (the ref still), not @Video1's camera, so the
+  // output holds the ref's scale/crop from the first frame instead of drifting into it.
+  assert.match(COMPOSITE_SCENE_PROMPT, /match @Image1's composition exactly/);
+  assert.doesNotMatch(COMPOSITE_SCENE_PROMPT, /Copy its framing/);
   assert.equal(COMPOSITE_SCENE_PROMPT, compositeScenePrompt(''));
   assert.match(compositeScenePrompt('crayon look'), /crayon look/);
 });

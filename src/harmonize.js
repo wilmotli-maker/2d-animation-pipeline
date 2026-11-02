@@ -111,12 +111,16 @@ export function compositeScenePrompt(styleLock = '') {
     '@Image1\'s light direction and softness (they may shift naturally with his motion, but he must ' +
     'always stay grounded, never floating or pasted-in); GRADE — match @Image1\'s overall exposure, ' +
     'colour grade, atmosphere and depth of field, with clean natural edges (no halo, no hard cutout ' +
-    'fringe), so character and background read as one image throughout. FRAMING — CRITICAL: @Video1 is ' +
-    'the camera. Copy its framing exactly on every frame — the same character scale, position, headroom ' +
-    'and margins. Do NOT zoom in or out, scale the character, pan, tilt or reframe, and do NOT let him ' +
-    'drift toward or away from the camera. Keep every body part that is inside @Video1\'s frame inside ' +
-    'the frame, including the feet and the top of the head. The background scene from @Image1 stays ' +
-    'locked behind him at a constant scale and position throughout.';
+    'fringe), so character and background read as one image throughout. FRAMING — CRITICAL: match ' +
+    '@Image1\'s composition exactly on EVERY frame. @Image1 sets how the character is framed — his scale ' +
+    'within the frame, his position, how much of his body is shown, and the headroom and margins around ' +
+    'him. Reproduce that exact framing and hold it locked for the whole clip: keep the character at ' +
+    '@Image1\'s scale, and keep whatever parts of him are visible in @Image1 (for example his full body ' +
+    'down to the feet, or a tighter crop) visible and inside the frame on every frame. Do NOT zoom in or ' +
+    'out, enlarge or shrink the character, pan, tilt or reframe, and do NOT let him drift toward or away ' +
+    'from the camera or change size between frames — the very first frame already matches @Image1\'s ' +
+    'framing. @Video1 only drives how he moves within that fixed frame, never the framing itself. The ' +
+    'background scene from @Image1 stays locked behind him at a constant scale and position throughout.';
 }
 // Backward-compatible constant: the no-lock (generic) composite-scene restyle prompt.
 export const COMPOSITE_SCENE_PROMPT = compositeScenePrompt('');
