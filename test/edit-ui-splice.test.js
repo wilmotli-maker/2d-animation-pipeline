@@ -165,6 +165,38 @@ test('with no source audio, spliceClip stays video-only and does not force retim
   assert.equal(rep.retime, false);
 });
 
+test('NOP: gen >= source duration passes the gen through (no splice) and muxes source audio', async () => {
+  const d = fakeDeps();   // decode returns 8 frames for both orig and gen -> gen >= source
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'trs', fps: 8, size: { W: W2, H: H2 }, audio: true }, d);
+  assert.equal(rep.nop, true);
+  assert.equal(rep.reason, 'gen-covers-source');
+  assert.equal(rep.retime, false);
+  assert.equal(d.calls.length, 1, 'a single passthrough mux, no segment/filter renders');
+  const cmd = d.calls[0].join(' ');
+  assert.match(cmd, /-i g\.mp4 -i o\.mp4/);     // gen video first, source audio second
+  assert.match(cmd, /-c:v copy/);               // gen video copied, not re-filtered
+  assert.match(cmd, /-map 0:v -map 1:a\?/);
+  assert.doesNotMatch(cmd, /filter_complex/);
+});
+
+test('NOP: gen >= source with no audio copies the gen clip straight through', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'trs', fps: 8, size: { W: W2, H: H2 }, audio: false }, d);
+  assert.equal(rep.nop, true);
+  assert.equal(d.calls.length, 1);
+  assert.deepEqual(d.calls[0], ['-y', '-i', 'g.mp4', '-c', 'copy', 'out.mp4']);
+});
+
+test('explicit seam ranges opt OUT of the NOP short-circuit (forced sub-window splice)', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true }, d);
+  assert.notEqual(rep.nop, true);
+  assert.match(d.calls.at(-1).join(' '), /filter_complex/);
+});
+
 test('spliceClip morph>0 (minterpolate engine) renders segments, morph-joins them, and muxes audio', async () => {
   const d = fakeDeps();
   const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
