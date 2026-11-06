@@ -143,7 +143,7 @@ test('spliceClip finds pairs and renders a splice (align none)', async () => {
   assert.match(last, /out\.mp4/);
 });
 
-test('with source audio, spliceClip muxes the ORIGINAL audio and retimes the middle', async () => {
+test('Method B: with source audio, spliceClip muxes the ORIGINAL audio WITHOUT retiming (coincident)', async () => {
   const d = fakeDeps();
   const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
     align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true }, d);
@@ -152,7 +152,16 @@ test('with source audio, spliceClip muxes the ORIGINAL audio and retimes the mid
   assert.match(last, /-c:a aac/);
   assert.doesNotMatch(last, /concat=n=\d+:v=0:a=1/); // no generated-audio splice
   assert.equal(rep.audio, true);
-  assert.equal(rep.retime, true);             // middle retimed so length == source, audio aligns
+  // Default shift=0 picks coincident pairs, so the gen middle already spans its source window;
+  // length is preserved with no retime (the old audio->retime coupling is gone).
+  assert.equal(rep.retime, false);
+});
+
+test('Method B safety: an explicit widened search (shift>0) with audio still retimes', async () => {
+  const d = fakeDeps();
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true, shift: 0.5 }, d);
+  assert.equal(rep.retime, true);             // shift>0 may pick non-coincident pairs -> retime keeps audio aligned
 });
 
 test('with no source audio, spliceClip stays video-only and does not force retime', async () => {
@@ -194,6 +203,19 @@ test('explicit seam ranges opt OUT of the NOP short-circuit (forced sub-window s
   const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.5, seam: 'mid',
     align: 'none', fps: 8, size: { W: W2, H: H2 }, inRange: [0.1, 0.5], outRange: [0.5, 0.9], audio: true }, d);
   assert.notEqual(rep.nop, true);
+  assert.match(d.calls.at(-1).join(' '), /filter_complex/);
+});
+
+test('Method B default: coincident-pair search (shift=0) splices a shorter gen with no retime', async () => {
+  // orig longer than gen, so this is a genuine windowed splice (not a NOP) and the default window applies.
+  const d = { calls: [], ffmpeg: async (a) => { d.calls.push(a); }, ffmpegOut: async () => Buffer.from([0, 0, 0]),
+    ffprobe: async () => '560,752', decode: async (f) => (f === 'g.mp4' ? FR.slice(0, 6) : FR) };
+  const rep = await spliceClip({ orig: 'o.mp4', gen: 'g.mp4', out: 'out.mp4', edit: 0.4, seam: 'mid',
+    align: 'none', fps: 8, size: { W: W2, H: H2 }, audio: false }, d);
+  assert.notEqual(rep.nop, true);                       // gen < source -> real splice
+  assert.equal(rep.retime, false);                      // coincident default never retimes
+  assert.equal(rep.inPoint.origFrame, rep.inPoint.genFrame);   // coincident (genOffset 0)
+  assert.equal(rep.outPoint.origFrame, rep.outPoint.genFrame);
   assert.match(d.calls.at(-1).join(' '), /filter_complex/);
 });
 
