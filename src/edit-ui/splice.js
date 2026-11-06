@@ -372,6 +372,24 @@ export async function spliceClip(opts, deps = {}) {
   const decode = deps.decode || ((f) => decodeGrayFrames(f, { fps, W, H, ffmpeg: ffmpegOut }));
 
   const [O, G] = await Promise.all([decode(orig), decode(gen)]);
+  // NOP short-circuit: when the gen clip is at least as long as the source, there is no source
+  // material left to bracket it with — it is a full-clip regeneration, not a windowed edit. Splicing
+  // would carve an interior sub-window out of a complete clip and (with audio) retime it for no
+  // reason, introducing seams and warping gesture speed. The gen clip itself IS the result; we only
+  // mux the original source audio (same dialogue, lip-synced) across it. Explicit seam ranges opt
+  // out, for a caller that really does want a forced sub-window splice.
+  if (!opts.inRange && !opts.outRange && G.length >= O.length) {
+    const nopAudio = opts.audio ?? (await probeHasAudio(orig, { ffprobe }));
+    if (nopAudio) await ffmpeg(['-y', '-i', gen, '-i', orig, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-shortest', out]);
+    else await ffmpeg(['-y', '-i', gen, '-c', 'copy', out]);
+    return {
+      output: out, seam, align, blendFrames: blend, morph, audio: nopAudio, retime: false,
+      transform: null, nop: true, reason: 'gen-covers-source',
+      inPoint: { origFrame: 0, genFrame: 0 },
+      outPoint: { origFrame: O.length - 1, genFrame: G.length - 1 },
+      originalFrames: O.length, expectedOutputFrames: G.length,
+    };
+  }
   // Default the seam search to hug the gen-window boundaries so the whole gen (and its gesture) is
   // kept (see seamWindows). Explicit opts override. `edit` is no longer used for the default band.
   const genDur = G.length / fps;

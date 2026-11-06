@@ -181,6 +181,28 @@ multiplies them. One session's keypose pass (2 shots) ran ~9 video gens for ~$16
 Two-stage **Seedance previs → restyle** beats a single-pass v2v for making spliced illustrated
 clips look uniform (removes splice seams). (harmonize-eval.)
 
+### Splicing: retime only ever fired on cases that should not splice at all
+Spike comparing the existing splice (**Method A**: offset-free seam search `shift=0.5` + retime the
+gen to the source span) against **Method B** (coincident-pair seam search `shift=0`, native gen
+rate, source audio muxed) across every splice we have generated:
+
+- **Genuine windowed edits** (bruce textpose + ArtAI fal-roll, gen shorter than its source window):
+  retime factor `k ≈ 1` in *every* case, because each gen was authored to fill its window. A and B
+  are indistinguishable (identical seam-discontinuity scores).
+- **The only `k ≠ 1` set** (keyframe-edit, `k` 0.64–1.38) turned out to be **full-clip
+  regenerations**: gen frame count == source frame count (frame-diff 0) for all 51. There is no
+  source material to bracket, so splicing is a **NOP** — the gen clip itself is the result. Method A
+  was carving an interior sub-window out of a complete clip and retiming it, inventing seams and
+  warping gesture speed; the 5 "robustness failures" were just degenerate (0-frame) source segments
+  that spurious splicing produced.
+
+So across all real data there is **no case that is both a genuine windowed splice and `k ≠ 1`** —
+the retime path only ever activated on inputs that should have passed straight through. Takeaways:
+(1) when `genFrames >= sourceFrames`, short-circuit to a passthrough (gen is the output; mux source
+audio) instead of splicing — added as a NOP guard in `spliceClip` (`src/edit-ui/splice.js`), opt-out
+via explicit `inRange`/`outRange`; (2) Method B's no-retime design loses nothing on genuine splices
+and drops a search degree of freedom, so it is a safe simplification. (Spike 2026-11-05.)
+
 ### Colour range (gen chain)
 The edit/gen chain standardizes on **limited/tv** range. Source clips are untagged; ffmpeg
 reads untagged as tv on frame extraction (so PNG extraction needs no range flag), but every
