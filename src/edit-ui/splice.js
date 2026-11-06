@@ -353,11 +353,11 @@ export async function alignFraming(reference, generated, out, opts = {}) {
 
 export async function spliceClip(opts, deps = {}) {
   const { orig, gen, out, edit, seam = 'mid', blend = 0, retime = false, align = 'trs', fps = 24,
-    size = { W: 140, H: 188 }, shift = 0.5, genInHi, genOutLo, genOffset = 0, morph = 0 } = opts;
+    size = { W: 140, H: 188 }, shift = 0, genInHi, genOutLo, genOffset = 0, morph = 0 } = opts;
   const morphEngine = resolveMorphEngine(opts.morphEngine);
   // Injectable so tests can assert the join calls without shelling ffmpeg or python. The flow engine
-  // is frame-count-NEUTRAL (output == leftFrames + rightFrames) so the retimed, audio-aligned timeline
-  // is preserved; it returns the actual frame count. The minterpolate engine inserts its (near-zero)
+  // is frame-count-NEUTRAL (output == leftFrames + rightFrames) so the coincident, audio-aligned
+  // timeline is preserved; it returns the actual frame count. The minterpolate engine inserts its (near-zero)
   // morph between the two clips and reports no count, so its caller falls back to the old formula.
   const joinSeam = deps.joinSeam || (async ({ left, right, out: jOut, leftFrames, mode }) => {
     if (morphEngine === 'flow') return flowMorphJoin(left, right, { out: jOut, frames: morph, fps, mode });
@@ -402,10 +402,14 @@ export async function spliceClip(opts, deps = {}) {
   const useGenInHi = genInHi ?? (usingDefaultWindow ? win.genInHi : undefined);
   const useGenOutLo = genOutLo ?? (usingDefaultWindow ? win.genOutLo : undefined);
   // Audio: play the ORIGINAL source audio across the whole clip (the regenerated middle lip-syncs
-  // the same dialogue), so there is no timbre seam. To keep it aligned 1:1 we retime the middle so
-  // the spliced video is exactly the source length. Only the source's audio matters.
+  // the same dialogue), so there is no timbre seam. The spliced video must stay the source length
+  // for the audio to align 1:1. With the default coincident-pair search (shift=0) the gen plays at
+  // its native rate and length is preserved by construction — gen frame j maps to orig frame
+  // j+genOffset at both seams, so the gen middle spans exactly the source window it replaces, and no
+  // retime is needed (Method B). Retime is only required when a caller widens the search (shift>0),
+  // which can pick non-coincident pairs that change the middle's length; then audio forces it.
   const useAudio = opts.audio ?? (await probeHasAudio(orig, { ffprobe }));
-  const useRetime = useAudio ? true : retime;
+  const useRetime = retime || (useAudio && shift > 0);
   const find = { inRange, outRange, fps, shift, genInHi: useGenInHi, genOutLo: useGenOutLo, genOffset };
   const { P, pairs } = fitTransform(O, G, { mode: align, seam, W, H, ...find });
   let { inPt, outPt } = pairs;

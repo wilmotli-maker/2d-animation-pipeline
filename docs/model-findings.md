@@ -186,7 +186,11 @@ the retime path only ever activated on inputs that should have passed straight t
 (1) when `genFrames >= sourceFrames`, short-circuit to a passthrough (gen is the output; mux source
 audio) instead of splicing — added as a NOP guard in `spliceClip` (`src/edit-ui/splice.js`), opt-out
 via explicit `inRange`/`outRange`; (2) Method B's no-retime design loses nothing on genuine splices
-and drops a search degree of freedom, so it is a safe simplification. (Spike 2026-11-05.)
+and drops a search degree of freedom, so it is a safe simplification. **Now the default**:
+`spliceClip`'s seam search defaults to `shift=0` (coincident pairs) and no longer forces retime on
+audio — coincident pairs preserve length 1:1, so the source audio stays aligned without stretching
+the gesture. Retime only kicks in when a caller explicitly widens the search (`shift>0`) with audio.
+(Spike 2026-11-05.)
 
 ### Colour range (gen chain)
 The edit/gen chain standardizes on **limited/tv** range. Source clips are untagged; ffmpeg
